@@ -113,6 +113,8 @@
   .type-tag.income { background: var(--accent-soft); color: var(--accent); }
   .type-tag.expense { background: var(--down-soft); color: var(--down); }
   .type-tag.transfer { background: var(--line-soft); color: var(--ink-soft); }
+  .ccy-badge { font-size: 10px; font-family: var(--mono); font-weight: 600; padding: 1px 5px; border-radius: 3px; vertical-align: 1px; }
+  .ccy-badge.usd { background: var(--accent-soft); color: var(--accent); }
 
   .toast-wrap { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: 8px; align-items: center; }
   .toast { font-family: var(--sans); font-size: 13px; padding: 10px 16px; border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.15); max-width: 90vw; text-align: center; animation: toast-in 0.2s ease-out; }
@@ -270,6 +272,10 @@ const ACC_TYPES = ['cash', 'bank', 'investment', 'loan', 'installment', 'other']
 const ACC_TYPE_LABEL = { cash: '현금', bank: '은행', investment: '투자', loan: '대출', installment: '할부', other: '기타' };
 const ACC_TYPE_ICON = { cash: '💵', bank: '🏦', investment: '📈', loan: '🏛️', installment: '💳', other: '📦' };
 const LIABILITY_TYPES = ['loan', 'installment'];
+const CURRENCIES = ['KRW', 'USD'];
+const CURRENCY_LABEL = { KRW: '원화 (₩)', USD: '달러 ($)' };
+const DEFAULT_USD_KRW_RATE = 1350;
+const FX_API_URL = 'https://open.er-api.com/v6/latest/USD';
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
@@ -310,8 +316,8 @@ function defaultData() {
       });
     });
   });
-  const accounts = [{ id: uid(), name: '현금', type: 'cash', icon: '💵', initialBalance: 0, includeInTotal: true }];
-  return { version: 1, categorySchema: 2, accounts, categories, transactions: [], budgets: {}, recurring: [] };
+  const accounts = [{ id: uid(), name: '현금', type: 'cash', icon: '💵', initialBalance: 0, includeInTotal: true, currency: 'KRW' }];
+  return { version: 1, categorySchema: 2, accounts, categories, transactions: [], budgets: {}, recurring: [], settings: { usdKrwRate: null, rateUpdatedAt: null } };
 }
 
 /* 구버전(대/소분류 구분 없는 평평한 카테고리) 데이터를 대분류 트리 밑으로 옮겨요.
@@ -349,6 +355,7 @@ function migrateCategoriesToHierarchy(d) {
 function migrateAccountTypes(d) {
   (d.accounts || []).forEach((a) => {
     if (!ACC_TYPES.includes(a.type)) { a.type = a.type === 'card' ? 'installment' : 'other'; a.icon = ACC_TYPE_ICON[a.type]; }
+    if (a.currency !== 'USD') a.currency = 'KRW';
   });
   return d;
 }
@@ -362,6 +369,7 @@ function loadData() {
     d.transactions = d.transactions || [];
     d.budgets = d.budgets || {};
     d.recurring = d.recurring || [];
+    d.settings = d.settings || { usdKrwRate: null, rateUpdatedAt: null };
     d = migrateCategoriesToHierarchy(d);
     d = migrateAccountTypes(d);
     return d;
@@ -398,6 +406,29 @@ function todayStr() { return ymd(new Date()); }
 /* ---------------- formatting ---------------- */
 function won(n) { return Math.round(n).toLocaleString('ko-KR') + '원'; }
 function wonSigned(n) { const sign = n < 0 ? '-' : ''; return sign + Math.round(Math.abs(n)).toLocaleString('ko-KR') + '원'; }
+function usdFmt(n) { return '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function usdFmtSigned(n) { return (n < 0 ? '-' : '') + usdFmt(n); }
+function fmtCurrency(n, currency) { return currency === 'USD' ? usdFmt(n) : won(n); }
+function fmtCurrencySigned(n, currency) { return currency === 'USD' ? usdFmtSigned(n) : wonSigned(n); }
+function usdToKrwRate() { return DATA.settings.usdKrwRate || DEFAULT_USD_KRW_RATE; }
+function toKRW(amount, currency) { return currency === 'USD' ? amount * usdToKrwRate() : amount; }
+function txAmountKRW(t) { return toKRW(t.amount, getAccount(t.accountId).currency || 'KRW'); }
+async function fetchExchangeRate(silent) {
+  try {
+    const res = await fetch(FX_API_URL);
+    const json = await res.json();
+    const rate = json && json.rates && json.rates.KRW;
+    if (!rate) throw new Error('no rate');
+    DATA.settings.usdKrwRate = rate;
+    DATA.settings.rateUpdatedAt = new Date().toISOString();
+    saveData();
+    if (!silent) showToast(`환율을 업데이트했어요 (1 USD = ${won(rate)}).`, 'success');
+    if (state.tab === 'accounts') renderAccounts();
+    if (state.tab === 'home') renderHome();
+  } catch (e) {
+    if (!silent) showToast('환율을 가져오지 못했어요. 인터넷 연결을 확인해주세요.', 'error');
+  }
+}
 function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 function getCategory(id) { return DATA.categories.find(c => c.id === id) || { name: '(삭제된 카테고리)', icon: '❔', colorIdx: 0 }; }
@@ -421,15 +452,15 @@ function accountBalance(acc) {
   return bal;
 }
 function totalAssets() {
-  return DATA.accounts.filter(a => a.includeInTotal !== false).reduce((s, a) => s + accountBalance(a), 0);
+  return DATA.accounts.filter(a => a.includeInTotal !== false).reduce((s, a) => s + toKRW(accountBalance(a), a.currency || 'KRW'), 0);
 }
 function txInMonth(mKey) { return DATA.transactions.filter(t => t.date.slice(0, 7) === mKey); }
 function monthSummary(mKey) {
   let income = 0, expense = 0;
   txInMonth(mKey).forEach(t => {
     if (t.excludeFromStats) return;
-    if (t.type === 'income') income += t.amount;
-    else if (t.type === 'expense') expense += t.amount;
+    if (t.type === 'income') income += txAmountKRW(t);
+    else if (t.type === 'expense') expense += txAmountKRW(t);
   });
   return { income, expense, net: income - expense };
 }
@@ -437,7 +468,7 @@ function categoryTotals(mKey, type) {
   const map = {};
   txInMonth(mKey).forEach(t => {
     if (t.type !== type || t.excludeFromStats) return;
-    map[t.categoryId] = (map[t.categoryId] || 0) + t.amount;
+    map[t.categoryId] = (map[t.categoryId] || 0) + txAmountKRW(t);
   });
   return Object.entries(map)
     .map(([categoryId, amount]) => ({ categoryId, amount, category: getCategory(categoryId) }))
@@ -478,6 +509,25 @@ function rawSignedAmount(el) {
   const v = String(el.value);
   const neg = v.trim().startsWith('-');
   const n = Number(v.replace(/[^0-9]/g, '')) || 0;
+  return neg ? -n : n;
+}
+function formatCurrencyAmountInput(el, currency, allowNegative) {
+  if (currency !== 'USD') { if (allowNegative) formatSignedAmountInput(el); else formatAmountInput(el); return; }
+  const neg = allowNegative && el.value.trim().startsWith('-');
+  let v = el.value.replace(/[^0-9.]/g, '');
+  const firstDot = v.indexOf('.');
+  if (firstDot !== -1) v = v.slice(0, firstDot + 1) + v.slice(firstDot + 1).replace(/\./g, '');
+  const [intPartRaw, decPartRaw] = v.split('.');
+  const intPart = (intPartRaw || '').replace(/^0+(?=\d)/, '');
+  const intFormatted = intPart ? Number(intPart).toLocaleString('en-US') : '';
+  const hasDot = v.includes('.');
+  el.value = (neg ? '-' : '') + intFormatted + (hasDot ? '.' + (decPartRaw || '').slice(0, 2) : '');
+}
+function rawCurrencyAmount(el, currency, allowNegative) {
+  if (currency !== 'USD') return allowNegative ? rawSignedAmount(el) : rawAmount(el);
+  const v = String(el.value);
+  const neg = allowNegative && v.trim().startsWith('-');
+  const n = Number(v.replace(/[^0-9.]/g, '')) || 0;
   return neg ? -n : n;
 }
 
@@ -604,7 +654,7 @@ function renderCalendar() {
   txInMonth(mKey).forEach(t => {
     if (t.type === 'transfer') return;
     if (!dayTotals[t.date]) dayTotals[t.date] = { income: 0, expense: 0 };
-    dayTotals[t.date][t.type] += t.amount;
+    dayTotals[t.date][t.type] += txAmountKRW(t);
   });
 
   const gridHtml = `<div class="cal-grid">
@@ -670,7 +720,7 @@ function renderTxTable(list, hideDate) {
           <td><span class="type-tag ${t.type}">${t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체'}</span></td>
           <td class="name-cell">${mid}</td>
           <td class="name-cell">${t.payee ? `<span style="font-weight:600;">${escapeHtml(t.payee)}</span>${t.memo ? ' · ' : ''}` : ''}${escapeHtml(t.memo || '')}${t.excludeFromStats ? ' <span style="color:var(--ink-faint);font-size:11px;">(통계 제외)</span>' : ''}${t.receipt ? ' <span title="영수증 첨부">🧾</span>' : ''}</td>
-          <td class="num amt ${t.type}">${sign}${won(t.amount)}</td>
+          <td class="num amt ${t.type}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</td>
           <td class="actions-cell">
             ${t.receipt ? `<button class="icon-btn" onclick="openReceiptLightboxForTx('${t.id}')"><i class="ti ti-photo"></i></button>` : ''}
             <button class="icon-btn" onclick="openTxModal('${t.id}')"><i class="ti ti-pencil"></i></button>
@@ -743,6 +793,10 @@ function openTxModal(txId, presetDate) {
   const editing = txId ? DATA.transactions.find(t => t.id === txId) : null;
   const type = editing ? editing.type : 'expense';
   const date = editing ? editing.date : (presetDate || todayStr());
+  const editingCurrency = editing ? (getAccount(editing.accountId).currency || 'KRW') : 'KRW';
+  const editingAmountStr = editing
+    ? (editingCurrency === 'USD' ? Number(editing.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(editing.amount).toLocaleString('ko-KR'))
+    : '';
   openModal(`
     <h3>${editing ? '거래 수정' : '거래 추가'}</h3>
     <div class="seg" id="tx-type-seg">
@@ -751,7 +805,7 @@ function openTxModal(txId, presetDate) {
       <button type="button" data-v="transfer" class="${type === 'transfer' ? 'active' : ''}" onclick="setTxType('transfer')">이체</button>
     </div>
     <div class="field"><label class="field-lbl">날짜</label><input type="date" id="tx-date" value="${date}"></div>
-    <div class="field"><label class="field-lbl">금액</label><input type="text" inputmode="numeric" id="tx-amount" placeholder="0" oninput="formatAmountInput(this)" value="${editing ? Number(editing.amount).toLocaleString('ko-KR') : ''}"></div>
+    <div class="field"><label class="field-lbl">금액 <span id="tx-amount-currency" style="color:var(--ink-faint);font-weight:400;text-transform:none;"></span></label><input type="text" inputmode="decimal" id="tx-amount" placeholder="0" oninput="onAmountInputDynamic(this)" value="${editingAmountStr}"></div>
     <div id="tx-cat-field" class="field"></div>
     <div id="tx-acc-field" class="field"></div>
     <div id="tx-toacc-field" class="field"></div>
@@ -785,10 +839,11 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
   const excludeField = document.getElementById('tx-exclude-field');
   const receiptField = document.getElementById('tx-receipt-field');
   const payeeField = document.getElementById('tx-payee-field');
+  const acctOption = (a, presetId) => `<option value="${a.id}" ${presetId === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}${a.currency === 'USD' ? ' (USD)' : ''}</option>`;
   if (type === 'transfer') {
     catField.innerHTML = '';
-    accField.innerHTML = `<label class="field-lbl">출금 자산</label><select id="tx-account">${DATA.accounts.map(a => `<option value="${a.id}" ${presetAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
-    toAccField.innerHTML = `<label class="field-lbl">입금 자산</label><select id="tx-toaccount">${DATA.accounts.map(a => `<option value="${a.id}" ${presetToAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
+    accField.innerHTML = `<label class="field-lbl">출금 자산</label><select id="tx-account" onchange="updateTxAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
+    toAccField.innerHTML = `<label class="field-lbl">입금 자산</label><select id="tx-toaccount">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
     excludeField.innerHTML = '';
     receiptField.innerHTML = '';
     payeeField.innerHTML = '';
@@ -799,7 +854,7 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
       return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}" ${presetCat === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
     }).join('');
     catField.innerHTML = `<label class="field-lbl">카테고리</label><select id="tx-category">${groups}</select>`;
-    accField.innerHTML = `<label class="field-lbl">${type === 'income' ? '입금 자산' : '지출 자산'}</label><select id="tx-account">${DATA.accounts.map(a => `<option value="${a.id}" ${presetAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
+    accField.innerHTML = `<label class="field-lbl">${type === 'income' ? '입금 자산' : '지출 자산'}</label><select id="tx-account" onchange="updateTxAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
     toAccField.innerHTML = '';
     excludeField.innerHTML = `<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);"><input type="checkbox" id="tx-exclude" style="width:15px;height:15px;" ${presetExclude ? 'checked' : ''}> 통계/예산 계산에서 제외 (예: 환급받은 금액)</label>`;
     if (type === 'expense') {
@@ -815,6 +870,19 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
       <input type="text" id="tx-payee" list="tx-payee-list" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : '예: 스타벅스, 이마트'}" value="${escapeHtml(presetPayee || '')}">
       <datalist id="tx-payee-list">${payeeOptions.map(p => `<option value="${escapeHtml(p)}">`).join('')}</datalist>`;
   }
+  updateTxAmountCurrencyBadge();
+}
+function currentTxCurrency() {
+  const accEl = document.getElementById('tx-account');
+  if (!accEl || !accEl.value) return 'KRW';
+  return getAccount(accEl.value).currency || 'KRW';
+}
+function updateTxAmountCurrencyBadge() {
+  const badge = document.getElementById('tx-amount-currency');
+  if (badge) badge.textContent = currentTxCurrency() === 'USD' ? '(USD $)' : '(KRW ₩)';
+}
+function onAmountInputDynamic(el) {
+  formatCurrencyAmountInput(el, currentTxCurrency());
 }
 function compressImage(file, maxDim, quality) {
   maxDim = maxDim || 1280; quality = quality || 0.72;
@@ -869,7 +937,7 @@ function openReceiptLightboxForTx(id) {
 function submitTx(editId) {
   const type = state._txModal.type;
   const date = document.getElementById('tx-date').value;
-  const amount = rawAmount(document.getElementById('tx-amount'));
+  const amount = rawCurrencyAmount(document.getElementById('tx-amount'), currentTxCurrency());
   const memo = document.getElementById('tx-memo').value.trim();
   if (!date) return showToast('날짜를 선택해주세요.', 'error');
   if (!amount || amount <= 0) return showToast('금액을 입력해주세요.', 'error');
@@ -880,6 +948,7 @@ function submitTx(editId) {
     const toAccountId = document.getElementById('tx-toaccount').value;
     if (!accountId || !toAccountId) return showToast('자산을 선택해주세요.', 'error');
     if (accountId === toAccountId) return showToast('출금 자산과 입금 자산이 같을 수 없어요.', 'error');
+    if ((getAccount(accountId).currency || 'KRW') !== (getAccount(toAccountId).currency || 'KRW')) return showToast('통화가 다른 자산 간 이체는 아직 지원하지 않아요.', 'error');
     payload.accountId = accountId; payload.toAccountId = toAccountId;
   } else {
     const categoryId = document.getElementById('tx-category').value;
@@ -1196,8 +1265,8 @@ function setBudget(catId, el) {
 function renderAccounts() {
   const acctCard = (a) => `
     <div class="acct-card ${a.includeInTotal === false ? 'excluded' : ''}">
-      <div class="acct-name">${a.icon || ACC_TYPE_ICON[a.type] || '💰'} ${escapeHtml(a.name)}</div>
-      <div class="acct-bal">${wonSigned(accountBalance(a))}</div>
+      <div class="acct-name">${a.icon || ACC_TYPE_ICON[a.type] || '💰'} ${escapeHtml(a.name)}${a.currency === 'USD' ? ' <span class="ccy-badge usd">USD</span>' : ''}</div>
+      <div class="acct-bal">${fmtCurrencySigned(accountBalance(a), a.currency || 'KRW')}</div>
       ${a.includeInTotal === false ? '<div class="form-note" style="margin:6px 0 0;">총 자산 제외</div>' : ''}
       <div class="acct-actions">
         <button class="icon-btn" onclick="openAccountModal('${a.id}')"><i class="ti ti-pencil"></i></button>
@@ -1206,12 +1275,13 @@ function renderAccounts() {
     </div>`;
   const groupHtml = (type) => {
     const accts = DATA.accounts.filter(a => a.type === type);
-    const subtotal = accts.reduce((s, a) => s + accountBalance(a), 0);
+    const hasUsd = accts.some(a => a.currency === 'USD');
+    const subtotalKRW = accts.reduce((s, a) => s + toKRW(accountBalance(a), a.currency || 'KRW'), 0);
     return `<div class="cat-parent-group">
       <div class="cat-parent-head">
         <span class="cat-chip-name">${ACC_TYPE_ICON[type]} ${ACC_TYPE_LABEL[type]}</span>
         <span style="display:flex;align-items:center;gap:10px;">
-          <span class="form-note" style="margin:0;">${wonSigned(subtotal)}</span>
+          <span class="form-note" style="margin:0;">${wonSigned(subtotalKRW)}${hasUsd ? ' (환산)' : ''}</span>
           <button class="icon-btn" onclick="openAccountModal(null, '${type}')" title="자산 추가"><i class="ti ti-plus"></i></button>
         </span>
       </div>
@@ -1220,40 +1290,60 @@ function renderAccounts() {
       </div>
     </div>`;
   };
+  const rate = DATA.settings.usdKrwRate;
+  const rateLine = rate
+    ? `1 USD = ${won(rate)} <span style="color:var(--ink-faint);">(${new Date(DATA.settings.rateUpdatedAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} 기준)</span>`
+    : `환율 정보 없음 (기본값 1 USD = ${won(DEFAULT_USD_KRW_RATE)} 사용 중)`;
   document.getElementById('panel-accounts').innerHTML = `
     <div class="toolbar">
       <div class="hint">${DATA.accounts.length}개 자산 · 총 자산 ${won(totalAssets())}</div>
       <button class="primary-btn" onclick="openAccountModal()"><i class="ti ti-plus"></i> 자산 추가</button>
     </div>
+    <div class="form-note" style="display:flex;align-items:center;gap:6px;margin-bottom:16px;">
+      <i class="ti ti-currency-dollar"></i> ${rateLine}
+      <button class="icon-btn" onclick="fetchExchangeRate(false)" title="환율 새로고침"><i class="ti ti-refresh"></i></button>
+    </div>
     ${ACC_TYPES.map(groupHtml).join('')}
   `;
 }
-function balanceFieldInnerHtml(type, amountAbs, manualNegative) {
+function balanceFieldInnerHtml(type, currency, amountAbs, manualNegative) {
+  const val = currency === 'USD'
+    ? (amountAbs ? amountAbs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '')
+    : (amountAbs ? amountAbs.toLocaleString('ko-KR') : '');
   if (LIABILITY_TYPES.includes(type)) {
-    return `<label class="field-lbl">갚아야 할 금액</label><input type="text" inputmode="numeric" id="acc-balance" oninput="formatAmountInput(this)" value="${amountAbs ? amountAbs.toLocaleString('ko-KR') : ''}" placeholder="0">
+    return `<label class="field-lbl">갚아야 할 금액</label><input type="text" inputmode="decimal" id="acc-balance" oninput="formatCurrencyAmountInput(this, '${currency}')" value="${val}" placeholder="0">
       <div class="form-note" style="margin-top:6px;">입력한 금액만큼 자동으로 마이너스(빚)로 계산돼요.</div>`;
   }
-  return `<label class="field-lbl">초기 잔액</label><input type="text" inputmode="numeric" id="acc-balance" oninput="formatSignedAmountInput(this)" value="${(manualNegative ? '-' : '') + (amountAbs ? amountAbs.toLocaleString('ko-KR') : '0')}">
+  return `<label class="field-lbl">초기 잔액</label><input type="text" inputmode="decimal" id="acc-balance" oninput="formatCurrencyAmountInput(this, '${currency}', true)" value="${(manualNegative ? '-' : '') + (val || (currency === 'USD' ? '0.00' : '0'))}">
     <div class="form-note" style="margin-top:6px;">마이너스 통장처럼 잔액이 마이너스면 -로 입력해주세요.</div>`;
 }
 function onAccTypeChangeInModal() {
   const type = document.getElementById('acc-type').value;
+  const currency = document.getElementById('acc-currency').value;
   const cur = document.getElementById('acc-balance');
-  const amountAbs = cur ? rawAmount(cur) : 0;
-  document.getElementById('acc-balance-field').innerHTML = balanceFieldInnerHtml(type, amountAbs, false);
+  const amountAbs = cur ? Math.abs(rawCurrencyAmount(cur, currency, true)) : 0;
+  document.getElementById('acc-balance-field').innerHTML = balanceFieldInnerHtml(type, currency, amountAbs, false);
 }
 function openAccountModal(id, presetType) {
   const editing = id ? DATA.accounts.find(a => a.id === id) : null;
   const type = editing ? editing.type : (presetType || 'cash');
+  const currency = editing ? (editing.currency || 'KRW') : 'KRW';
   const editingAbs = editing ? Math.abs(Number(editing.initialBalance || 0)) : 0;
   const editingNeg = editing ? Number(editing.initialBalance || 0) < 0 : false;
+  const lockCurrency = editing && accountUsageCount(editing.id) > 0;
   openModal(`
     <h3>${editing ? '자산 수정' : '자산 추가'}</h3>
     <div class="field"><label class="field-lbl">이름</label><input type="text" id="acc-name" value="${escapeHtml(editing ? editing.name : '')}" placeholder="예: 신한은행, 국민카드"></div>
-    <div class="field"><label class="field-lbl">분류</label><select id="acc-type" onchange="onAccTypeChangeInModal()">
-      ${ACC_TYPES.map(t => `<option value="${t}" ${type === t ? 'selected' : ''}>${ACC_TYPE_ICON[t]} ${ACC_TYPE_LABEL[t]}</option>`).join('')}
-    </select></div>
-    <div class="field" id="acc-balance-field">${balanceFieldInnerHtml(type, editingAbs, editingNeg)}</div>
+    <div class="form-grid">
+      <div><label class="field-lbl">분류</label><select id="acc-type" onchange="onAccTypeChangeInModal()">
+        ${ACC_TYPES.map(t => `<option value="${t}" ${type === t ? 'selected' : ''}>${ACC_TYPE_ICON[t]} ${ACC_TYPE_LABEL[t]}</option>`).join('')}
+      </select></div>
+      <div><label class="field-lbl">통화</label><select id="acc-currency" onchange="onAccTypeChangeInModal()" ${lockCurrency ? 'disabled' : ''}>
+        ${CURRENCIES.map(c => `<option value="${c}" ${currency === c ? 'selected' : ''}>${CURRENCY_LABEL[c]}</option>`).join('')}
+      </select></div>
+    </div>
+    ${lockCurrency ? '<div class="form-note" style="margin-top:-6px;">이미 거래가 있는 자산은 통화를 바꿀 수 없어요.</div>' : ''}
+    <div class="field" id="acc-balance-field">${balanceFieldInnerHtml(type, currency, editingAbs, editingNeg)}</div>
     <div class="field"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);"><input type="checkbox" id="acc-include" style="width:15px;height:15px;" ${!editing || editing.includeInTotal !== false ? 'checked' : ''}> 총 자산 합계에 포함</label></div>
     <div class="form-actions">
       <button class="ghost-btn" onclick="closeModal()">취소</button>
@@ -1264,15 +1354,16 @@ function openAccountModal(id, presetType) {
 function submitAccount(editId) {
   const name = document.getElementById('acc-name').value.trim();
   const type = document.getElementById('acc-type').value;
+  const currency = document.getElementById('acc-currency').value;
   const balanceEl = document.getElementById('acc-balance');
-  const initialBalance = LIABILITY_TYPES.includes(type) ? -rawAmount(balanceEl) : rawSignedAmount(balanceEl);
+  const initialBalance = LIABILITY_TYPES.includes(type) ? -rawCurrencyAmount(balanceEl, currency) : rawCurrencyAmount(balanceEl, currency, true);
   const includeInTotal = document.getElementById('acc-include').checked;
   if (!name) return showToast('자산 이름을 입력해주세요.', 'error');
   if (editId) {
     const acc = DATA.accounts.find(a => a.id === editId);
-    Object.assign(acc, { name, type, initialBalance, includeInTotal, icon: ACC_TYPE_ICON[type] });
+    Object.assign(acc, { name, type, currency, initialBalance, includeInTotal, icon: ACC_TYPE_ICON[type] });
   } else {
-    DATA.accounts.push({ id: uid(), name, type, initialBalance, includeInTotal, icon: ACC_TYPE_ICON[type] });
+    DATA.accounts.push({ id: uid(), name, type, currency, initialBalance, includeInTotal, icon: ACC_TYPE_ICON[type] });
   }
   saveData();
   closeModal();
@@ -1310,7 +1401,7 @@ function renderRecurring() {
             <td class="name-cell">${escapeHtml(r.name)}</td>
             <td><span class="type-tag ${r.type}">${r.type === 'income' ? '수입' : r.type === 'expense' ? '지출' : '이체'}</span></td>
             <td class="name-cell">${mid}</td>
-            <td class="num">${won(r.amount)}</td>
+            <td class="num">${fmtCurrency(r.amount, acc.currency || 'KRW')}</td>
             <td>${r.day}일</td>
             <td><input type="checkbox" ${r.active ? 'checked' : ''} onchange="toggleRecurring('${r.id}', this.checked)" style="width:15px;height:15px;"></td>
             <td class="actions-cell">
@@ -1334,7 +1425,7 @@ function openRecurringModal(id) {
       <button type="button" data-v="transfer" class="${type === 'transfer' ? 'active' : ''}" onclick="setRecType('transfer')">이체</button>
     </div>
     <div class="field"><label class="field-lbl">이름</label><input type="text" id="rec-name" value="${escapeHtml(editing ? editing.name : '')}" placeholder="예: 월세, 넷플릭스, 급여"></div>
-    <div class="field"><label class="field-lbl">금액</label><input type="text" inputmode="numeric" id="rec-amount" oninput="formatAmountInput(this)" value="${editing ? Number(editing.amount).toLocaleString('ko-KR') : ''}"></div>
+    <div class="field"><label class="field-lbl">금액 <span id="rec-amount-currency" style="color:var(--ink-faint);font-weight:400;text-transform:none;"></span></label><input type="text" inputmode="decimal" id="rec-amount" oninput="onRecAmountInputDynamic(this)" value="${editing ? (getAccount(editing.accountId).currency === 'USD' ? Number(editing.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(editing.amount).toLocaleString('ko-KR')) : ''}"></div>
     <div class="field"><label class="field-lbl">매월 며칠</label><input type="number" id="rec-day" min="1" max="31" value="${editing ? editing.day : 1}"></div>
     <div id="rec-cat-field" class="field"></div>
     <div id="rec-acc-field" class="field"></div>
@@ -1362,21 +1453,35 @@ function renderRecModalFields(presetCat, presetAcc, presetToAcc) {
   const catField = document.getElementById('rec-cat-field');
   const accField = document.getElementById('rec-acc-field');
   const toAccField = document.getElementById('rec-toacc-field');
+  const acctOption = (a, presetId) => `<option value="${a.id}" ${presetId === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}${a.currency === 'USD' ? ' (USD)' : ''}</option>`;
   if (type === 'transfer') {
     catField.innerHTML = '';
-    accField.innerHTML = `<label class="field-lbl">출금 자산</label><select id="rec-account">${DATA.accounts.map(a => `<option value="${a.id}" ${presetAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
-    toAccField.innerHTML = `<label class="field-lbl">입금 자산</label><select id="rec-toaccount">${DATA.accounts.map(a => `<option value="${a.id}" ${presetToAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
+    accField.innerHTML = `<label class="field-lbl">출금 자산</label><select id="rec-account" onchange="updateRecAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
+    toAccField.innerHTML = `<label class="field-lbl">입금 자산</label><select id="rec-toaccount">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
   } else {
     const cats = DATA.categories.filter(c => c.type === type);
     catField.innerHTML = `<label class="field-lbl">카테고리</label><select id="rec-category">${cats.map(c => `<option value="${c.id}" ${presetCat === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</select>`;
-    accField.innerHTML = `<label class="field-lbl">자산</label><select id="rec-account">${DATA.accounts.map(a => `<option value="${a.id}" ${presetAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
+    accField.innerHTML = `<label class="field-lbl">자산</label><select id="rec-account" onchange="updateRecAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
     toAccField.innerHTML = '';
   }
+  updateRecAmountCurrencyBadge();
+}
+function currentRecCurrency() {
+  const accEl = document.getElementById('rec-account');
+  if (!accEl || !accEl.value) return 'KRW';
+  return getAccount(accEl.value).currency || 'KRW';
+}
+function updateRecAmountCurrencyBadge() {
+  const badge = document.getElementById('rec-amount-currency');
+  if (badge) badge.textContent = currentRecCurrency() === 'USD' ? '(USD $)' : '(KRW ₩)';
+}
+function onRecAmountInputDynamic(el) {
+  formatCurrencyAmountInput(el, currentRecCurrency());
 }
 function submitRecurring(editId) {
   const type = state._recModal.type;
   const name = document.getElementById('rec-name').value.trim();
-  const amount = rawAmount(document.getElementById('rec-amount'));
+  const amount = rawCurrencyAmount(document.getElementById('rec-amount'), currentRecCurrency());
   const day = Math.min(31, Math.max(1, Number(document.getElementById('rec-day').value) || 1));
   if (!name) return showToast('이름을 입력해주세요.', 'error');
   if (!amount || amount <= 0) return showToast('금액을 입력해주세요.', 'error');
@@ -1653,7 +1758,7 @@ document.getElementById('file-import').addEventListener('change', (e) => {
       const parsed = JSON.parse(reader.result);
       if (!Array.isArray(parsed.categories) || !Array.isArray(parsed.accounts) || !Array.isArray(parsed.transactions)) throw new Error('invalid');
       if (!confirm('가져오기를 하면 현재 데이터를 덮어써요. 계속할까요?')) return;
-      DATA = { version: 1, categorySchema: parsed.categorySchema, accounts: parsed.accounts, categories: parsed.categories, transactions: parsed.transactions, budgets: parsed.budgets || {}, recurring: parsed.recurring || [] };
+      DATA = { version: 1, categorySchema: parsed.categorySchema, accounts: parsed.accounts, categories: parsed.categories, transactions: parsed.transactions, budgets: parsed.budgets || {}, recurring: parsed.recurring || [], settings: parsed.settings || { usdKrwRate: null, rateUpdatedAt: null } };
       DATA = migrateCategoriesToHierarchy(DATA);
       DATA = migrateAccountTypes(DATA);
       saveData();
@@ -1671,6 +1776,9 @@ document.getElementById('file-import').addEventListener('change', (e) => {
 switchTab('home');
 applyDueRecurring(false);
 renderAll();
+if (!DATA.settings.rateUpdatedAt || Date.now() - new Date(DATA.settings.rateUpdatedAt).getTime() > 6 * 60 * 60 * 1000) {
+  fetchExchangeRate(true);
+}
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
