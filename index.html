@@ -1362,8 +1362,9 @@ function renderSettings() {
       </div>
       <div class="cat-child-list">
         ${children.length ? children.map(c => `<div class="cat-chip">
-          <span class="cat-chip-name"><span class="cat-swatch" style="background:${catColor(c)}"></span>${c.icon} ${escapeHtml(c.name)}</span>
+          <span class="cat-chip-name"><span class="cat-swatch" style="background:${catColor(c)}"></span>${c.icon} ${escapeHtml(c.name)}${categoryUsageCount(c.id) ? ` <span class="form-note" style="margin:0;">(거래 ${categoryUsageCount(c.id)}건)</span>` : ''}</span>
           <span>
+            <button class="icon-btn" onclick="openReassignCategoryModal('${c.id}')" title="다른 카테고리로 일괄 변경"><i class="ti ti-arrows-left-right"></i></button>
             <button class="icon-btn" onclick="openChildCategoryModal('${c.id}')"><i class="ti ti-pencil"></i></button>
             <button class="icon-btn danger" onclick="deleteCategory('${c.id}')"><i class="ti ti-trash"></i></button>
           </span>
@@ -1492,7 +1493,7 @@ function deleteCategory(id) {
     DATA.categories = DATA.categories.filter(c => c.id !== id);
   } else {
     const used = categoryUsageCount(id);
-    if (used > 0) return showToast(`이 카테고리를 사용하는 거래가 ${used}건 있어 삭제할 수 없어요.`, 'error');
+    if (used > 0) return showToast(`이 카테고리를 사용하는 거래가 ${used}건 있어요. 옆의 ⇄ 버튼으로 다른 카테고리로 옮긴 뒤 삭제해주세요.`, 'error');
     if (!confirm('이 소분류를 삭제할까요?')) return;
     DATA.categories = DATA.categories.filter(c => c.id !== id);
     delete DATA.budgets[id];
@@ -1500,6 +1501,40 @@ function deleteCategory(id) {
   saveData();
   showToast('삭제했어요.', 'info');
   renderSettings();
+}
+function openReassignCategoryModal(sourceId) {
+  const source = DATA.categories.find(c => c.id === sourceId);
+  if (!source) return;
+  const used = categoryUsageCount(sourceId);
+  const targets = leafCategories(source.type).filter(c => c.id !== sourceId);
+  if (!targets.length) return showToast('옮겨갈 다른 소분류가 없어요. 먼저 소분류를 추가해주세요.', 'error');
+  const groups = topCategories(source.type).map(p => {
+    const children = childCategories(p.id).filter(c => c.id !== sourceId);
+    if (!children.length) return '';
+    return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}">${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
+  }).join('');
+  openModal(`
+    <h3>카테고리 일괄 변경</h3>
+    <div class="form-note">'${source.icon} ${escapeHtml(source.name)}'${used ? `을(를) 사용하는 거래 ${used}건을` : '에는 아직 거래가 없어요. 그래도'} 아래에서 고르는 카테고리로 한 번에 옮겨요. 예산 설정은 옮겨지지 않으니 필요하면 새 카테고리에 다시 설정해주세요.</div>
+    <div class="field"><label class="field-lbl">옮길 카테고리</label><select id="reassign-target">${groups}</select></div>
+    <div class="form-actions">
+      <button class="ghost-btn" onclick="closeModal()">취소</button>
+      <button class="primary-btn" onclick="submitReassignCategory('${sourceId}')">일괄 변경</button>
+    </div>
+  `);
+}
+function submitReassignCategory(sourceId) {
+  const targetId = document.getElementById('reassign-target').value;
+  if (!targetId) return showToast('옮길 카테고리를 선택해주세요.', 'error');
+  let count = 0;
+  DATA.transactions.forEach(t => {
+    if (t.categoryId === sourceId) { t.categoryId = targetId; count++; }
+  });
+  delete DATA.budgets[sourceId];
+  saveData();
+  closeModal();
+  showToast(count ? `${count}건을 새 카테고리로 옮겼어요.` : '카테고리를 변경했어요.', 'success');
+  renderAll();
 }
 function resetAllData() {
   if (!confirm('정말로 모든 데이터를 초기화할까요? 이 작업은 되돌릴 수 없어요.')) return;
