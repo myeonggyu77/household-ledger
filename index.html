@@ -651,7 +651,7 @@ function renderTxTable(list, hideDate) {
   return `<div class="overflow-x"><table>
     <thead><tr>
       ${hideDate ? '' : '<th>날짜</th>'}
-      <th>구분</th><th>카테고리 / 자산</th><th class="name-cell">지출처 / 메모</th><th class="num">금액</th><th class="actions-cell">관리</th>
+      <th>구분</th><th>카테고리 / 자산</th><th class="name-cell">대상 / 메모</th><th class="num">금액</th><th class="actions-cell">관리</th>
     </tr></thead>
     <tbody>
       ${list.map(t => {
@@ -720,7 +720,7 @@ function renderTransactions() {
         </select>
       </div>
       <div class="search-wrap">
-        <input class="search-input" id="f-q" placeholder="지출처/메모 검색" value="${escapeHtml(f.q)}" oninput="onFilterChange()">
+        <input class="search-input" id="f-q" placeholder="대상/메모 검색" value="${escapeHtml(f.q)}" oninput="onFilterChange()">
       </div>
       <div class="btn-group">
         <button class="ghost-btn" onclick="openBulkImportModal()"><i class="ti ti-file-spreadsheet"></i> 일괄등록</button>
@@ -807,14 +807,13 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
         <input type="file" id="tx-receipt-file" accept="image/*" capture="environment" style="display:none" onchange="onReceiptFileChange(this)">
         <div id="tx-receipt-preview"></div>`;
       renderReceiptPreview();
-      const payeeOptions = Array.from(new Set(DATA.transactions.filter(t => t.payee).map(t => t.payee)));
-      payeeField.innerHTML = `<label class="field-lbl">지출처</label>
-        <input type="text" id="tx-payee" list="tx-payee-list" placeholder="예: 스타벅스, 이마트" value="${escapeHtml(presetPayee || '')}">
-        <datalist id="tx-payee-list">${payeeOptions.map(p => `<option value="${escapeHtml(p)}">`).join('')}</datalist>`;
     } else {
       receiptField.innerHTML = '';
-      payeeField.innerHTML = '';
     }
+    const payeeOptions = Array.from(new Set(DATA.transactions.filter(t => t.payee).map(t => t.payee)));
+    payeeField.innerHTML = `<label class="field-lbl">대상</label>
+      <input type="text" id="tx-payee" list="tx-payee-list" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : '예: 스타벅스, 이마트'}" value="${escapeHtml(presetPayee || '')}">
+      <datalist id="tx-payee-list">${payeeOptions.map(p => `<option value="${escapeHtml(p)}">`).join('')}</datalist>`;
   }
 }
 function compressImage(file, maxDim, quality) {
@@ -890,7 +889,7 @@ function submitTx(editId) {
     payload.categoryId = categoryId; payload.accountId = accountId;
     payload.excludeFromStats = document.getElementById('tx-exclude').checked;
     payload.receipt = type === 'expense' ? (state._txModal.receipt || null) : undefined;
-    payload.payee = type === 'expense' ? (document.getElementById('tx-payee').value.trim() || null) : undefined;
+    payload.payee = document.getElementById('tx-payee').value.trim() || null;
   }
 
   if (editId) {
@@ -914,7 +913,7 @@ function deleteTx(id) {
 }
 
 /* ---------------- BULK IMPORT (엑셀) ---------------- */
-const BULK_HEADERS = ['날짜(YYYY-MM-DD)', '구분(지출/수입/이체)', '카테고리(소분류명)', '자산', '입금자산(이체시)', '지출처(지출만,선택)', '금액', '메모(선택)'];
+const BULK_HEADERS = ['날짜(YYYY-MM-DD)', '구분(지출/수입/이체)', '카테고리(소분류명)', '자산', '입금자산(이체시)', '대상(선택)', '금액', '메모(선택)'];
 const BULK_TYPE_LABEL = { expense: '지출', income: '수입', transfer: '이체' };
 const BULK_TYPE_FROM_LABEL = { '지출': 'expense', '수입': 'income', '이체': 'transfer' };
 
@@ -935,7 +934,7 @@ function downloadBulkTemplate() {
   if (!window.XLSX) return showToast('엑셀 라이브러리를 불러오는 중이에요. 잠시 후 다시 시도해주세요.', 'error');
   const sample = [
     ['2026-08-01', '지출', '식비', '현금', '', '스타벅스', 4500, '아메리카노'],
-    ['2026-08-01', '수입', '급여', '현금', '', '', 3000000, '8월 급여'],
+    ['2026-08-01', '수입', '급여', '현금', '', '회사', 3000000, '8월 급여'],
   ];
   const ws = XLSX.utils.aoa_to_sheet([BULK_HEADERS, ...sample]);
   ws['!cols'] = [{ wch: 15 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 10 }, { wch: 22 }];
@@ -1013,7 +1012,7 @@ function parseBulkRow(row, idx) {
     if (!cat) errors.push(`카테고리 없음: ${catName || '(비어있음)'}`);
     if (!acc) errors.push(`자산 없음: ${accName || '(비어있음)'}`);
     categoryId = cat ? cat.id : null; accountId = acc ? acc.id : null;
-    if (type === 'expense') payee = String(payeeRaw || '').trim() || null;
+    payee = String(payeeRaw || '').trim() || null;
   }
   return { idx, date, type, amount, categoryId, accountId, toAccountId, payee, memo, errors };
 }
@@ -1049,7 +1048,7 @@ function commitBulkImport() {
     if (r.type === 'transfer') { payload.accountId = r.accountId; payload.toAccountId = r.toAccountId; }
     else {
       payload.categoryId = r.categoryId; payload.accountId = r.accountId; payload.excludeFromStats = false;
-      if (r.type === 'expense') payload.payee = r.payee;
+      payload.payee = r.payee;
     }
     DATA.transactions.push(payload);
   });
