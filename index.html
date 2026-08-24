@@ -269,6 +269,7 @@ const EMOJI_CHOICES = ['🍚','☕','🚌','🛒','👗','🧴','🎮','🏠','�
 const ACC_TYPES = ['cash', 'bank', 'investment', 'loan', 'installment', 'other'];
 const ACC_TYPE_LABEL = { cash: '현금', bank: '은행', investment: '투자', loan: '대출', installment: '할부', other: '기타' };
 const ACC_TYPE_ICON = { cash: '💵', bank: '🏦', investment: '📈', loan: '🏛️', installment: '💳', other: '📦' };
+const LIABILITY_TYPES = ['loan', 'installment'];
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
@@ -1228,17 +1229,32 @@ function renderAccounts() {
     ${ACC_TYPES.map(groupHtml).join('')}
   `;
 }
+function balanceFieldInnerHtml(type, amountAbs, manualNegative) {
+  if (LIABILITY_TYPES.includes(type)) {
+    return `<label class="field-lbl">갚아야 할 금액</label><input type="text" inputmode="numeric" id="acc-balance" oninput="formatAmountInput(this)" value="${amountAbs ? amountAbs.toLocaleString('ko-KR') : ''}" placeholder="0">
+      <div class="form-note" style="margin-top:6px;">입력한 금액만큼 자동으로 마이너스(빚)로 계산돼요.</div>`;
+  }
+  return `<label class="field-lbl">초기 잔액</label><input type="text" inputmode="numeric" id="acc-balance" oninput="formatSignedAmountInput(this)" value="${(manualNegative ? '-' : '') + (amountAbs ? amountAbs.toLocaleString('ko-KR') : '0')}">
+    <div class="form-note" style="margin-top:6px;">마이너스 통장처럼 잔액이 마이너스면 -로 입력해주세요.</div>`;
+}
+function onAccTypeChangeInModal() {
+  const type = document.getElementById('acc-type').value;
+  const cur = document.getElementById('acc-balance');
+  const amountAbs = cur ? rawAmount(cur) : 0;
+  document.getElementById('acc-balance-field').innerHTML = balanceFieldInnerHtml(type, amountAbs, false);
+}
 function openAccountModal(id, presetType) {
   const editing = id ? DATA.accounts.find(a => a.id === id) : null;
   const type = editing ? editing.type : (presetType || 'cash');
+  const editingAbs = editing ? Math.abs(Number(editing.initialBalance || 0)) : 0;
+  const editingNeg = editing ? Number(editing.initialBalance || 0) < 0 : false;
   openModal(`
     <h3>${editing ? '자산 수정' : '자산 추가'}</h3>
     <div class="field"><label class="field-lbl">이름</label><input type="text" id="acc-name" value="${escapeHtml(editing ? editing.name : '')}" placeholder="예: 신한은행, 국민카드"></div>
-    <div class="field"><label class="field-lbl">분류</label><select id="acc-type">
+    <div class="field"><label class="field-lbl">분류</label><select id="acc-type" onchange="onAccTypeChangeInModal()">
       ${ACC_TYPES.map(t => `<option value="${t}" ${type === t ? 'selected' : ''}>${ACC_TYPE_ICON[t]} ${ACC_TYPE_LABEL[t]}</option>`).join('')}
     </select></div>
-    <div class="field"><label class="field-lbl">초기 잔액</label><input type="text" inputmode="numeric" id="acc-balance" oninput="formatSignedAmountInput(this)" value="${editing ? (Number(editing.initialBalance || 0) < 0 ? '-' : '') + Math.abs(Number(editing.initialBalance || 0)).toLocaleString('ko-KR') : '0'}"></div>
-    <div class="form-note" style="margin-top:-6px;">대출처럼 갚아야 할 돈이면 마이너스(-)로 입력해주세요.</div>
+    <div class="field" id="acc-balance-field">${balanceFieldInnerHtml(type, editingAbs, editingNeg)}</div>
     <div class="field"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);"><input type="checkbox" id="acc-include" style="width:15px;height:15px;" ${!editing || editing.includeInTotal !== false ? 'checked' : ''}> 총 자산 합계에 포함</label></div>
     <div class="form-actions">
       <button class="ghost-btn" onclick="closeModal()">취소</button>
@@ -1249,7 +1265,8 @@ function openAccountModal(id, presetType) {
 function submitAccount(editId) {
   const name = document.getElementById('acc-name').value.trim();
   const type = document.getElementById('acc-type').value;
-  const initialBalance = rawSignedAmount(document.getElementById('acc-balance'));
+  const balanceEl = document.getElementById('acc-balance');
+  const initialBalance = LIABILITY_TYPES.includes(type) ? -rawAmount(balanceEl) : rawSignedAmount(balanceEl);
   const includeInTotal = document.getElementById('acc-include').checked;
   if (!name) return showToast('자산 이름을 입력해주세요.', 'error');
   if (editId) {
