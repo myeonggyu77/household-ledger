@@ -154,6 +154,10 @@
   .bar-row .bar-val { width: 130px; text-align: right; font-family: var(--mono); font-size: 12px; flex-shrink: 0; }
   .bar-row .bar-pct { width: 44px; text-align: right; font-family: var(--mono); font-size: 11px; color: var(--ink-faint); flex-shrink: 0; }
   .cat-swatch { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+  .pie-legend-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+  .pie-legend-row .pct-badge { min-width: 44px; text-align: center; padding: 3px 6px; border-radius: 4px; font-family: var(--mono); font-size: 12px; font-weight: 700; color: #ffffff; flex-shrink: 0; }
+  .pie-legend-row .name { flex: 1; font-size: 13px; display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pie-legend-row .amt { font-family: var(--mono); font-size: 13px; font-weight: 600; flex-shrink: 0; }
 
   .trend-row { display: grid; grid-template-columns: 60px 1fr; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
   .trend-row .trend-m { font-family: var(--mono); font-size: 12px; color: var(--ink-soft); }
@@ -239,7 +243,7 @@
     <button class="tab" data-tab="transactions">내역</button>
     <button class="tab" data-tab="stats">통계</button>
     <button class="tab" data-tab="budget">예산</button>
-    <button class="tab" data-tab="accounts">계좌</button>
+    <button class="tab" data-tab="accounts">자산</button>
     <button class="tab" data-tab="recurring">정기거래</button>
     <button class="tab" data-tab="settings">설정</button>
   </div>
@@ -262,6 +266,9 @@
 const LS_KEY = 'ledger-data-v1';
 const CAT_COLORS = ['var(--cat-0)','var(--cat-1)','var(--cat-2)','var(--cat-3)','var(--cat-4)','var(--cat-5)','var(--cat-6)','var(--cat-7)'];
 const EMOJI_CHOICES = ['🍚','☕','🚌','🛒','👗','🧴','🎮','🏠','💊','📚','🎁','🛡️','💳','🚗','✈️','🐾','👨‍👩‍👧','💰','🍺','📦','💵','📈','💸','🎉','🏦','🔄','🛍️','📊'];
+const ACC_TYPES = ['cash', 'bank', 'investment', 'loan', 'installment', 'other'];
+const ACC_TYPE_LABEL = { cash: '현금', bank: '은행', investment: '투자', loan: '대출', installment: '할부', other: '기타' };
+const ACC_TYPE_ICON = { cash: '💵', bank: '🏦', investment: '📈', loan: '🏛️', installment: '💳', other: '📦' };
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
@@ -338,6 +345,13 @@ function migrateCategoriesToHierarchy(d) {
   return d;
 }
 
+function migrateAccountTypes(d) {
+  (d.accounts || []).forEach((a) => {
+    if (!ACC_TYPES.includes(a.type)) { a.type = a.type === 'card' ? 'installment' : 'other'; a.icon = ACC_TYPE_ICON[a.type]; }
+  });
+  return d;
+}
+
 function loadData() {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -348,6 +362,7 @@ function loadData() {
     d.budgets = d.budgets || {};
     d.recurring = d.recurring || [];
     d = migrateCategoriesToHierarchy(d);
+    d = migrateAccountTypes(d);
     return d;
   } catch (e) { console.error(e); return defaultData(); }
 }
@@ -385,7 +400,7 @@ function wonSigned(n) { const sign = n < 0 ? '-' : ''; return sign + Math.round(
 function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 function getCategory(id) { return DATA.categories.find(c => c.id === id) || { name: '(삭제된 카테고리)', icon: '❔', colorIdx: 0 }; }
-function getAccount(id) { return DATA.accounts.find(a => a.id === id) || { name: '(삭제된 계좌)', icon: '❔' }; }
+function getAccount(id) { return DATA.accounts.find(a => a.id === id) || { name: '(삭제된 자산)', icon: '❔' }; }
 function catColor(cat) { return CAT_COLORS[(cat.colorIdx || 0) % 8]; }
 function topCategories(type) { return DATA.categories.filter(c => c.type === type && !c.parentId); }
 function childCategories(parentId) { return DATA.categories.filter(c => c.parentId === parentId); }
@@ -453,6 +468,17 @@ function formatAmountInput(el) {
   el.value = digits ? Number(digits).toLocaleString('ko-KR') : '';
 }
 function rawAmount(el) { return Number(String(el.value).replace(/[^0-9]/g, '')) || 0; }
+function formatSignedAmountInput(el) {
+  const neg = el.value.trim().startsWith('-');
+  const digits = el.value.replace(/[^0-9]/g, '');
+  el.value = (neg ? '-' : '') + (digits ? Number(digits).toLocaleString('ko-KR') : '');
+}
+function rawSignedAmount(el) {
+  const v = String(el.value);
+  const neg = v.trim().startsWith('-');
+  const n = Number(v.replace(/[^0-9]/g, '')) || 0;
+  return neg ? -n : n;
+}
 
 /* ---------------- tabs / render root ---------------- */
 function switchTab(tab) {
@@ -624,7 +650,7 @@ function renderTxTable(list, hideDate) {
   return `<div class="overflow-x"><table>
     <thead><tr>
       ${hideDate ? '' : '<th>날짜</th>'}
-      <th>구분</th><th>카테고리 / 계좌</th><th class="name-cell">지출처 / 메모</th><th class="num">금액</th><th class="actions-cell">관리</th>
+      <th>구분</th><th>카테고리 / 자산</th><th class="name-cell">지출처 / 메모</th><th class="num">금액</th><th class="actions-cell">관리</th>
     </tr></thead>
     <tbody>
       ${list.map(t => {
@@ -689,7 +715,7 @@ function renderTransactions() {
           <option value="">전체 카테고리</option>${catOptions}
         </select>
         <select id="f-account" style="width:130px;" onchange="onFilterChange()">
-          <option value="">전체 계좌</option>${DATA.accounts.map(a => `<option value="${a.id}" ${f.accountId === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}
+          <option value="">전체 자산</option>${DATA.accounts.map(a => `<option value="${a.id}" ${f.accountId === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}
         </select>
       </div>
       <div class="search-wrap">
@@ -760,8 +786,8 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
   const payeeField = document.getElementById('tx-payee-field');
   if (type === 'transfer') {
     catField.innerHTML = '';
-    accField.innerHTML = `<label class="field-lbl">출금 계좌</label><select id="tx-account">${DATA.accounts.map(a => `<option value="${a.id}" ${presetAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
-    toAccField.innerHTML = `<label class="field-lbl">입금 계좌</label><select id="tx-toaccount">${DATA.accounts.map(a => `<option value="${a.id}" ${presetToAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
+    accField.innerHTML = `<label class="field-lbl">출금 자산</label><select id="tx-account">${DATA.accounts.map(a => `<option value="${a.id}" ${presetAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
+    toAccField.innerHTML = `<label class="field-lbl">입금 자산</label><select id="tx-toaccount">${DATA.accounts.map(a => `<option value="${a.id}" ${presetToAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
     excludeField.innerHTML = '';
     receiptField.innerHTML = '';
     payeeField.innerHTML = '';
@@ -772,7 +798,7 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
       return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}" ${presetCat === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
     }).join('');
     catField.innerHTML = `<label class="field-lbl">카테고리</label><select id="tx-category">${groups}</select>`;
-    accField.innerHTML = `<label class="field-lbl">${type === 'income' ? '입금 계좌' : '지출 계좌'}</label><select id="tx-account">${DATA.accounts.map(a => `<option value="${a.id}" ${presetAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
+    accField.innerHTML = `<label class="field-lbl">${type === 'income' ? '입금 자산' : '지출 자산'}</label><select id="tx-account">${DATA.accounts.map(a => `<option value="${a.id}" ${presetAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
     toAccField.innerHTML = '';
     excludeField.innerHTML = `<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);"><input type="checkbox" id="tx-exclude" style="width:15px;height:15px;" ${presetExclude ? 'checked' : ''}> 통계/예산 계산에서 제외 (예: 환급받은 금액)</label>`;
     if (type === 'expense') {
@@ -852,14 +878,14 @@ function submitTx(editId) {
   if (type === 'transfer') {
     const accountId = document.getElementById('tx-account').value;
     const toAccountId = document.getElementById('tx-toaccount').value;
-    if (!accountId || !toAccountId) return showToast('계좌를 선택해주세요.', 'error');
-    if (accountId === toAccountId) return showToast('출금 계좌와 입금 계좌가 같을 수 없어요.', 'error');
+    if (!accountId || !toAccountId) return showToast('자산을 선택해주세요.', 'error');
+    if (accountId === toAccountId) return showToast('출금 자산과 입금 자산이 같을 수 없어요.', 'error');
     payload.accountId = accountId; payload.toAccountId = toAccountId;
   } else {
     const categoryId = document.getElementById('tx-category').value;
     const accountId = document.getElementById('tx-account').value;
     if (!categoryId) return showToast('카테고리가 없어요. 설정에서 먼저 추가해주세요.', 'error');
-    if (!accountId) return showToast('계좌가 없어요. 계좌 탭에서 먼저 추가해주세요.', 'error');
+    if (!accountId) return showToast('자산이 없어요. 자산 탭에서 먼저 추가해주세요.', 'error');
     payload.categoryId = categoryId; payload.accountId = accountId;
     payload.excludeFromStats = document.getElementById('tx-exclude').checked;
     payload.receipt = type === 'expense' ? (state._txModal.receipt || null) : undefined;
@@ -887,7 +913,7 @@ function deleteTx(id) {
 }
 
 /* ---------------- BULK IMPORT (엑셀) ---------------- */
-const BULK_HEADERS = ['날짜(YYYY-MM-DD)', '구분(지출/수입/이체)', '카테고리(소분류명)', '계좌', '입금계좌(이체시)', '지출처(지출만,선택)', '금액', '메모(선택)'];
+const BULK_HEADERS = ['날짜(YYYY-MM-DD)', '구분(지출/수입/이체)', '카테고리(소분류명)', '자산', '입금자산(이체시)', '지출처(지출만,선택)', '금액', '메모(선택)'];
 const BULK_TYPE_LABEL = { expense: '지출', income: '수입', transfer: '이체' };
 const BULK_TYPE_FROM_LABEL = { '지출': 'expense', '수입': 'income', '이체': 'transfer' };
 
@@ -919,11 +945,11 @@ function downloadBulkTemplate() {
   const incomeCats = leafCategories('income').map(c => c.name);
   const accts = DATA.accounts.map(a => a.name);
   const maxLen = Math.max(expenseCats.length, incomeCats.length, accts.length, 1);
-  const refRows = [['지출 카테고리(소분류)', '수입 카테고리(소분류)', '계좌']];
+  const refRows = [['지출 카테고리(소분류)', '수입 카테고리(소분류)', '자산']];
   for (let i = 0; i < maxLen; i++) refRows.push([expenseCats[i] || '', incomeCats[i] || '', accts[i] || '']);
   const wsRef = XLSX.utils.aoa_to_sheet(refRows);
   wsRef['!cols'] = [{ wch: 20 }, { wch: 20 }, { wch: 16 }];
-  XLSX.utils.book_append_sheet(wb, wsRef, '참고(카테고리·계좌)');
+  XLSX.utils.book_append_sheet(wb, wsRef, '참고(카테고리·자산)');
 
   XLSX.writeFile(wb, `가계부-일괄등록양식-${todayStr()}.xlsx`);
 }
@@ -976,15 +1002,15 @@ function parseBulkRow(row, idx) {
   if (type === 'transfer') {
     const acc = DATA.accounts.find(a => a.name === String(accName || '').trim());
     const toAcc = DATA.accounts.find(a => a.name === String(toAccName || '').trim());
-    if (!acc) errors.push(`출금 계좌 없음: ${accName || '(비어있음)'}`);
-    if (!toAcc) errors.push(`입금 계좌 없음: ${toAccName || '(비어있음)'}`);
-    else if (acc && toAcc.id === acc.id) errors.push('출금/입금 계좌가 같아요');
+    if (!acc) errors.push(`출금 자산 없음: ${accName || '(비어있음)'}`);
+    if (!toAcc) errors.push(`입금 자산 없음: ${toAccName || '(비어있음)'}`);
+    else if (acc && toAcc.id === acc.id) errors.push('출금/입금 자산이 같아요');
     accountId = acc ? acc.id : null; toAccountId = toAcc ? toAcc.id : null;
   } else if (type) {
     const cat = DATA.categories.find(c => c.type === type && c.parentId && c.name === String(catName || '').trim());
     const acc = DATA.accounts.find(a => a.name === String(accName || '').trim());
     if (!cat) errors.push(`카테고리 없음: ${catName || '(비어있음)'}`);
-    if (!acc) errors.push(`계좌 없음: ${accName || '(비어있음)'}`);
+    if (!acc) errors.push(`자산 없음: ${accName || '(비어있음)'}`);
     categoryId = cat ? cat.id : null; accountId = acc ? acc.id : null;
     if (type === 'expense') payee = String(payeeRaw || '').trim() || null;
   }
@@ -1033,12 +1059,44 @@ function commitBulkImport() {
 }
 
 /* ---------------- STATS ---------------- */
+function polarPoint(cx, cy, r, angleDeg) {
+  const rad = (angleDeg - 90) * Math.PI / 180;
+  return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
+}
+function renderPieChart(totals, sum) {
+  const cx = 150, cy = 150, r = 140;
+  if (!sum) return '';
+  if (totals.length === 1) {
+    return `<svg viewBox="0 0 300 300" style="width:100%;max-width:300px;display:block;margin:0 auto;">
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="${catColor(totals[0].category)}"/>
+      <text x="${cx}" y="${cy}" fill="#ffffff" font-size="22" font-weight="700" text-anchor="middle" dominant-baseline="middle">100%</text>
+    </svg>`;
+  }
+  let cumulative = 0;
+  const slices = totals.map(c => {
+    const startAngle = cumulative / sum * 360;
+    cumulative += c.amount;
+    const endAngle = cumulative / sum * 360;
+    return { ...c, startAngle, endAngle, pct: c.amount / sum };
+  });
+  const paths = slices.map(s => {
+    const [x1, y1] = polarPoint(cx, cy, r, s.startAngle);
+    const [x2, y2] = polarPoint(cx, cy, r, s.endAngle);
+    const largeArc = s.endAngle - s.startAngle > 180 ? 1 : 0;
+    return `<path d="M ${cx} ${cy} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${largeArc} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z" fill="${catColor(s.category)}" stroke="#ffffff" stroke-width="2"/>`;
+  }).join('');
+  const labels = slices.filter(s => s.pct >= 0.06).map(s => {
+    const mid = (s.startAngle + s.endAngle) / 2;
+    const [lx, ly] = polarPoint(cx, cy, r * 0.66, mid);
+    return `<text x="${lx.toFixed(2)}" y="${ly.toFixed(2)}" fill="#ffffff" font-size="16" font-weight="700" text-anchor="middle" dominant-baseline="middle">${Math.round(s.pct * 100)}%</text>`;
+  }).join('');
+  return `<svg viewBox="0 0 300 300" style="width:100%;max-width:300px;display:block;margin:0 auto;">${paths}${labels}</svg>`;
+}
 function renderStats() {
   const mKey = state.month;
   const type = state.statsType;
   const totals = categoryTotals(mKey, type);
   const sum = totals.reduce((s, c) => s + c.amount, 0);
-  const max = Math.max(1, ...totals.map(c => c.amount));
 
   const months = [];
   for (let i = 5; i >= 0; i--) months.push(shiftMonth(mKey, -i));
@@ -1056,12 +1114,12 @@ function renderStats() {
         </div>
       </div>
       <div class="form-note">${monthLabel(mKey)} 합계 ${won(sum)}</div>
+      ${totals.length ? renderPieChart(totals, sum) : ''}
       ${totals.length ? totals.map(c => `
-        <div class="bar-row">
-          <div class="bar-lbl"><span class="cat-swatch" style="background:${catColor(c.category)}"></span>${c.category.icon} ${escapeHtml(c.category.name)}</div>
-          <div class="bar-track"><div class="bar-fill" style="width:${(c.amount / max * 100).toFixed(1)}%;background:${catColor(c.category)}"></div></div>
-          <div class="bar-pct">${sum ? Math.round(c.amount / sum * 100) : 0}%</div>
-          <div class="bar-val">${won(c.amount)}</div>
+        <div class="pie-legend-row">
+          <span class="pct-badge" style="background:${catColor(c.category)}">${sum ? Math.round(c.amount / sum * 100) : 0}%</span>
+          <span class="name">${c.category.icon} ${escapeHtml(c.category.name)}</span>
+          <span class="amt">${won(c.amount)}</span>
         </div>`).join('') : `<div class="empty">해당 월 데이터가 없어요.</div>`}
     </div>
 
@@ -1135,39 +1193,52 @@ function setBudget(catId, el) {
 }
 
 /* ---------------- ACCOUNTS ---------------- */
-const ACC_TYPE_LABEL = { cash: '현금', bank: '계좌', card: '카드' };
-const ACC_TYPE_ICON = { cash: '💵', bank: '🏦', card: '💳' };
 function renderAccounts() {
+  const acctCard = (a) => `
+    <div class="acct-card ${a.includeInTotal === false ? 'excluded' : ''}">
+      <div class="acct-name">${a.icon || ACC_TYPE_ICON[a.type] || '💰'} ${escapeHtml(a.name)}</div>
+      <div class="acct-bal">${wonSigned(accountBalance(a))}</div>
+      ${a.includeInTotal === false ? '<div class="form-note" style="margin:6px 0 0;">총 자산 제외</div>' : ''}
+      <div class="acct-actions">
+        <button class="icon-btn" onclick="openAccountModal('${a.id}')"><i class="ti ti-pencil"></i></button>
+        <button class="icon-btn danger" onclick="deleteAccount('${a.id}')"><i class="ti ti-trash"></i></button>
+      </div>
+    </div>`;
+  const groupHtml = (type) => {
+    const accts = DATA.accounts.filter(a => a.type === type);
+    const subtotal = accts.reduce((s, a) => s + accountBalance(a), 0);
+    return `<div class="cat-parent-group">
+      <div class="cat-parent-head">
+        <span class="cat-chip-name">${ACC_TYPE_ICON[type]} ${ACC_TYPE_LABEL[type]}</span>
+        <span style="display:flex;align-items:center;gap:10px;">
+          <span class="form-note" style="margin:0;">${wonSigned(subtotal)}</span>
+          <button class="icon-btn" onclick="openAccountModal(null, '${type}')" title="자산 추가"><i class="ti ti-plus"></i></button>
+        </span>
+      </div>
+      <div class="cat-child-list">
+        ${accts.length ? `<div class="acct-grid">${accts.map(acctCard).join('')}</div>` : `<div class="form-note" style="margin:2px 0 8px;">등록된 자산이 없어요.</div>`}
+      </div>
+    </div>`;
+  };
   document.getElementById('panel-accounts').innerHTML = `
     <div class="toolbar">
-      <div class="hint">${DATA.accounts.length}개 계좌 · 총 자산 ${won(totalAssets())}</div>
-      <button class="primary-btn" onclick="openAccountModal()"><i class="ti ti-plus"></i> 계좌 추가</button>
+      <div class="hint">${DATA.accounts.length}개 자산 · 총 자산 ${won(totalAssets())}</div>
+      <button class="primary-btn" onclick="openAccountModal()"><i class="ti ti-plus"></i> 자산 추가</button>
     </div>
-    <div class="acct-grid">
-      ${DATA.accounts.map(a => `
-        <div class="acct-card ${a.includeInTotal === false ? 'excluded' : ''}">
-          <div class="acct-name">${a.icon || ACC_TYPE_ICON[a.type] || '💰'} ${escapeHtml(a.name)} <span class="acct-type">${ACC_TYPE_LABEL[a.type] || ''}</span></div>
-          <div class="acct-bal">${wonSigned(accountBalance(a))}</div>
-          ${a.includeInTotal === false ? '<div class="form-note" style="margin:6px 0 0;">총 자산 제외</div>' : ''}
-          <div class="acct-actions">
-            <button class="icon-btn" onclick="openAccountModal('${a.id}')"><i class="ti ti-pencil"></i></button>
-            <button class="icon-btn danger" onclick="deleteAccount('${a.id}')"><i class="ti ti-trash"></i></button>
-          </div>
-        </div>`).join('')}
-    </div>
+    ${ACC_TYPES.map(groupHtml).join('')}
   `;
 }
-function openAccountModal(id) {
+function openAccountModal(id, presetType) {
   const editing = id ? DATA.accounts.find(a => a.id === id) : null;
+  const type = editing ? editing.type : (presetType || 'cash');
   openModal(`
-    <h3>${editing ? '계좌 수정' : '계좌 추가'}</h3>
+    <h3>${editing ? '자산 수정' : '자산 추가'}</h3>
     <div class="field"><label class="field-lbl">이름</label><input type="text" id="acc-name" value="${escapeHtml(editing ? editing.name : '')}" placeholder="예: 신한은행, 국민카드"></div>
-    <div class="field"><label class="field-lbl">유형</label><select id="acc-type">
-      <option value="cash" ${editing && editing.type === 'cash' ? 'selected' : ''}>현금</option>
-      <option value="bank" ${editing && editing.type === 'bank' ? 'selected' : ''}>계좌(은행)</option>
-      <option value="card" ${editing && editing.type === 'card' ? 'selected' : ''}>카드</option>
+    <div class="field"><label class="field-lbl">분류</label><select id="acc-type">
+      ${ACC_TYPES.map(t => `<option value="${t}" ${type === t ? 'selected' : ''}>${ACC_TYPE_ICON[t]} ${ACC_TYPE_LABEL[t]}</option>`).join('')}
     </select></div>
-    <div class="field"><label class="field-lbl">초기 잔액</label><input type="text" inputmode="numeric" id="acc-balance" oninput="formatAmountInput(this)" value="${editing ? Number(editing.initialBalance || 0).toLocaleString('ko-KR') : '0'}"></div>
+    <div class="field"><label class="field-lbl">초기 잔액</label><input type="text" inputmode="numeric" id="acc-balance" oninput="formatSignedAmountInput(this)" value="${editing ? (Number(editing.initialBalance || 0) < 0 ? '-' : '') + Math.abs(Number(editing.initialBalance || 0)).toLocaleString('ko-KR') : '0'}"></div>
+    <div class="form-note" style="margin-top:-6px;">대출처럼 갚아야 할 돈이면 마이너스(-)로 입력해주세요.</div>
     <div class="field"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);"><input type="checkbox" id="acc-include" style="width:15px;height:15px;" ${!editing || editing.includeInTotal !== false ? 'checked' : ''}> 총 자산 합계에 포함</label></div>
     <div class="form-actions">
       <button class="ghost-btn" onclick="closeModal()">취소</button>
@@ -1178,9 +1249,9 @@ function openAccountModal(id) {
 function submitAccount(editId) {
   const name = document.getElementById('acc-name').value.trim();
   const type = document.getElementById('acc-type').value;
-  const initialBalance = rawAmount(document.getElementById('acc-balance'));
+  const initialBalance = rawSignedAmount(document.getElementById('acc-balance'));
   const includeInTotal = document.getElementById('acc-include').checked;
-  if (!name) return showToast('계좌 이름을 입력해주세요.', 'error');
+  if (!name) return showToast('자산 이름을 입력해주세요.', 'error');
   if (editId) {
     const acc = DATA.accounts.find(a => a.id === editId);
     Object.assign(acc, { name, type, initialBalance, includeInTotal, icon: ACC_TYPE_ICON[type] });
@@ -1189,14 +1260,14 @@ function submitAccount(editId) {
   }
   saveData();
   closeModal();
-  showToast(editId ? '계좌를 수정했어요.' : '계좌를 추가했어요.', 'success');
+  showToast(editId ? '자산을 수정했어요.' : '자산을 추가했어요.', 'success');
   renderAll();
 }
 function deleteAccount(id) {
   const used = accountUsageCount(id);
-  if (used > 0) return showToast(`이 계좌를 사용하는 거래가 ${used}건 있어 삭제할 수 없어요.`, 'error');
-  if (DATA.accounts.length <= 1) return showToast('최소 1개의 계좌는 있어야 해요.', 'error');
-  if (!confirm('이 계좌를 삭제할까요?')) return;
+  if (used > 0) return showToast(`이 자산을 사용하는 거래가 ${used}건 있어 삭제할 수 없어요.`, 'error');
+  if (DATA.accounts.length <= 1) return showToast('최소 1개의 자산은 있어야 해요.', 'error');
+  if (!confirm('이 자산을 삭제할까요?')) return;
   DATA.accounts = DATA.accounts.filter(a => a.id !== id);
   saveData();
   showToast('삭제했어요.', 'info');
@@ -1214,7 +1285,7 @@ function renderRecurring() {
       </div>
     </div>
     ${DATA.recurring.length ? `<div class="overflow-x"><table>
-      <thead><tr><th>이름</th><th>구분</th><th>카테고리/계좌</th><th class="num">금액</th><th>매월</th><th>사용</th><th class="actions-cell">관리</th></tr></thead>
+      <thead><tr><th>이름</th><th>구분</th><th>카테고리/자산</th><th class="num">금액</th><th>매월</th><th>사용</th><th class="actions-cell">관리</th></tr></thead>
       <tbody>
         ${DATA.recurring.map(r => {
           const acc = getAccount(r.accountId);
@@ -1277,12 +1348,12 @@ function renderRecModalFields(presetCat, presetAcc, presetToAcc) {
   const toAccField = document.getElementById('rec-toacc-field');
   if (type === 'transfer') {
     catField.innerHTML = '';
-    accField.innerHTML = `<label class="field-lbl">출금 계좌</label><select id="rec-account">${DATA.accounts.map(a => `<option value="${a.id}" ${presetAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
-    toAccField.innerHTML = `<label class="field-lbl">입금 계좌</label><select id="rec-toaccount">${DATA.accounts.map(a => `<option value="${a.id}" ${presetToAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
+    accField.innerHTML = `<label class="field-lbl">출금 자산</label><select id="rec-account">${DATA.accounts.map(a => `<option value="${a.id}" ${presetAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
+    toAccField.innerHTML = `<label class="field-lbl">입금 자산</label><select id="rec-toaccount">${DATA.accounts.map(a => `<option value="${a.id}" ${presetToAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
   } else {
     const cats = DATA.categories.filter(c => c.type === type);
     catField.innerHTML = `<label class="field-lbl">카테고리</label><select id="rec-category">${cats.map(c => `<option value="${c.id}" ${presetCat === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</select>`;
-    accField.innerHTML = `<label class="field-lbl">계좌</label><select id="rec-account">${DATA.accounts.map(a => `<option value="${a.id}" ${presetAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
+    accField.innerHTML = `<label class="field-lbl">자산</label><select id="rec-account">${DATA.accounts.map(a => `<option value="${a.id}" ${presetAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
     toAccField.innerHTML = '';
   }
 }
@@ -1298,7 +1369,7 @@ function submitRecurring(editId) {
   if (type === 'transfer') {
     payload.accountId = document.getElementById('rec-account').value;
     payload.toAccountId = document.getElementById('rec-toaccount').value;
-    if (payload.accountId === payload.toAccountId) return showToast('출금/입금 계좌가 같을 수 없어요.', 'error');
+    if (payload.accountId === payload.toAccountId) return showToast('출금/입금 자산이 같을 수 없어요.', 'error');
   } else {
     payload.categoryId = document.getElementById('rec-category').value;
     payload.accountId = document.getElementById('rec-account').value;
@@ -1386,10 +1457,10 @@ function renderSettings() {
     </div>
     <div class="section-block">
       <div class="section-heading">데이터</div>
-      <div class="form-note">현재 이 브라우저에만 저장돼요 (거래 ${DATA.transactions.length}건, 계좌 ${DATA.accounts.length}개). 다른 기기로 옮기려면 내보내기 → 가져오기를 사용하세요.</div>
+      <div class="form-note">현재 이 브라우저에만 저장돼요 (거래 ${DATA.transactions.length}건, 자산 ${DATA.accounts.length}개). 다른 기기로 옮기려면 내보내기 → 가져오기를 사용하세요.</div>
       <div class="danger-zone">
         <h4>전체 초기화</h4>
-        <div class="form-note" style="margin-bottom:10px;">모든 거래·계좌·카테고리·예산·정기거래가 삭제되고 기본값으로 돌아가요. 되돌릴 수 없어요.</div>
+        <div class="form-note" style="margin-bottom:10px;">모든 거래·자산·카테고리·예산·정기거래가 삭제되고 기본값으로 돌아가요. 되돌릴 수 없어요.</div>
         <button class="ghost-btn danger-btn" onclick="resetAllData()"><i class="ti ti-alert-triangle"></i> 전체 초기화</button>
       </div>
     </div>
@@ -1568,6 +1639,7 @@ document.getElementById('file-import').addEventListener('change', (e) => {
       if (!confirm('가져오기를 하면 현재 데이터를 덮어써요. 계속할까요?')) return;
       DATA = { version: 1, categorySchema: parsed.categorySchema, accounts: parsed.accounts, categories: parsed.categories, transactions: parsed.transactions, budgets: parsed.budgets || {}, recurring: parsed.recurring || [] };
       DATA = migrateCategoriesToHierarchy(DATA);
+      DATA = migrateAccountTypes(DATA);
       saveData();
       showToast('데이터를 가져왔어요.', 'success');
       renderAll();
