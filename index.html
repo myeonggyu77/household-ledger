@@ -91,6 +91,8 @@
   .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
   .field-lbl { font-size: 10px; color: var(--ink-faint); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.03em; display: block; }
   .field { margin-bottom: 12px; }
+  .receipt-thumb-wrap { display: flex; align-items: flex-start; gap: 8px; }
+  .receipt-thumb { width: 96px; height: 96px; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); }
 
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   tbody td { white-space: nowrap; padding: 10px 8px; border-bottom: 1px solid var(--line-soft); }
@@ -571,9 +573,10 @@ function renderTxTable(list, hideDate) {
           ${hideDate ? '' : `<td>${t.date.slice(5)}</td>`}
           <td><span class="type-tag ${t.type}">${t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체'}</span></td>
           <td class="name-cell">${mid}</td>
-          <td class="name-cell">${escapeHtml(t.memo || '')}${t.excludeFromStats ? ' <span style="color:var(--ink-faint);font-size:11px;">(통계 제외)</span>' : ''}</td>
+          <td class="name-cell">${escapeHtml(t.memo || '')}${t.excludeFromStats ? ' <span style="color:var(--ink-faint);font-size:11px;">(통계 제외)</span>' : ''}${t.receipt ? ' <span title="영수증 첨부">🧾</span>' : ''}</td>
           <td class="num amt ${t.type}">${sign}${won(t.amount)}</td>
           <td class="actions-cell">
+            ${t.receipt ? `<button class="icon-btn" onclick="openReceiptLightboxForTx('${t.id}')"><i class="ti ti-photo"></i></button>` : ''}
             <button class="icon-btn" onclick="openTxModal('${t.id}')"><i class="ti ti-pencil"></i></button>
             <button class="icon-btn danger" onclick="deleteTx('${t.id}')"><i class="ti ti-trash"></i></button>
           </td>
@@ -648,13 +651,14 @@ function openTxModal(txId, presetDate) {
     <div id="tx-acc-field" class="field"></div>
     <div id="tx-toacc-field" class="field"></div>
     <div class="field"><label class="field-lbl">메모</label><input type="text" id="tx-memo" placeholder="메모 (선택)" value="${escapeHtml(editing ? (editing.memo || '') : '')}"></div>
+    <div class="field" id="tx-receipt-field"></div>
     <div class="field" id="tx-exclude-field"></div>
     <div class="form-actions">
       <button class="ghost-btn" onclick="closeModal()">취소</button>
       <button class="primary-btn" onclick="submitTx(${editing ? `'${editing.id}'` : 'null'})">${editing ? '저장' : '추가'}</button>
     </div>
   `);
-  state._txModal = { type, editing };
+  state._txModal = { type, editing, receipt: editing && editing.type === 'expense' ? (editing.receipt || null) : null };
   renderTxModalFields(editing ? editing.categoryId : null, editing ? editing.accountId : null, editing ? editing.toAccountId : null, editing ? !!editing.excludeFromStats : false);
 }
 function setTxType(t) {
@@ -673,18 +677,78 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude) {
   const accField = document.getElementById('tx-acc-field');
   const toAccField = document.getElementById('tx-toacc-field');
   const excludeField = document.getElementById('tx-exclude-field');
+  const receiptField = document.getElementById('tx-receipt-field');
   if (type === 'transfer') {
     catField.innerHTML = '';
     accField.innerHTML = `<label class="field-lbl">출금 계좌</label><select id="tx-account">${DATA.accounts.map(a => `<option value="${a.id}" ${presetAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
     toAccField.innerHTML = `<label class="field-lbl">입금 계좌</label><select id="tx-toaccount">${DATA.accounts.map(a => `<option value="${a.id}" ${presetToAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
     excludeField.innerHTML = '';
+    receiptField.innerHTML = '';
   } else {
     const cats = DATA.categories.filter(c => c.type === type);
     catField.innerHTML = `<label class="field-lbl">카테고리</label><select id="tx-category">${cats.map(c => `<option value="${c.id}" ${presetCat === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</select>`;
     accField.innerHTML = `<label class="field-lbl">${type === 'income' ? '입금 계좌' : '지출 계좌'}</label><select id="tx-account">${DATA.accounts.map(a => `<option value="${a.id}" ${presetAcc === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`;
     toAccField.innerHTML = '';
     excludeField.innerHTML = `<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);"><input type="checkbox" id="tx-exclude" style="width:15px;height:15px;" ${presetExclude ? 'checked' : ''}> 통계/예산 계산에서 제외 (예: 환급받은 금액)</label>`;
+    if (type === 'expense') {
+      receiptField.innerHTML = `<label class="field-lbl">영수증 사진</label>
+        <input type="file" id="tx-receipt-file" accept="image/*" capture="environment" style="display:none" onchange="onReceiptFileChange(this)">
+        <div id="tx-receipt-preview"></div>`;
+      renderReceiptPreview();
+    } else {
+      receiptField.innerHTML = '';
+    }
   }
+}
+function compressImage(file, maxDim, quality) {
+  maxDim = maxDim || 1280; quality = quality || 0.72;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) { height = Math.round(height * maxDim / width); width = maxDim; }
+          else { width = Math.round(width * maxDim / height); height = maxDim; }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+async function onReceiptFileChange(input) {
+  const file = input.files[0];
+  input.value = '';
+  if (!file) return;
+  if (!file.type.startsWith('image/')) return showToast('이미지 파일만 첨부할 수 있어요.', 'error');
+  try {
+    state._txModal.receipt = await compressImage(file);
+    renderReceiptPreview();
+  } catch (e) {
+    showToast('사진을 처리하는 중 문제가 생겼어요.', 'error');
+  }
+}
+function renderReceiptPreview() {
+  const wrap = document.getElementById('tx-receipt-preview');
+  if (!wrap) return;
+  const r = state._txModal.receipt;
+  wrap.innerHTML = r
+    ? `<div class="receipt-thumb-wrap"><img src="${r}" class="receipt-thumb" alt="영수증 미리보기"><button type="button" class="icon-btn danger" onclick="removeReceipt()"><i class="ti ti-trash"></i></button></div>`
+    : `<button type="button" class="ghost-btn" onclick="document.getElementById('tx-receipt-file').click()"><i class="ti ti-camera"></i> 영수증 사진 추가</button>`;
+}
+function removeReceipt() { state._txModal.receipt = null; renderReceiptPreview(); }
+function openReceiptLightboxForTx(id) {
+  const t = DATA.transactions.find(x => x.id === id);
+  if (!t || !t.receipt) return;
+  openModal(`<h3>영수증 사진</h3><img src="${t.receipt}" style="width:100%;border-radius:6px;display:block;" alt="영수증"><div class="form-actions"><button class="ghost-btn" onclick="closeModal()">닫기</button></div>`);
 }
 function submitTx(editId) {
   const type = state._txModal.type;
@@ -694,7 +758,7 @@ function submitTx(editId) {
   if (!date) return showToast('날짜를 선택해주세요.', 'error');
   if (!amount || amount <= 0) return showToast('금액을 입력해주세요.', 'error');
 
-  let payload = { type, date, amount, memo };
+  let payload = { type, date, amount, memo, receipt: undefined };
   if (type === 'transfer') {
     const accountId = document.getElementById('tx-account').value;
     const toAccountId = document.getElementById('tx-toaccount').value;
@@ -708,6 +772,7 @@ function submitTx(editId) {
     if (!accountId) return showToast('계좌가 없어요. 계좌 탭에서 먼저 추가해주세요.', 'error');
     payload.categoryId = categoryId; payload.accountId = accountId;
     payload.excludeFromStats = document.getElementById('tx-exclude').checked;
+    payload.receipt = type === 'expense' ? (state._txModal.receipt || null) : undefined;
   }
 
   if (editId) {
