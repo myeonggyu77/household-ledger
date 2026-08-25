@@ -178,6 +178,13 @@
   .budget-item .budget-head .left { display: flex; align-items: center; gap: 6px; }
   .budget-item .budget-track { height: 10px; background: var(--line-soft); border-radius: 5px; overflow: hidden; }
   .budget-item .budget-fill { height: 100%; border-radius: 5px; }
+  .due-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+  .due-row:last-child { border-bottom: none; }
+  .due-row .due-main { min-width: 0; }
+  .due-row .due-sub { font-size: 11.5px; color: var(--ink-faint); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .due-row .due-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .due-row .due-amt { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
+  .badge-done { font-size: 11px; color: var(--ink-faint); font-family: var(--mono); }
   .budget-fill.ok { background: var(--status-good); }
   .budget-fill.warn { background: var(--status-warn); }
   .budget-fill.over { background: var(--status-crit); }
@@ -304,6 +311,15 @@ const CATEGORY_TREE = {
   ],
 };
 
+/* 정기거래(지출) 예정일이 휴일이면 다음 평일로 미뤄서 보여줄 때 쓰는 기본 공휴일 목록.
+   음력 기준 공휴일(설날/추석 등)은 매년 날짜가 달라지므로 설정 > 공휴일 관리에서 직접 추가/수정해요. */
+const DEFAULT_HOLIDAYS = [
+  '2026-01-01', '2026-03-01', '2026-05-05', '2026-06-06', '2026-08-15', '2026-10-03', '2026-10-09', '2026-12-25',
+  '2026-02-16', '2026-02-17', '2026-02-18', // 설날 연휴
+  '2026-09-24', '2026-09-25', '2026-09-26', // 추석 연휴
+  '2027-01-01', '2027-03-01', '2027-05-05', '2027-06-06', '2027-08-15', '2027-10-03', '2027-10-09', '2027-12-25',
+];
+
 function defaultData() {
   const categories = [];
   const colorCounter = { expense: 0, income: 0 };
@@ -317,7 +333,7 @@ function defaultData() {
     });
   });
   const accounts = [{ id: uid(), name: '현금', type: 'cash', icon: '💵', initialBalance: 0, includeInTotal: true, currency: 'KRW' }];
-  return { version: 1, categorySchema: 2, accounts, categories, transactions: [], budgets: {}, recurring: [], settings: { usdKrwRate: null, rateUpdatedAt: null } };
+  return { version: 1, categorySchema: 2, accounts, categories, transactions: [], budgets: {}, recurring: [], holidays: DEFAULT_HOLIDAYS.slice(), settings: { usdKrwRate: null, rateUpdatedAt: null } };
 }
 
 /* 구버전(대/소분류 구분 없는 평평한 카테고리) 데이터를 대분류 트리 밑으로 옮겨요.
@@ -369,6 +385,7 @@ function loadData() {
     d.transactions = d.transactions || [];
     d.budgets = d.budgets || {};
     d.recurring = d.recurring || [];
+    d.holidays = Array.isArray(d.holidays) ? d.holidays : DEFAULT_HOLIDAYS.slice();
     d.settings = d.settings || { usdKrwRate: null, rateUpdatedAt: null };
     d = migrateCategoriesToHierarchy(d);
     d = migrateAccountTypes(d);
@@ -402,6 +419,22 @@ function shiftMonth(mKey, delta) {
 function monthLabel(mKey) { const [y, m] = mKey.split('-').map(Number); return `${y}년 ${m}월`; }
 function daysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
 function todayStr() { return ymd(new Date()); }
+function isHolidayDate(d) {
+  const wd = d.getDay();
+  if (wd === 0 || wd === 6) return true;
+  return (DATA.holidays || []).includes(ymd(d));
+}
+function nextBusinessDay(d) {
+  const nd = new Date(d);
+  while (isHolidayDate(nd)) nd.setDate(nd.getDate() + 1);
+  return nd;
+}
+function recurringEffectiveDate(r, y, m) {
+  const day = Math.min(r.day, daysInMonth(y, m));
+  let d = new Date(y, m - 1, day);
+  if (r.type === 'expense' && !r.noHolidayShift) d = nextBusinessDay(d);
+  return d;
+}
 
 /* ---------------- formatting ---------------- */
 function won(n) { return Math.round(n).toLocaleString('ko-KR') + '원'; }
@@ -574,8 +607,7 @@ function renderPanel() {
 function renderHome() {
   const mKey = monthKey(new Date());
   const recent = [...DATA.transactions].sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id)).slice(0, 8);
-  const topExpense = categoryTotals(mKey, 'expense').slice(0, 5);
-  const maxTop = Math.max(1, ...topExpense.map(c => c.amount));
+  const dueToday = todaysRecurring();
 
   const budgetAlerts = Object.entries(DATA.budgets)
     .map(([catId, amt]) => ({ catId, amt, spent: (categoryTotals(mKey, 'expense').find(c => c.categoryId === catId) || { amount: 0 }).amount }))
@@ -584,13 +616,23 @@ function renderHome() {
 
   document.getElementById('panel-home').innerHTML = `
     <div class="section-block">
-      <div class="section-heading">이번 달 지출 top 5</div>
-      ${topExpense.length ? topExpense.map(c => `
-        <div class="bar-row">
-          <div class="bar-lbl"><span class="cat-swatch" style="background:${catColor(c.category)}"></span>${c.category.icon} ${escapeHtml(c.category.name)}</div>
-          <div class="bar-track"><div class="bar-fill" style="width:${(c.amount / maxTop * 100).toFixed(1)}%;background:${catColor(c.category)}"></div></div>
-          <div class="bar-val">${won(c.amount)}</div>
-        </div>`).join('') : `<div class="empty">이번 달 지출 내역이 아직 없어요.</div>`}
+      <div class="section-heading">오늘의 정기거래</div>
+      ${dueToday.length ? dueToday.map(r => {
+        const acc = getAccount(r.accountId);
+        const mid = r.type === 'transfer'
+          ? `${acc.icon} ${escapeHtml(acc.name)} → ${getAccount(r.toAccountId).icon} ${escapeHtml(getAccount(r.toAccountId).name)}`
+          : `${getCategory(r.categoryId).icon} ${escapeHtml(getCategory(r.categoryId).name)} · ${escapeHtml(acc.name)}`;
+        return `<div class="due-row">
+          <div class="due-main">
+            <div><span class="type-tag ${r.type}">${r.type === 'income' ? '수입' : r.type === 'expense' ? '지출' : '이체'}</span> ${escapeHtml(r.name)}</div>
+            <div class="due-sub">${mid}</div>
+          </div>
+          <div class="due-right">
+            <div class="due-amt">${fmtCurrency(r.amount, acc.currency || 'KRW')}</div>
+            ${r.alreadyApplied ? `<span class="badge-done">등록됨</span>` : `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="quickApplyRecurringToday('${r.id}')">적용</button>`}
+          </div>
+        </div>`;
+      }).join('') : `<div class="empty">오늘 예정된 정기거래가 없어요.</div>`}
     </div>
 
     ${budgetAlerts.length ? `
@@ -1395,17 +1437,16 @@ function renderRecurring() {
       <button class="primary-btn" onclick="openRecurringModal()"><i class="ti ti-plus"></i> 정기거래 추가</button>
     </div>
     ${DATA.recurring.length ? `<div class="overflow-x"><table>
-      <thead><tr><th>이름</th><th>카테고리/자산</th><th class="num">금액</th><th>주기(일)</th><th>사용</th><th class="actions-cell">관리</th></tr></thead>
+      <thead><tr><th>이름</th><th>카테고리/자산</th><th class="num">금액</th><th>주기(일)</th><th class="actions-cell">관리</th></tr></thead>
       <tbody>
         ${DATA.recurring.map(r => {
           const acc = getAccount(r.accountId);
           const mid = r.type === 'transfer' ? `${acc.icon} ${escapeHtml(acc.name)} → ${getAccount(r.toAccountId).icon} ${escapeHtml(getAccount(r.toAccountId).name)}` : `${getCategory(r.categoryId).icon} ${escapeHtml(getCategory(r.categoryId).name)} · ${escapeHtml(acc.name)}`;
           return `<tr>
-            <td class="name-cell"><span class="type-tag ${r.type}">${r.type === 'income' ? '수입' : r.type === 'expense' ? '지출' : '이체'}</span> ${escapeHtml(r.name)}</td>
+            <td class="name-cell"><span class="type-tag ${r.type}">${r.type === 'income' ? '수입' : r.type === 'expense' ? '지출' : '이체'}</span> ${escapeHtml(r.name)}${r.type === 'expense' && r.noHolidayShift ? ` <span class="form-note" style="display:inline;margin:0;">(휴일무관)</span>` : ''}</td>
             <td class="name-cell">${mid}</td>
             <td class="num">${fmtCurrency(r.amount, acc.currency || 'KRW')}</td>
             <td>${r.day}일</td>
-            <td><input type="checkbox" ${r.active ? 'checked' : ''} onchange="toggleRecurring('${r.id}', this.checked)" style="width:15px;height:15px;"></td>
             <td class="actions-cell">
               <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringApplyModal('${r.id}')">적용</button>
               <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringModal('${r.id}')">수정</button>
@@ -1457,6 +1498,12 @@ function openRecurringModal(id) {
     <div class="field"><label class="field-lbl" id="rec-name-label">${labels.name}</label><input type="text" id="rec-name" value="${escapeHtml(editing ? editing.name : '')}" placeholder="예: 월세, 넷플릭스, 급여"></div>
     <div class="field"><label class="field-lbl">금액 <span id="rec-amount-currency" style="color:var(--ink-faint);font-weight:400;text-transform:none;"></span></label><input type="text" inputmode="decimal" id="rec-amount" oninput="onRecAmountInputDynamic(this)" value="${editing ? (getAccount(editing.accountId).currency === 'USD' ? Number(editing.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(editing.amount).toLocaleString('ko-KR')) : ''}"></div>
     <div class="field"><label class="field-lbl" id="rec-day-label">${labels.day}</label><input type="number" id="rec-day" min="1" max="31" value="${editing ? editing.day : 1}"></div>
+    <div class="field" id="rec-noshift-field" style="display:${type === 'expense' ? '' : 'none'};">
+      <label style="display:flex;align-items:center;gap:8px;font-weight:400;cursor:pointer;">
+        <input type="checkbox" id="rec-noshift" ${editing && editing.noHolidayShift ? 'checked' : ''} style="width:16px;height:16px;">
+        휴일이어도 해당일에 표시 (월세 등)
+      </label>
+    </div>
     <div id="rec-cat-field" class="field"></div>
     <div id="rec-acc-field" class="field"></div>
     <div id="rec-toacc-field" class="field"></div>
@@ -1479,6 +1526,7 @@ function setRecType(t) {
   const labels = recFieldLabels(t);
   document.getElementById('rec-name-label').textContent = labels.name;
   document.getElementById('rec-day-label').textContent = labels.day;
+  document.getElementById('rec-noshift-field').style.display = t === 'expense' ? '' : 'none';
   renderRecModalFields();
 }
 function renderRecModalFields(presetCat, presetAcc, presetToAcc) {
@@ -1519,7 +1567,7 @@ function submitRecurring(editId) {
   if (!name) return showToast('이름을 입력해주세요.', 'error');
   if (!amount || amount <= 0) return showToast('금액을 입력해주세요.', 'error');
 
-  let payload = { type, name, amount, day };
+  let payload = { type, name, amount, day, noHolidayShift: type === 'expense' && document.getElementById('rec-noshift').checked };
   if (type === 'transfer') {
     payload.accountId = document.getElementById('rec-account').value;
     payload.toAccountId = document.getElementById('rec-toaccount').value;
@@ -1532,7 +1580,7 @@ function submitRecurring(editId) {
     const idx = DATA.recurring.findIndex(r => r.id === editId);
     DATA.recurring[idx] = { ...DATA.recurring[idx], ...payload };
   } else {
-    payload.id = uid(); payload.active = true;
+    payload.id = uid();
     DATA.recurring.push(payload);
   }
   saveData();
@@ -1540,36 +1588,43 @@ function submitRecurring(editId) {
   showToast(editId ? '정기거래를 수정했어요.' : '정기거래를 추가했어요.', 'success');
   renderAll();
 }
-function toggleRecurring(id, active) {
-  const r = DATA.recurring.find(x => x.id === id);
-  r.active = active;
-  saveData();
-}
 function deleteRecurring(id) {
   if (!confirm('이 정기거래를 삭제할까요? (이미 생성된 거래는 남아있어요)')) return;
   DATA.recurring = DATA.recurring.filter(r => r.id !== id);
   saveData();
   renderRecurring();
 }
-function applyDueRecurring(force) {
+function todaysRecurring() {
   const today = new Date();
+  const y = today.getFullYear(), m = today.getMonth() + 1;
   const mKey = monthKey(today);
-  let created = 0;
-  DATA.recurring.filter(r => r.active).forEach(r => {
-    const already = DATA.transactions.some(t => t.fromRecurringId === r.id && t.date.slice(0, 7) === mKey);
-    if (already) return;
-    if (!force && r.day > today.getDate()) return;
-    const [y, m] = mKey.split('-').map(Number);
-    const day = Math.min(r.day, daysInMonth(y, m));
-    const date = `${mKey}-${pad2(day)}`;
-    DATA.transactions.push({
-      id: uid(), date, type: r.type, amount: r.amount, memo: r.name, fromRecurringId: r.id,
-      categoryId: r.categoryId, accountId: r.accountId, toAccountId: r.toAccountId,
-    });
-    created++;
+  const todayKey = ymd(today);
+  return DATA.recurring
+    .filter(r => ymd(recurringEffectiveDate(r, y, m)) === todayKey)
+    .map(r => ({ ...r, alreadyApplied: DATA.transactions.some(t => t.fromRecurringId === r.id && t.date.slice(0, 7) === mKey) }));
+}
+function quickApplyRecurringToday(id) {
+  const r = DATA.recurring.find(x => x.id === id);
+  if (!r) return;
+  DATA.transactions.push({
+    id: uid(), date: todayStr(), type: r.type, amount: r.amount, memo: r.name, fromRecurringId: r.id,
+    categoryId: r.categoryId, accountId: r.accountId, toAccountId: r.toAccountId,
   });
-  if (created > 0) { saveData(); showToast(`정기거래 ${created}건이 등록됐어요.`, 'success'); renderAll(); }
-  else if (force) { showToast('이번 달에 새로 등록할 정기거래가 없어요.', 'info'); }
+  saveData();
+  showToast(`${r.name} 등록했어요.`, 'success');
+  renderAll();
+}
+function notifyDueRecurringToday() {
+  const due = todaysRecurring().filter(r => !r.alreadyApplied);
+  if (!due.length) return;
+  const key = 'hl_recurring_notified_' + todayStr();
+  if (localStorage.getItem(key)) return;
+  localStorage.setItem(key, '1');
+  const summary = due.map(r => r.name).join(', ');
+  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    try { new Notification('오늘의 정기거래', { body: `${summary} — 홈 탭에서 확인하고 적용해보세요.`, icon: './icon-192.png' }); } catch (e) {}
+  }
+  showToast(`오늘 정기거래 ${due.length}건이 있어요: ${summary}`, 'info');
 }
 
 /* ---------------- SETTINGS (categories / backup) ---------------- */
@@ -1610,6 +1665,22 @@ function renderSettings() {
       </div>
     </div>
     <div class="section-block">
+      <div class="section-heading">알림</div>
+      <div class="form-note" style="margin-bottom:10px;">오늘 등록할 정기거래가 있으면 브라우저 알림으로 알려드려요. (앱을 열어둔 상태에서만 동작해요)</div>
+      <button class="ghost-btn" onclick="requestNotifyPermission()">${notifPermLabel()}</button>
+    </div>
+    <div class="section-block">
+      <div class="section-heading">공휴일 관리</div>
+      <div class="form-note" style="margin-bottom:10px;">정기거래(지출) 예정일이 휴일(주말/공휴일)이면 다음 평일에 표시해요. 월세처럼 휴일에도 해당일에 표시하려면 정기거래 등록 시 "휴일이어도 해당일에 표시" 체크박스를 켜주세요. 음력 공휴일(설날/추석 등)은 연도별로 날짜가 달라지니 필요에 따라 아래에서 추가/삭제하세요.</div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <input type="date" id="holiday-input">
+        <button class="ghost-btn" onclick="addHoliday()">추가</button>
+      </div>
+      <div class="cat-child-list">
+        ${(DATA.holidays || []).slice().sort().map(h => `<div class="cat-chip"><span class="cat-chip-name">${h}</span><button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="removeHoliday('${h}')">삭제</button></div>`).join('') || '<div class="form-note">등록된 공휴일이 없어요.</div>'}
+      </div>
+    </div>
+    <div class="section-block">
       <div class="section-heading">데이터</div>
       <div class="form-note">현재 이 브라우저에만 저장돼요 (거래 ${DATA.transactions.length}건, 자산 ${DATA.accounts.length}개). 다른 기기로 옮기려면 내보내기 → 가져오기를 사용하세요.</div>
       <div class="danger-zone">
@@ -1619,6 +1690,36 @@ function renderSettings() {
       </div>
     </div>
   `;
+}
+function notifPermLabel() {
+  if (typeof Notification === 'undefined') return '이 브라우저는 알림 미지원';
+  if (Notification.permission === 'granted') return '알림 켜짐 ✓';
+  if (Notification.permission === 'denied') return '알림 차단됨 (브라우저 설정에서 허용 필요)';
+  return '알림 켜기';
+}
+function requestNotifyPermission() {
+  if (typeof Notification === 'undefined') return showToast('이 브라우저는 알림을 지원하지 않아요.', 'error');
+  Notification.requestPermission().then(() => {
+    renderSettings();
+    showToast(Notification.permission === 'granted' ? '알림이 켜졌어요.' : '알림 권한이 허용되지 않았어요.', Notification.permission === 'granted' ? 'success' : 'error');
+  });
+}
+function addHoliday() {
+  const el = document.getElementById('holiday-input');
+  const v = el.value;
+  if (!v) return showToast('날짜를 선택해주세요.', 'error');
+  DATA.holidays = DATA.holidays || [];
+  if (DATA.holidays.includes(v)) return showToast('이미 등록된 날짜예요.', 'error');
+  DATA.holidays.push(v);
+  saveData();
+  el.value = '';
+  renderSettings();
+  showToast('공휴일을 추가했어요.', 'success');
+}
+function removeHoliday(v) {
+  DATA.holidays = (DATA.holidays || []).filter(h => h !== v);
+  saveData();
+  renderSettings();
 }
 function openParentCategoryModal(id) {
   const editing = id ? DATA.categories.find(c => c.id === id) : null;
@@ -1807,7 +1908,7 @@ document.getElementById('file-import').addEventListener('change', (e) => {
 
 /* ---------------- init ---------------- */
 switchTab('home');
-applyDueRecurring(false);
+notifyDueRecurringToday();
 renderAll();
 if (!DATA.settings.rateUpdatedAt || Date.now() - new Date(DATA.settings.rateUpdatedAt).getTime() > 6 * 60 * 60 * 1000) {
   fetchExchangeRate(true);
