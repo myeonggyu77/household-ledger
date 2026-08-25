@@ -617,9 +617,9 @@ function renderHome() {
 /* ---------------- month nav (shared) ---------------- */
 function monthNavHtml(onPrev, onNext, mKey) {
   return `<div class="month-nav">
-    <button class="icon-btn" onclick="${onPrev}"><i class="ti ti-chevron-left"></i></button>
+    <button class="icon-btn" onclick="${onPrev}" aria-label="이전 달">&lt;</button>
     <div class="m-label">${monthLabel(mKey)}</div>
-    <button class="icon-btn" onclick="${onNext}"><i class="ti ti-chevron-right"></i></button>
+    <button class="icon-btn" onclick="${onNext}" aria-label="다음 달">&gt;</button>
     <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="jumpToday()">오늘</button>
   </div>`;
 }
@@ -710,7 +710,7 @@ function renderTxTable(list, hideDate) {
         let mid;
         if (t.type === 'transfer') {
           const toAcc = getAccount(t.toAccountId);
-          mid = `${acc.icon} ${escapeHtml(acc.name)} <i class="ti ti-arrow-right" style="font-size:11px;"></i> ${toAcc.icon} ${escapeHtml(toAcc.name)}`;
+          mid = `${acc.icon} ${escapeHtml(acc.name)} → ${toAcc.icon} ${escapeHtml(toAcc.name)}`;
         } else {
           const cat = getCategory(t.categoryId);
           mid = `${cat.icon} ${escapeHtml(cat.name)} <span style="color:var(--ink-faint)">· ${escapeHtml(acc.name)}</span>`;
@@ -723,9 +723,9 @@ function renderTxTable(list, hideDate) {
           <td class="name-cell">${t.payee ? `<span style="font-weight:600;">${escapeHtml(t.payee)}</span>${t.memo ? ' · ' : ''}` : ''}${escapeHtml(t.memo || '')}${t.excludeFromStats ? ' <span style="color:var(--ink-faint);font-size:11px;">(통계 제외)</span>' : ''}${t.receipt ? ' <span title="영수증 첨부">🧾</span>' : ''}</td>
           <td class="num amt ${t.type}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</td>
           <td class="actions-cell">
-            ${t.receipt ? `<button class="icon-btn" onclick="openReceiptLightboxForTx('${t.id}')"><i class="ti ti-photo"></i></button>` : ''}
-            <button class="icon-btn" onclick="openTxModal('${t.id}')"><i class="ti ti-pencil"></i></button>
-            <button class="icon-btn danger" onclick="deleteTx('${t.id}')"><i class="ti ti-trash"></i></button>
+            ${t.receipt ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
+            <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openTxModal('${t.id}')">수정</button>
+            <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteTx('${t.id}')">삭제</button>
           </td>
         </tr>`;
       }).join('')}
@@ -926,7 +926,7 @@ function renderReceiptPreview() {
   if (!wrap) return;
   const r = state._txModal.receipt;
   wrap.innerHTML = r
-    ? `<div class="receipt-thumb-wrap"><img src="${r}" class="receipt-thumb" alt="영수증 미리보기"><button type="button" class="icon-btn danger" onclick="removeReceipt()"><i class="ti ti-trash"></i></button></div>`
+    ? `<div class="receipt-thumb-wrap"><img src="${r}" class="receipt-thumb" alt="영수증 미리보기"><button type="button" class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="removeReceipt()">삭제</button></div>`
     : `<button type="button" class="ghost-btn" onclick="document.getElementById('tx-receipt-file').click()"><i class="ti ti-camera"></i> 영수증 사진 추가</button>`;
 }
 function removeReceipt() { state._txModal.receipt = null; renderReceiptPreview(); }
@@ -1270,8 +1270,8 @@ function renderAccounts() {
       <div class="acct-bal">${fmtCurrencySigned(accountBalance(a), a.currency || 'KRW')}</div>
       ${a.includeInTotal === false ? '<div class="form-note" style="margin:6px 0 0;">총 자산 제외</div>' : ''}
       <div class="acct-actions">
-        <button class="icon-btn" onclick="openAccountModal('${a.id}')"><i class="ti ti-pencil"></i></button>
-        <button class="icon-btn danger" onclick="deleteAccount('${a.id}')"><i class="ti ti-trash"></i></button>
+        <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openAccountModal('${a.id}')">수정</button>
+        <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteAccount('${a.id}')">삭제</button>
       </div>
     </div>`;
   const groupHtml = (type) => {
@@ -1283,7 +1283,7 @@ function renderAccounts() {
         <span class="cat-chip-name">${ACC_TYPE_ICON[type]} ${ACC_TYPE_LABEL[type]}</span>
         <span style="display:flex;align-items:center;gap:10px;">
           <span class="form-note" style="margin:0;">${wonSigned(subtotalKRW)}${hasUsd ? ' (환산)' : ''}</span>
-          <button class="icon-btn" onclick="openAccountModal(null, '${type}')" title="자산 추가"><i class="ti ti-plus"></i></button>
+          <button class="icon-btn" onclick="openAccountModal(null, '${type}')" title="자산 추가" aria-label="자산 추가">+</button>
         </span>
       </div>
       <div class="cat-child-list">
@@ -1300,9 +1300,9 @@ function renderAccounts() {
       <div class="hint">${DATA.accounts.length}개 자산 · 총 자산 ${won(totalAssets())}</div>
       <button class="primary-btn" onclick="openAccountModal()"><i class="ti ti-plus"></i> 자산 추가</button>
     </div>
-    <div class="form-note" style="display:flex;align-items:center;gap:6px;margin-bottom:16px;">
-      <i class="ti ti-currency-dollar"></i> ${rateLine}
-      <button class="icon-btn" onclick="fetchExchangeRate(false)" title="환율 새로고침"><i class="ti ti-refresh"></i></button>
+    <div class="form-note" style="display:flex;align-items:center;gap:6px;margin-bottom:16px;flex-wrap:wrap;">
+      ${rateLine}
+      <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="fetchExchangeRate(false)">환율 새로고침</button>
     </div>
     ${ACC_TYPES.map(groupHtml).join('')}
   `;
@@ -1395,22 +1395,21 @@ function renderRecurring() {
       <button class="primary-btn" onclick="openRecurringModal()"><i class="ti ti-plus"></i> 정기거래 추가</button>
     </div>
     ${DATA.recurring.length ? `<div class="overflow-x"><table>
-      <thead><tr><th>이름</th><th>구분</th><th>카테고리/자산</th><th class="num">금액</th><th>주기(일)</th><th>사용</th><th class="actions-cell">관리</th></tr></thead>
+      <thead><tr><th>이름</th><th>카테고리/자산</th><th class="num">금액</th><th>주기(일)</th><th>사용</th><th class="actions-cell">관리</th></tr></thead>
       <tbody>
         ${DATA.recurring.map(r => {
           const acc = getAccount(r.accountId);
           const mid = r.type === 'transfer' ? `${acc.icon} ${escapeHtml(acc.name)} → ${getAccount(r.toAccountId).icon} ${escapeHtml(getAccount(r.toAccountId).name)}` : `${getCategory(r.categoryId).icon} ${escapeHtml(getCategory(r.categoryId).name)} · ${escapeHtml(acc.name)}`;
           return `<tr>
-            <td class="name-cell">${escapeHtml(r.name)}</td>
-            <td><span class="type-tag ${r.type}">${r.type === 'income' ? '수입' : r.type === 'expense' ? '지출' : '이체'}</span></td>
+            <td class="name-cell"><span class="type-tag ${r.type}">${r.type === 'income' ? '수입' : r.type === 'expense' ? '지출' : '이체'}</span> ${escapeHtml(r.name)}</td>
             <td class="name-cell">${mid}</td>
             <td class="num">${fmtCurrency(r.amount, acc.currency || 'KRW')}</td>
             <td>${r.day}일</td>
             <td><input type="checkbox" ${r.active ? 'checked' : ''} onchange="toggleRecurring('${r.id}', this.checked)" style="width:15px;height:15px;"></td>
             <td class="actions-cell">
               <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringApplyModal('${r.id}')">적용</button>
-              <button class="icon-btn" onclick="openRecurringModal('${r.id}')"><i class="ti ti-pencil"></i></button>
-              <button class="icon-btn danger" onclick="deleteRecurring('${r.id}')"><i class="ti ti-trash"></i></button>
+              <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringModal('${r.id}')">수정</button>
+              <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteRecurring('${r.id}')">삭제</button>
             </td>
           </tr>`;
         }).join('')}
@@ -1581,18 +1580,18 @@ function renderSettings() {
       <div class="cat-parent-head">
         <span class="cat-chip-name">${p.icon} ${escapeHtml(p.name)}</span>
         <span>
-          <button class="icon-btn" onclick="openChildCategoryModal(null, '${p.id}')" title="소분류 추가"><i class="ti ti-plus"></i></button>
-          <button class="icon-btn" onclick="openParentCategoryModal('${p.id}')"><i class="ti ti-pencil"></i></button>
-          <button class="icon-btn danger" onclick="deleteCategory('${p.id}')"><i class="ti ti-trash"></i></button>
+          <button class="icon-btn" onclick="openChildCategoryModal(null, '${p.id}')" title="소분류 추가" aria-label="소분류 추가">+</button>
+          <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openParentCategoryModal('${p.id}')">수정</button>
+          <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteCategory('${p.id}')">삭제</button>
         </span>
       </div>
       <div class="cat-child-list">
         ${children.length ? children.map(c => `<div class="cat-chip">
           <span class="cat-chip-name"><span class="cat-swatch" style="background:${catColor(c)}"></span>${c.icon} ${escapeHtml(c.name)}${categoryUsageCount(c.id) ? ` <span class="form-note" style="margin:0;">(거래 ${categoryUsageCount(c.id)}건)</span>` : ''}</span>
           <span>
-            <button class="icon-btn" onclick="openReassignCategoryModal('${c.id}')" title="다른 카테고리로 일괄 변경"><i class="ti ti-arrows-left-right"></i></button>
-            <button class="icon-btn" onclick="openChildCategoryModal('${c.id}')"><i class="ti ti-pencil"></i></button>
-            <button class="icon-btn danger" onclick="deleteCategory('${c.id}')"><i class="ti ti-trash"></i></button>
+            <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReassignCategoryModal('${c.id}')" title="다른 카테고리로 일괄 변경">변경</button>
+            <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openChildCategoryModal('${c.id}')">수정</button>
+            <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteCategory('${c.id}')">삭제</button>
           </span>
         </div>`).join('') : `<div class="form-note" style="margin:2px 0 8px;">소분류가 없어요. + 버튼으로 추가해주세요.</div>`}
       </div>
