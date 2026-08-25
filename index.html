@@ -311,14 +311,64 @@ const CATEGORY_TREE = {
   ],
 };
 
-/* 정기거래(지출) 예정일이 휴일이면 다음 평일로 미뤄서 보여줄 때 쓰는 기본 공휴일 목록.
-   음력 기준 공휴일(설날/추석 등)은 매년 날짜가 달라지므로 설정 > 공휴일 관리에서 직접 추가/수정해요. */
-const DEFAULT_HOLIDAYS = [
-  '2026-01-01', '2026-03-01', '2026-05-05', '2026-06-06', '2026-08-15', '2026-10-03', '2026-10-09', '2026-12-25',
-  '2026-02-16', '2026-02-17', '2026-02-18', // 설날 연휴
-  '2026-09-24', '2026-09-25', '2026-09-26', // 추석 연휴
-  '2027-01-01', '2027-03-01', '2027-05-05', '2027-06-06', '2027-08-15', '2027-10-03', '2027-10-09', '2027-12-25',
-];
+/* ---------------- 한국 공휴일(음력 포함) 자동 계산 ----------------
+   브라우저의 Intl 음력(chinese) 캘린더로 설날/추석/부처님오신날의 양력 날짜를 매년 계산하고,
+   대체공휴일 규정(신정·현충일 제외, 주말과 겹치면 다음 평일에 하루를 더 지정)을 적용해요.
+   회사 임시 휴무일처럼 이 계산에 없는 날짜는 설정 > 공휴일 관리에서 직접 추가할 수 있어요. */
+function _addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function _isWeekendDate(d) { const w = d.getDay(); return w === 0 || w === 6; }
+function _lunarMonthDay(date) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-u-ca-chinese', { year: 'numeric', month: 'numeric', day: 'numeric' }).formatToParts(date);
+    return { month: Number(parts.find(p => p.type === 'month').value), day: Number(parts.find(p => p.type === 'day').value) };
+  } catch (e) { return null; }
+}
+function _findLunarDate(gYear, lunarMonth, lunarDay, searchStartMonth, searchStartDay, rangeDays) {
+  const start = new Date(gYear, searchStartMonth - 1, searchStartDay);
+  for (let i = 0; i < rangeDays; i++) {
+    const d = _addDays(start, i);
+    const lm = _lunarMonthDay(d);
+    if (lm && lm.month === lunarMonth && lm.day === lunarDay) return d;
+  }
+  return null;
+}
+function krHolidaysForYear(y) {
+  const singles = [
+    { date: new Date(y, 0, 1), subEligible: false },  // 신정
+    { date: new Date(y, 2, 1), subEligible: true },   // 삼일절
+    { date: new Date(y, 4, 5), subEligible: true },   // 어린이날
+    { date: new Date(y, 5, 6), subEligible: false },  // 현충일
+    { date: new Date(y, 7, 15), subEligible: true },  // 광복절
+    { date: new Date(y, 9, 3), subEligible: true },   // 개천절
+    { date: new Date(y, 9, 9), subEligible: true },   // 한글날
+    { date: new Date(y, 11, 25), subEligible: true }, // 성탄절(크리스마스)
+  ];
+  const seol = _findLunarDate(y, 1, 1, 1, 10, 55);     // 설날 (음력 1/1)
+  const buddha = _findLunarDate(y, 4, 8, 4, 5, 60);    // 부처님오신날 (음력 4/8)
+  const chu = _findLunarDate(y, 8, 15, 8, 25, 50);     // 추석 (음력 8/15)
+  if (buddha) singles.push({ date: buddha, subEligible: true });
+  const seollalGroup = seol ? [-1, 0, 1].map(o => _addDays(seol, o)) : [];
+  const chuseokGroup = chu ? [-1, 0, 1].map(o => _addDays(chu, o)) : [];
+
+  const allDates = singles.map(s => s.date).concat(seollalGroup, chuseokGroup);
+  const baseSet = new Set(allDates.map(ymd));
+  const subs = [];
+  const addSub = (afterDate) => {
+    let d = _addDays(afterDate, 1);
+    while (_isWeekendDate(d) || baseSet.has(ymd(d)) || subs.some(s => ymd(s) === ymd(d))) d = _addDays(d, 1);
+    subs.push(d);
+  };
+  singles.forEach(({ date, subEligible }) => { if (subEligible && _isWeekendDate(date)) addSub(date); });
+  if (seollalGroup.length && seollalGroup.some(_isWeekendDate)) addSub(seollalGroup[2]);
+  if (chuseokGroup.length && chuseokGroup.some(_isWeekendDate)) addSub(chuseokGroup[2]);
+
+  return allDates.concat(subs);
+}
+const _krHolidayCache = {};
+function krHolidaySetForYear(y) {
+  if (!_krHolidayCache[y]) _krHolidayCache[y] = new Set(krHolidaysForYear(y).map(ymd));
+  return _krHolidayCache[y];
+}
 
 function defaultData() {
   const categories = [];
@@ -333,7 +383,7 @@ function defaultData() {
     });
   });
   const accounts = [{ id: uid(), name: '현금', type: 'cash', icon: '💵', initialBalance: 0, includeInTotal: true, currency: 'KRW' }];
-  return { version: 1, categorySchema: 2, accounts, categories, transactions: [], budgets: {}, recurring: [], holidays: DEFAULT_HOLIDAYS.slice(), settings: { usdKrwRate: null, rateUpdatedAt: null } };
+  return { version: 1, categorySchema: 2, accounts, categories, transactions: [], budgets: {}, recurring: [], holidays: [], settings: { usdKrwRate: null, rateUpdatedAt: null } };
 }
 
 /* 구버전(대/소분류 구분 없는 평평한 카테고리) 데이터를 대분류 트리 밑으로 옮겨요.
@@ -385,7 +435,7 @@ function loadData() {
     d.transactions = d.transactions || [];
     d.budgets = d.budgets || {};
     d.recurring = d.recurring || [];
-    d.holidays = Array.isArray(d.holidays) ? d.holidays : DEFAULT_HOLIDAYS.slice();
+    d.holidays = (Array.isArray(d.holidays) ? d.holidays : []).filter(h => !krHolidaySetForYear(Number(h.slice(0, 4))).has(h));
     d.settings = d.settings || { usdKrwRate: null, rateUpdatedAt: null };
     d = migrateCategoriesToHierarchy(d);
     d = migrateAccountTypes(d);
@@ -422,6 +472,7 @@ function todayStr() { return ymd(new Date()); }
 function isHolidayDate(d) {
   const wd = d.getDay();
   if (wd === 0 || wd === 6) return true;
+  if (krHolidaySetForYear(d.getFullYear()).has(ymd(d))) return true;
   return (DATA.holidays || []).includes(ymd(d));
 }
 function nextBusinessDay(d) {
@@ -429,10 +480,16 @@ function nextBusinessDay(d) {
   while (isHolidayDate(nd)) nd.setDate(nd.getDate() + 1);
   return nd;
 }
+function prevBusinessDay(d) {
+  const nd = new Date(d);
+  while (isHolidayDate(nd)) nd.setDate(nd.getDate() - 1);
+  return nd;
+}
 function recurringEffectiveDate(r, y, m) {
   const day = Math.min(r.day, daysInMonth(y, m));
   let d = new Date(y, m - 1, day);
   if (r.type === 'expense' && !r.noHolidayShift) d = nextBusinessDay(d);
+  else if (r.type === 'income' && r.payBeforeHoliday) d = prevBusinessDay(d);
   return d;
 }
 
@@ -1443,7 +1500,7 @@ function renderRecurring() {
           const acc = getAccount(r.accountId);
           const mid = r.type === 'transfer' ? `${acc.icon} ${escapeHtml(acc.name)} → ${getAccount(r.toAccountId).icon} ${escapeHtml(getAccount(r.toAccountId).name)}` : `${getCategory(r.categoryId).icon} ${escapeHtml(getCategory(r.categoryId).name)} · ${escapeHtml(acc.name)}`;
           return `<tr>
-            <td class="name-cell"><span class="type-tag ${r.type}">${r.type === 'income' ? '수입' : r.type === 'expense' ? '지출' : '이체'}</span> ${escapeHtml(r.name)}${r.type === 'expense' && r.noHolidayShift ? ` <span class="form-note" style="display:inline;margin:0;">(휴일무관)</span>` : ''}</td>
+            <td class="name-cell"><span class="type-tag ${r.type}">${r.type === 'income' ? '수입' : r.type === 'expense' ? '지출' : '이체'}</span> ${escapeHtml(r.name)}${r.type === 'expense' && r.noHolidayShift ? ` <span class="form-note" style="display:inline;margin:0;">(휴일무관)</span>` : ''}${r.type === 'income' && r.payBeforeHoliday ? ` <span class="form-note" style="display:inline;margin:0;">(휴일 전 평일)</span>` : ''}</td>
             <td class="name-cell">${mid}</td>
             <td class="num">${fmtCurrency(r.amount, acc.currency || 'KRW')}</td>
             <td>${r.day}일</td>
@@ -1498,10 +1555,10 @@ function openRecurringModal(id) {
     <div class="field"><label class="field-lbl" id="rec-name-label">${labels.name}</label><input type="text" id="rec-name" value="${escapeHtml(editing ? editing.name : '')}" placeholder="예: 월세, 넷플릭스, 급여"></div>
     <div class="field"><label class="field-lbl">금액 <span id="rec-amount-currency" style="color:var(--ink-faint);font-weight:400;text-transform:none;"></span></label><input type="text" inputmode="decimal" id="rec-amount" oninput="onRecAmountInputDynamic(this)" value="${editing ? (getAccount(editing.accountId).currency === 'USD' ? Number(editing.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(editing.amount).toLocaleString('ko-KR')) : ''}"></div>
     <div class="field"><label class="field-lbl" id="rec-day-label">${labels.day}</label><input type="number" id="rec-day" min="1" max="31" value="${editing ? editing.day : 1}"></div>
-    <div class="field" id="rec-noshift-field" style="display:${type === 'expense' ? '' : 'none'};">
+    <div class="field" id="rec-holiday-field" style="display:${type !== 'transfer' ? '' : 'none'};">
       <label style="display:flex;align-items:center;gap:8px;font-weight:400;cursor:pointer;">
-        <input type="checkbox" id="rec-noshift" ${editing && editing.noHolidayShift ? 'checked' : ''} style="width:16px;height:16px;">
-        휴일이어도 해당일에 표시 (월세 등)
+        <input type="checkbox" id="rec-holiday-adjust" ${editing && (editing.noHolidayShift || editing.payBeforeHoliday) ? 'checked' : ''} style="width:16px;height:16px;">
+        <span id="rec-holiday-label">${type === 'income' ? '휴일이면 전 평일에 표시 (월급 등)' : '휴일이어도 해당일에 표시 (월세 등)'}</span>
       </label>
     </div>
     <div id="rec-cat-field" class="field"></div>
@@ -1526,7 +1583,9 @@ function setRecType(t) {
   const labels = recFieldLabels(t);
   document.getElementById('rec-name-label').textContent = labels.name;
   document.getElementById('rec-day-label').textContent = labels.day;
-  document.getElementById('rec-noshift-field').style.display = t === 'expense' ? '' : 'none';
+  document.getElementById('rec-holiday-field').style.display = t !== 'transfer' ? '' : 'none';
+  document.getElementById('rec-holiday-label').textContent = t === 'income' ? '휴일이면 전 평일에 표시 (월급 등)' : '휴일이어도 해당일에 표시 (월세 등)';
+  document.getElementById('rec-holiday-adjust').checked = false;
   renderRecModalFields();
 }
 function renderRecModalFields(presetCat, presetAcc, presetToAcc) {
@@ -1567,7 +1626,12 @@ function submitRecurring(editId) {
   if (!name) return showToast('이름을 입력해주세요.', 'error');
   if (!amount || amount <= 0) return showToast('금액을 입력해주세요.', 'error');
 
-  let payload = { type, name, amount, day, noHolidayShift: type === 'expense' && document.getElementById('rec-noshift').checked };
+  const holidayAdjustChecked = document.getElementById('rec-holiday-adjust').checked;
+  let payload = {
+    type, name, amount, day,
+    noHolidayShift: type === 'expense' && holidayAdjustChecked,
+    payBeforeHoliday: type === 'income' && holidayAdjustChecked,
+  };
   if (type === 'transfer') {
     payload.accountId = document.getElementById('rec-account').value;
     payload.toAccountId = document.getElementById('rec-toaccount').value;
@@ -1671,13 +1735,13 @@ function renderSettings() {
     </div>
     <div class="section-block">
       <div class="section-heading">공휴일 관리</div>
-      <div class="form-note" style="margin-bottom:10px;">정기거래(지출) 예정일이 휴일(주말/공휴일)이면 다음 평일에 표시해요. 월세처럼 휴일에도 해당일에 표시하려면 정기거래 등록 시 "휴일이어도 해당일에 표시" 체크박스를 켜주세요. 음력 공휴일(설날/추석 등)은 연도별로 날짜가 달라지니 필요에 따라 아래에서 추가/삭제하세요.</div>
+      <div class="form-note" style="margin-bottom:10px;">공휴일(주말·신정·설날·추석·부처님오신날 등 음력 포함, 대체공휴일 규정)은 한국 달력 기준으로 자동 계산돼요. 지출 정기거래는 예정일이 휴일이면 다음 평일에 표시하고, "휴일이어도 해당일에 표시"를 켠 항목(예: 월세)은 그대로 표시해요. 수입 정기거래 중 "휴일이면 전 평일에 표시"를 켠 항목(예: 월급)은 휴일 전 평일에 표시해요. 회사 임시 휴무일처럼 자동 계산에 없는 날짜만 아래에 직접 추가하세요.</div>
       <div style="display:flex;gap:8px;margin-bottom:12px;">
         <input type="date" id="holiday-input">
         <button class="ghost-btn" onclick="addHoliday()">추가</button>
       </div>
       <div class="cat-child-list">
-        ${(DATA.holidays || []).slice().sort().map(h => `<div class="cat-chip"><span class="cat-chip-name">${h}</span><button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="removeHoliday('${h}')">삭제</button></div>`).join('') || '<div class="form-note">등록된 공휴일이 없어요.</div>'}
+        ${(DATA.holidays || []).slice().sort().map(h => `<div class="cat-chip"><span class="cat-chip-name">${h}</span><button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="removeHoliday('${h}')">삭제</button></div>`).join('') || '<div class="form-note">직접 추가한 공휴일이 없어요.</div>'}
       </div>
     </div>
     <div class="section-block">
