@@ -686,7 +686,7 @@ function renderHome() {
           </div>
           <div class="due-right">
             <div class="due-amt">${fmtCurrency(r.amount, acc.currency || 'KRW')}</div>
-            ${r.alreadyApplied ? `<span class="badge-done">등록됨</span>` : `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="quickApplyRecurringToday('${r.id}')">적용</button>`}
+            ${r.alreadyApplied ? `<span class="badge-done">등록됨</span>` : `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringQuickApplyModal('${r.id}')">적용</button>`}
           </div>
         </div>`;
       }).join('') : `<div class="empty">오늘 예정된 정기거래가 없어요.</div>`}
@@ -889,16 +889,22 @@ function onFilterChange() {
   renderTransactions();
 }
 
-function openTxModal(txId, presetDate) {
+function openTxModal(txId, presetDate, fromRecurring) {
   const editing = txId ? DATA.transactions.find(t => t.id === txId) : null;
-  const type = editing ? editing.type : 'expense';
+  const type = editing ? editing.type : (fromRecurring ? fromRecurring.type : 'expense');
   const date = editing ? editing.date : (presetDate || todayStr());
-  const editingCurrency = editing ? (getAccount(editing.accountId).currency || 'KRW') : 'KRW';
+  const editingCurrency = editing ? (getAccount(editing.accountId).currency || 'KRW')
+    : (fromRecurring ? (getAccount(fromRecurring.accountId).currency || 'KRW') : 'KRW');
   const editingAmountStr = editing
     ? (editingCurrency === 'USD' ? Number(editing.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(editing.amount).toLocaleString('ko-KR'))
-    : '';
+    : (fromRecurring
+      ? (editingCurrency === 'USD' ? Number(fromRecurring.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(fromRecurring.amount).toLocaleString('ko-KR'))
+      : '');
+  const modalTitle = editing ? '거래 수정' : (fromRecurring ? `${escapeHtml(fromRecurring.name)} 적용` : '거래 추가');
+  const submitLabel = editing ? '저장' : (fromRecurring ? '적용' : '추가');
   openModal(`
-    <h3>${editing ? '거래 수정' : '거래 추가'}</h3>
+    <h3>${modalTitle}</h3>
+    ${fromRecurring ? `<div class="form-note" style="margin-bottom:10px;">등록 전 마지막으로 내용을 확인하고 필요하면 수정하세요.</div>` : ''}
     <div class="seg" id="tx-type-seg">
       <button type="button" data-v="expense" class="${type === 'expense' ? 'active expense-active' : ''}" onclick="setTxType('expense')">지출</button>
       <button type="button" data-v="income" class="${type === 'income' ? 'active income-active' : ''}" onclick="setTxType('income')">수입</button>
@@ -910,16 +916,27 @@ function openTxModal(txId, presetDate) {
     <div id="tx-acc-field" class="field"></div>
     <div id="tx-toacc-field" class="field"></div>
     <div class="field" id="tx-payee-field"></div>
-    <div class="field"><label class="field-lbl">메모</label><input type="text" id="tx-memo" placeholder="메모 (선택)" value="${escapeHtml(editing ? (editing.memo || '') : '')}"></div>
+    <div class="field"><label class="field-lbl">메모</label><input type="text" id="tx-memo" placeholder="메모 (선택)" value="${escapeHtml(editing ? (editing.memo || '') : (fromRecurring ? fromRecurring.name : ''))}"></div>
     <div class="field" id="tx-receipt-field"></div>
     <div class="field" id="tx-exclude-field"></div>
     <div class="form-actions">
       <button class="ghost-btn" onclick="closeModal()">취소</button>
-      <button class="primary-btn" onclick="submitTx(${editing ? `'${editing.id}'` : 'null'})">${editing ? '저장' : '추가'}</button>
+      <button class="primary-btn" onclick="submitTx(${editing ? `'${editing.id}'` : 'null'})">${submitLabel}</button>
     </div>
   `);
-  state._txModal = { type, editing, receipt: editing && editing.type === 'expense' ? (editing.receipt || null) : null };
-  renderTxModalFields(editing ? editing.categoryId : null, editing ? editing.accountId : null, editing ? editing.toAccountId : null, editing ? !!editing.excludeFromStats : false, editing ? (editing.payee || '') : '');
+  state._txModal = { type, editing, receipt: editing && editing.type === 'expense' ? (editing.receipt || null) : null, fromRecurringId: fromRecurring ? fromRecurring.id : null };
+  renderTxModalFields(
+    editing ? editing.categoryId : (fromRecurring ? fromRecurring.categoryId : null),
+    editing ? editing.accountId : (fromRecurring ? fromRecurring.accountId : null),
+    editing ? editing.toAccountId : (fromRecurring ? fromRecurring.toAccountId : null),
+    editing ? !!editing.excludeFromStats : false,
+    editing ? (editing.payee || '') : ''
+  );
+}
+function openRecurringQuickApplyModal(id) {
+  const r = DATA.recurring.find(x => x.id === id);
+  if (!r) return;
+  openTxModal(null, todayStr(), r);
 }
 function setTxType(t) {
   state._txModal.type = t;
@@ -1066,11 +1083,12 @@ function submitTx(editId) {
     DATA.transactions[idx] = { ...DATA.transactions[idx], ...payload };
   } else {
     payload.id = uid();
+    if (state._txModal.fromRecurringId) payload.fromRecurringId = state._txModal.fromRecurringId;
     DATA.transactions.push(payload);
   }
   saveData();
   closeModal();
-  showToast(editId ? '거래를 수정했어요.' : '거래를 추가했어요.', 'success');
+  showToast(editId ? '거래를 수정했어요.' : (state._txModal.fromRecurringId ? '정기거래를 적용했어요.' : '거래를 추가했어요.'), 'success');
   renderAll();
 }
 function deleteTx(id) {
@@ -1666,17 +1684,6 @@ function todaysRecurring() {
   return DATA.recurring
     .filter(r => ymd(recurringEffectiveDate(r, y, m)) === todayKey)
     .map(r => ({ ...r, alreadyApplied: DATA.transactions.some(t => t.fromRecurringId === r.id && t.date.slice(0, 7) === mKey) }));
-}
-function quickApplyRecurringToday(id) {
-  const r = DATA.recurring.find(x => x.id === id);
-  if (!r) return;
-  DATA.transactions.push({
-    id: uid(), date: todayStr(), type: r.type, amount: r.amount, memo: r.name, fromRecurringId: r.id,
-    categoryId: r.categoryId, accountId: r.accountId, toAccountId: r.toAccountId,
-  });
-  saveData();
-  showToast(`${r.name} 등록했어요.`, 'success');
-  renderAll();
 }
 function notifyDueRecurringToday() {
   const due = todaysRecurring().filter(r => !r.alreadyApplied);
