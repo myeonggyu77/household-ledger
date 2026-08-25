@@ -536,6 +536,7 @@ function switchTab(tab) {
   state.tab = tab;
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + tab));
+  document.getElementById('kpi-row').style.display = tab === 'home' ? '' : 'none';
   renderPanel();
 }
 document.getElementById('tabs').addEventListener('click', (e) => {
@@ -1382,17 +1383,19 @@ function deleteAccount(id) {
 }
 
 /* ---------------- RECURRING ---------------- */
+function recFieldLabels(type) {
+  if (type === 'income') return { name: '수입명', day: '수입주기' };
+  if (type === 'transfer') return { name: '이체명', day: '이체주기' };
+  return { name: '지출명', day: '지출주기' };
+}
 function renderRecurring() {
   document.getElementById('panel-recurring').innerHTML = `
     <div class="toolbar">
-      <div class="hint">매달 정해진 날짜에 자동으로 등록돼요 (앱을 열 때 자동 반영).</div>
-      <div class="btn-group">
-        <button class="ghost-btn" onclick="applyDueRecurring(true)"><i class="ti ti-refresh"></i> 이번 달 반영</button>
-        <button class="primary-btn" onclick="openRecurringModal()"><i class="ti ti-plus"></i> 정기거래 추가</button>
-      </div>
+      <div class="hint">등록된 정기거래는 목록의 "적용" 버튼으로 원하는 날짜에 직접 등록해요.</div>
+      <button class="primary-btn" onclick="openRecurringModal()"><i class="ti ti-plus"></i> 정기거래 추가</button>
     </div>
     ${DATA.recurring.length ? `<div class="overflow-x"><table>
-      <thead><tr><th>이름</th><th>구분</th><th>카테고리/자산</th><th class="num">금액</th><th>매월</th><th>사용</th><th class="actions-cell">관리</th></tr></thead>
+      <thead><tr><th>이름</th><th>구분</th><th>카테고리/자산</th><th class="num">금액</th><th>주기(일)</th><th>사용</th><th class="actions-cell">관리</th></tr></thead>
       <tbody>
         ${DATA.recurring.map(r => {
           const acc = getAccount(r.accountId);
@@ -1405,6 +1408,7 @@ function renderRecurring() {
             <td>${r.day}일</td>
             <td><input type="checkbox" ${r.active ? 'checked' : ''} onchange="toggleRecurring('${r.id}', this.checked)" style="width:15px;height:15px;"></td>
             <td class="actions-cell">
+              <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringApplyModal('${r.id}')">적용</button>
               <button class="icon-btn" onclick="openRecurringModal('${r.id}')"><i class="ti ti-pencil"></i></button>
               <button class="icon-btn danger" onclick="deleteRecurring('${r.id}')"><i class="ti ti-trash"></i></button>
             </td>
@@ -1414,9 +1418,36 @@ function renderRecurring() {
     </table></div>` : `<div class="empty"><div class="big">등록된 정기거래가 없어요</div>월세, 구독료, 급여 등을 등록해보세요.</div>`}
   `;
 }
+function openRecurringApplyModal(id) {
+  const r = DATA.recurring.find(x => x.id === id);
+  if (!r) return;
+  openModal(`
+    <h3>${escapeHtml(r.name)} 적용</h3>
+    <div class="form-note">선택한 날짜로 거래를 등록해요.</div>
+    <div class="field"><label class="field-lbl">날짜</label><input type="date" id="rec-apply-date" value="${todayStr()}"></div>
+    <div class="form-actions">
+      <button class="ghost-btn" onclick="closeModal()">취소</button>
+      <button class="primary-btn" onclick="submitRecurringApply('${id}')">적용</button>
+    </div>
+  `);
+}
+function submitRecurringApply(id) {
+  const r = DATA.recurring.find(x => x.id === id);
+  const date = document.getElementById('rec-apply-date').value;
+  if (!r || !date) return showToast('날짜를 선택해주세요.', 'error');
+  DATA.transactions.push({
+    id: uid(), date, type: r.type, amount: r.amount, memo: r.name, fromRecurringId: r.id,
+    categoryId: r.categoryId, accountId: r.accountId, toAccountId: r.toAccountId,
+  });
+  saveData();
+  closeModal();
+  showToast(`${date} 날짜로 등록했어요.`, 'success');
+  renderAll();
+}
 function openRecurringModal(id) {
   const editing = id ? DATA.recurring.find(r => r.id === id) : null;
   const type = editing ? editing.type : 'expense';
+  const labels = recFieldLabels(type);
   openModal(`
     <h3>${editing ? '정기거래 수정' : '정기거래 추가'}</h3>
     <div class="seg" id="rec-type-seg">
@@ -1424,9 +1455,9 @@ function openRecurringModal(id) {
       <button type="button" data-v="income" class="${type === 'income' ? 'active income-active' : ''}" onclick="setRecType('income')">수입</button>
       <button type="button" data-v="transfer" class="${type === 'transfer' ? 'active' : ''}" onclick="setRecType('transfer')">이체</button>
     </div>
-    <div class="field"><label class="field-lbl">이름</label><input type="text" id="rec-name" value="${escapeHtml(editing ? editing.name : '')}" placeholder="예: 월세, 넷플릭스, 급여"></div>
+    <div class="field"><label class="field-lbl" id="rec-name-label">${labels.name}</label><input type="text" id="rec-name" value="${escapeHtml(editing ? editing.name : '')}" placeholder="예: 월세, 넷플릭스, 급여"></div>
     <div class="field"><label class="field-lbl">금액 <span id="rec-amount-currency" style="color:var(--ink-faint);font-weight:400;text-transform:none;"></span></label><input type="text" inputmode="decimal" id="rec-amount" oninput="onRecAmountInputDynamic(this)" value="${editing ? (getAccount(editing.accountId).currency === 'USD' ? Number(editing.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(editing.amount).toLocaleString('ko-KR')) : ''}"></div>
-    <div class="field"><label class="field-lbl">매월 며칠</label><input type="number" id="rec-day" min="1" max="31" value="${editing ? editing.day : 1}"></div>
+    <div class="field"><label class="field-lbl" id="rec-day-label">${labels.day}</label><input type="number" id="rec-day" min="1" max="31" value="${editing ? editing.day : 1}"></div>
     <div id="rec-cat-field" class="field"></div>
     <div id="rec-acc-field" class="field"></div>
     <div id="rec-toacc-field" class="field"></div>
@@ -1446,6 +1477,9 @@ function setRecType(t) {
     b.classList.toggle('expense-active', active && t === 'expense');
     b.classList.toggle('income-active', active && t === 'income');
   });
+  const labels = recFieldLabels(t);
+  document.getElementById('rec-name-label').textContent = labels.name;
+  document.getElementById('rec-day-label').textContent = labels.day;
   renderRecModalFields();
 }
 function renderRecModalFields(presetCat, presetAcc, presetToAcc) {
@@ -1456,8 +1490,8 @@ function renderRecModalFields(presetCat, presetAcc, presetToAcc) {
   const acctOption = (a, presetId) => `<option value="${a.id}" ${presetId === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}${a.currency === 'USD' ? ' (USD)' : ''}</option>`;
   if (type === 'transfer') {
     catField.innerHTML = '';
-    accField.innerHTML = `<label class="field-lbl">출금 자산</label><select id="rec-account" onchange="updateRecAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
-    toAccField.innerHTML = `<label class="field-lbl">입금 자산</label><select id="rec-toaccount">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
+    accField.innerHTML = `<label class="field-lbl">출금자산</label><select id="rec-account" onchange="updateRecAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
+    toAccField.innerHTML = `<label class="field-lbl">이체자산</label><select id="rec-toaccount">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
   } else {
     const cats = DATA.categories.filter(c => c.type === type);
     catField.innerHTML = `<label class="field-lbl">카테고리</label><select id="rec-category">${cats.map(c => `<option value="${c.id}" ${presetCat === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</select>`;
