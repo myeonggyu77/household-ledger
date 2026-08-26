@@ -458,6 +458,7 @@ let state = {
   calSelected: ymd(new Date()),
   txFilter: { type: 'all', categoryId: '', accountId: '', q: '' },
   statsType: 'expense',
+  statsPeriod: 'month',
 };
 
 /* ---------------- date helpers ---------------- */
@@ -593,6 +594,21 @@ function monthSummary(mKey) {
 function categoryTotals(mKey, type) {
   const map = {};
   txInMonth(mKey).forEach(t => {
+    if (t.type !== type || t.excludeFromStats) return;
+    map[t.categoryId] = (map[t.categoryId] || 0) + txAmountKRW(t);
+  });
+  return Object.entries(map)
+    .map(([categoryId, amount]) => ({ categoryId, amount, category: getCategory(categoryId) }))
+    .sort((a, b) => b.amount - a.amount);
+}
+function txInPeriod(period, mKey) {
+  if (period === 'all') return DATA.transactions;
+  if (period === 'year') return DATA.transactions.filter(t => t.date.slice(0, 4) === mKey.slice(0, 4));
+  return txInMonth(mKey);
+}
+function statsCategoryTotals(period, mKey, type) {
+  const map = {};
+  txInPeriod(period, mKey).forEach(t => {
     if (t.type !== type || t.excludeFromStats) return;
     map[t.categoryId] = (map[t.categoryId] || 0) + txAmountKRW(t);
   });
@@ -765,6 +781,20 @@ function navMonth(delta) {
 function jumpToday() {
   state.month = monthKey(new Date());
   state.calSelected = todayStr();
+  renderPanel();
+}
+function yearNavHtml(mKey) {
+  const year = mKey.slice(0, 4);
+  return `<div class="month-nav">
+    <button class="icon-btn" onclick="navYear(-1)" aria-label="이전 해">&lt;</button>
+    <div class="m-label">${year}년</div>
+    <button class="icon-btn" onclick="navYear(1)" aria-label="다음 해">&gt;</button>
+    <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="jumpToday()">올해</button>
+  </div>`;
+}
+function navYear(delta) {
+  const [y, m] = state.month.split('-');
+  state.month = (Number(y) + delta) + '-' + m;
   renderPanel();
 }
 
@@ -1329,8 +1359,13 @@ function renderPieChart(totals, sum) {
 function renderStats() {
   const mKey = state.month;
   const type = state.statsType;
-  const totals = categoryTotals(mKey, type);
+  const period = state.statsPeriod || 'month';
+  const totals = statsCategoryTotals(period, mKey, type);
   const sum = totals.reduce((s, c) => s + c.amount, 0);
+  const periodLabel = period === 'all' ? '전체 기간' : period === 'year' ? `${mKey.slice(0, 4)}년` : monthLabel(mKey);
+  const periodNav = period === 'all'
+    ? ''
+    : period === 'year' ? yearNavHtml(mKey) : monthNavHtml('navMonth(-1)', 'navMonth(1)', mKey);
 
   const months = [];
   for (let i = 5; i >= 0; i--) months.push(shiftMonth(mKey, -i));
@@ -1338,7 +1373,12 @@ function renderStats() {
   const trendMax = Math.max(1, ...trend.map(t => Math.max(t.income, t.expense)));
 
   document.getElementById('panel-stats').innerHTML = `
-    ${monthNavHtml('navMonth(-1)', 'navMonth(1)', mKey)}
+    <div class="seg" id="stats-period-seg" style="margin-bottom:12px;">
+      <button type="button" class="${period === 'month' ? 'active' : ''}" onclick="setStatsPeriod('month')">월간</button>
+      <button type="button" class="${period === 'year' ? 'active' : ''}" onclick="setStatsPeriod('year')">년간</button>
+      <button type="button" class="${period === 'all' ? 'active' : ''}" onclick="setStatsPeriod('all')">전체</button>
+    </div>
+    ${periodNav}
     <div class="section-block">
       <div class="section-heading">
         카테고리별 ${type === 'expense' ? '지출' : '수입'}
@@ -1347,14 +1387,14 @@ function renderStats() {
           <button type="button" class="${type === 'income' ? 'active income-active' : ''}" onclick="setStatsType('income')">수입</button>
         </div>
       </div>
-      <div class="form-note">${monthLabel(mKey)} 합계 ${won(sum)}</div>
+      <div class="form-note">${periodLabel} 합계 ${won(sum)}</div>
       ${totals.length ? renderPieChart(totals, sum) : ''}
       ${totals.length ? totals.map(c => `
-        <div class="pie-legend-row">
+        <div class="pie-legend-row" style="cursor:pointer;" onclick="openStatsCategoryModal('${c.categoryId}')">
           <span class="pct-badge" style="background:${catColor(c.category)}">${sum ? Math.round(c.amount / sum * 100) : 0}%</span>
           <span class="name">${c.category.icon} ${escapeHtml(c.category.name)}</span>
           <span class="amt">${won(c.amount)}</span>
-        </div>`).join('') : `<div class="empty">해당 월 데이터가 없어요.</div>`}
+        </div>`).join('') : `<div class="empty">해당 기간 데이터가 없어요.</div>`}
     </div>
 
     <div class="section-block">
@@ -1372,6 +1412,24 @@ function renderStats() {
   `;
 }
 function setStatsType(t) { state.statsType = t; renderStats(); }
+function setStatsPeriod(p) { state.statsPeriod = p; renderStats(); }
+function openStatsCategoryModal(categoryId) {
+  const type = state.statsType;
+  const period = state.statsPeriod || 'month';
+  const mKey = state.month;
+  const cat = getCategory(categoryId);
+  const periodLabel = period === 'all' ? '전체 기간' : period === 'year' ? `${mKey.slice(0, 4)}년` : monthLabel(mKey);
+  const list = txInPeriod(period, mKey)
+    .filter(t => t.categoryId === categoryId && t.type === type && !t.excludeFromStats)
+    .sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
+  const sum = list.reduce((s, t) => s + txAmountKRW(t), 0);
+  openModal(`
+    <h3>${cat.icon} ${escapeHtml(cat.name)}</h3>
+    <div class="form-note" style="margin-bottom:12px;">${periodLabel} · ${list.length}건 · 합계 ${won(sum)}</div>
+    ${list.length ? renderTxTable(list, false) : `<div class="empty">해당 기간에 거래가 없어요.</div>`}
+    <div class="form-actions"><button class="ghost-btn" onclick="closeModal()">닫기</button></div>
+  `);
+}
 
 /* ---------------- BUDGET ---------------- */
 function renderBudget() {
