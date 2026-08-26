@@ -1549,7 +1549,7 @@ function renderRecurring() {
       <button class="primary-btn" onclick="openRecurringModal()"><i class="ti ti-plus"></i> 정기거래 추가</button>
     </div>
     ${DATA.recurring.length ? `<div class="overflow-x"><table>
-      <thead><tr><th>이름</th><th>카테고리/자산</th><th class="num">금액</th><th>주기</th><th class="actions-cell">관리</th></tr></thead>
+      <thead><tr><th>이름</th><th>카테고리/자산</th><th>대상</th><th class="num">금액</th><th>주기</th><th class="actions-cell">관리</th></tr></thead>
       <tbody>
         ${DATA.recurring.map(r => {
           const acc = getAccount(r.accountId);
@@ -1557,6 +1557,7 @@ function renderRecurring() {
           return `<tr>
             <td class="name-cell"><span class="type-tag ${r.type}">${r.type === 'income' ? '수입' : r.type === 'expense' ? '지출' : '이체'}</span> ${escapeHtml(r.name)}${r.type === 'expense' && r.noHolidayShift ? ` <span class="form-note" style="display:inline;margin:0;">(휴일무관)</span>` : ''}${r.type === 'income' && r.payBeforeHoliday ? ` <span class="form-note" style="display:inline;margin:0;">(휴일 전 평일)</span>` : ''}</td>
             <td class="name-cell">${mid}</td>
+            <td class="name-cell">${r.payee ? escapeHtml(r.payee) : ''}</td>
             <td class="num">${fmtCurrency(r.amount, acc.currency || 'KRW')}</td>
             <td>${recurringScheduleLabel(r)}</td>
             <td class="actions-cell">
