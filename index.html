@@ -78,6 +78,8 @@
   button.icon-btn:hover { background: var(--line-soft); color: var(--ink); }
   button.icon-btn.danger { color: var(--down); border-color: var(--down-soft); }
   button.icon-btn.danger:hover { background: var(--down-soft); }
+  button.icon-btn:disabled { opacity: 0.35; cursor: default; }
+  button.icon-btn:disabled:hover { background: none; color: var(--ink-soft); }
   button.ghost-btn.danger-btn { color: var(--down); border-color: #f0c7c7; }
   button.ghost-btn.danger-btn:hover { background: var(--down-soft); }
 
@@ -755,6 +757,21 @@ function getAccount(id) { return DATA.accounts.find(a => a.id === id) || { name:
 function catColor(cat) { return CAT_COLORS[(cat.colorIdx || 0) % 8]; }
 function topCategories(type) { return DATA.categories.filter(c => c.type === type && !c.parentId); }
 function childCategories(parentId) { return DATA.categories.filter(c => c.parentId === parentId); }
+function moveCategory(id, direction) {
+  const cat = DATA.categories.find(c => c.id === id);
+  if (!cat) return;
+  const siblings = cat.parentId ? childCategories(cat.parentId) : topCategories(cat.type);
+  const pos = siblings.findIndex(c => c.id === id);
+  const targetPos = pos + direction;
+  if (targetPos < 0 || targetPos >= siblings.length) return;
+  const other = siblings[targetPos];
+  const i = DATA.categories.indexOf(cat);
+  const j = DATA.categories.indexOf(other);
+  DATA.categories[i] = other;
+  DATA.categories[j] = cat;
+  saveData();
+  renderSettings();
+}
 function leafCategories(type) { return DATA.categories.filter(c => c.type === type && c.parentId); }
 
 /* ---------------- derived data ---------------- */
@@ -2082,21 +2099,24 @@ function notifyDueRecurringToday() {
 
 /* ---------------- SETTINGS (categories / backup) ---------------- */
 function renderSettings() {
-  const parentGroupHtml = (p) => {
+  const moveBtns = (id, idx, total) => `<button class="icon-btn" style="margin-left:0;" ${idx === 0 ? 'disabled' : ''} onclick="moveCategory('${id}', -1)" title="위로" aria-label="위로 이동"><i class="ti ti-chevron-up"></i></button><button class="icon-btn" ${idx === total - 1 ? 'disabled' : ''} onclick="moveCategory('${id}', 1)" title="아래로" aria-label="아래로 이동"><i class="ti ti-chevron-down"></i></button>`;
+  const parentGroupHtml = (p, idx, total) => {
     const children = childCategories(p.id);
     return `<div class="cat-parent-group">
       <div class="cat-parent-head">
         <span class="cat-chip-name">${p.icon} ${escapeHtml(p.name)}</span>
         <span>
+          ${moveBtns(p.id, idx, total)}
           <button class="icon-btn" onclick="openChildCategoryModal(null, '${p.id}')" title="소분류 추가" aria-label="소분류 추가">+</button>
           <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openParentCategoryModal('${p.id}')">수정</button>
           <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteCategory('${p.id}')">삭제</button>
         </span>
       </div>
       <div class="cat-child-list">
-        ${children.length ? children.map(c => `<div class="cat-chip">
+        ${children.length ? children.map((c, ci) => `<div class="cat-chip">
           <span class="cat-chip-name"><span class="cat-swatch" style="background:${catColor(c)}"></span>${c.icon} ${escapeHtml(c.name)}${categoryUsageCount(c.id) ? ` <span class="form-note" style="margin:0;">(거래 ${categoryUsageCount(c.id)}건)</span>` : ''}</span>
           <span>
+            ${moveBtns(c.id, ci, children.length)}
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReassignCategoryModal('${c.id}')" title="다른 카테고리로 일괄 변경">변경</button>
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openChildCategoryModal('${c.id}')">수정</button>
             <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteCategory('${c.id}')">삭제</button>
@@ -2113,8 +2133,8 @@ function renderSettings() {
       <div class="section-heading">카테고리 관리<button class="ghost-btn" onclick="openParentCategoryModal()"><i class="ti ti-plus"></i> 대분류 추가</button></div>
       <div class="form-note">대분류 안에 소분류를 두는 2단계 구조예요. 실제 거래는 소분류에 기록돼요.</div>
       <div class="cat-manage-grid">
-        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">지출</h4>${expenseParents.map(parentGroupHtml).join('') || '<div class="form-note">대분류가 없어요.</div>'}</div>
-        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">수입</h4>${incomeParents.map(parentGroupHtml).join('') || '<div class="form-note">대분류가 없어요.</div>'}</div>
+        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">지출</h4>${expenseParents.map((p, i) => parentGroupHtml(p, i, expenseParents.length)).join('') || '<div class="form-note">대분류가 없어요.</div>'}</div>
+        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">수입</h4>${incomeParents.map((p, i) => parentGroupHtml(p, i, incomeParents.length)).join('') || '<div class="form-note">대분류가 없어요.</div>'}</div>
       </div>
     </div>
     <div class="section-block">
