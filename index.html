@@ -1043,7 +1043,7 @@ function renderReceiptPreview() {
   const r = state._txModal.receipt;
   wrap.innerHTML = r
     ? `<div class="receipt-thumb-wrap"><img src="${r}" class="receipt-thumb" alt="영수증 미리보기"><button type="button" class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="removeReceipt()">삭제</button></div>`
-    : `<button type="button" class="ghost-btn" onclick="document.getElementById('tx-receipt-file').click()"><i class="ti ti-camera"></i> 영수증 사진 추가</button>`;
+    : `<button type="button" class="ghost-btn" onclick="document.getElementById('tx-receipt-file').click()">📷 영수증 사진 추가</button>`;
 }
 function removeReceipt() { state._txModal.receipt = null; renderReceiptPreview(); }
 function openReceiptLightboxForTx(id) {
