@@ -500,7 +500,7 @@ function isRecurringDueOn(r, d) {
   const isRawDay = freq === 'weekly'
     ? (cand) => cand.getDay() === (r.weekday != null ? r.weekday : 1)
     : freq === 'yearly'
-    ? (cand) => cand.getMonth() + 1 === (r.month || 1) && cand.getDate() === Math.min(r.day || 1, daysInMonth(cand.getFullYear(), r.month || 1))
+    ? (cand) => cand.getMonth() + 1 === (r.month || 1) && cand.getDate() === monthlyDayForMonth(r, cand.getFullYear(), r.month || 1)
     : (cand) => cand.getDate() === monthlyDayForMonth(r, cand.getFullYear(), cand.getMonth() + 1);
   for (let off = -8; off <= 8; off++) {
     const raw = _addDays(d, off);
@@ -1572,7 +1572,7 @@ function recurringScheduleLabel(r) {
   const freq = r.frequency || 'monthly';
   if (freq === 'weekly') return `매주 ${['일', '월', '화', '수', '목', '금', '토'][r.weekday != null ? r.weekday : 1]}요일`;
   if (freq === 'daily') return (r.dailyMode || 'weekdaysOnly') === 'everyday' ? '매일 (휴일포함)' : '매일 (평일만)';
-  if (freq === 'yearly') return `매년 ${r.month}월 ${r.day}일`;
+  if (freq === 'yearly') return r.day === 'last' ? `매년 ${r.month}월 말일` : `매년 ${r.month}월 ${r.day}일`;
   return r.day === 'last' ? '매월 말일' : `매월 ${r.day}일`;
 }
 function renderRecurring() {
@@ -1711,7 +1711,7 @@ function renderRecFreqDetail(freq, presetDay, presetWeekday, presetDailyMode, pr
     const monthOptions = Array.from({ length: 12 }, (_, i) => i + 1)
       .map(i => `<option value="${i}" ${monthVal === i ? 'selected' : ''}>${i}월</option>`).join('');
     const dayOptions = Array.from({ length: 31 }, (_, i) => i + 1)
-      .map(i => `<option value="${i}" ${dayVal === i ? 'selected' : ''}>${i}일</option>`).join('');
+      .map(i => `<option value="${i}" ${dayVal === i ? 'selected' : ''}>${i}일</option>`).join('') + `<option value="last" ${dayVal === 'last' ? 'selected' : ''}>말일</option>`;
     el.innerHTML = `<div style="display:flex;gap:8px;">
         <select id="rec-month" style="flex:1;">${monthOptions}</select>
         <select id="rec-day" style="flex:1;">${dayOptions}</select>
@@ -1788,7 +1788,8 @@ function submitRecurring(editId) {
     payload.dailyMode = document.getElementById('rec-daily-mode').value === 'everyday' ? 'everyday' : 'weekdaysOnly';
   } else if (freq === 'yearly') {
     payload.month = Number(document.getElementById('rec-month').value);
-    payload.day = Math.min(31, Math.max(1, Number(document.getElementById('rec-day').value) || 1));
+    const yearlyDayRaw = document.getElementById('rec-day').value;
+    payload.day = yearlyDayRaw === 'last' ? 'last' : Math.min(31, Math.max(1, Number(yearlyDayRaw) || 1));
   } else {
     const dayRaw = document.getElementById('rec-day').value;
     payload.day = dayRaw === 'last' ? 'last' : Math.min(31, Math.max(1, Number(dayRaw) || 1));
