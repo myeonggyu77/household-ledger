@@ -976,7 +976,8 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     excludeField.innerHTML = `<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);"><input type="checkbox" id="tx-exclude" style="width:15px;height:15px;" ${presetExclude ? 'checked' : ''}> 통계/예산 계산에서 제외 (예: 환급받은 금액)</label>`;
     if (type === 'expense') {
       receiptField.innerHTML = `<label class="field-lbl">영수증 사진</label>
-        <input type="file" id="tx-receipt-file" accept="image/*" capture="environment" style="display:none" onchange="onReceiptFileChange(this)">
+        <input type="file" id="tx-receipt-camera" accept="image/*" capture="environment" style="display:none" onchange="onReceiptFileChange(this)">
+        <input type="file" id="tx-receipt-gallery" accept="image/*" style="display:none" onchange="onReceiptFileChange(this)">
         <div id="tx-receipt-preview"></div>`;
       renderReceiptPreview();
     } else {
@@ -1043,7 +1044,10 @@ function renderReceiptPreview() {
   const r = state._txModal.receipt;
   wrap.innerHTML = r
     ? `<div class="receipt-thumb-wrap"><img src="${r}" class="receipt-thumb" alt="영수증 미리보기"><button type="button" class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="removeReceipt()">삭제</button></div>`
-    : `<button type="button" class="ghost-btn" onclick="document.getElementById('tx-receipt-file').click()">📷 영수증 사진 추가</button>`;
+    : `<div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button type="button" class="ghost-btn" onclick="document.getElementById('tx-receipt-camera').click()">📷 사진 촬영</button>
+        <button type="button" class="ghost-btn" onclick="document.getElementById('tx-receipt-gallery').click()">🖼️ 사진 선택</button>
+      </div>`;
 }
 function removeReceipt() { state._txModal.receipt = null; renderReceiptPreview(); }
 function openReceiptLightboxForTx(id) {
