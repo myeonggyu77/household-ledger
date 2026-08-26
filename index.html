@@ -1808,7 +1808,10 @@ function openParentCategoryModal(id) {
     </div>`}
     <div class="field"><label class="field-lbl">대분류 이름</label><input type="text" id="cat-name" value="${escapeHtml(editing ? editing.name : '')}" placeholder="예: 식비"></div>
     <div class="field"><label class="field-lbl">아이콘</label>
-      <div class="emoji-pick" id="emoji-pick">${EMOJI_CHOICES.map(e => `<button type="button" class="${e === icon ? 'active' : ''}" onclick="pickEmoji('${e}', this)">${e}</button>`).join('')}</div>
+      <div class="emoji-pick" id="emoji-pick">
+        <button type="button" class="${icon === '' ? 'active' : ''}" onclick="pickEmoji('', this)" style="width:auto;padding:0 8px;font-size:11px;white-space:nowrap;">없음</button>
+        ${EMOJI_CHOICES.map(e => `<button type="button" class="${e === icon ? 'active' : ''}" onclick="pickEmoji('${e}', this)">${e}</button>`).join('')}
+      </div>
       <input type="text" id="cat-icon" value="${escapeHtml(icon)}" maxlength="4" style="width:70px;">
     </div>
     <div class="form-actions">
@@ -1834,7 +1837,7 @@ function pickEmoji(e, btn) {
 }
 function submitParentCategory(editId) {
   const name = document.getElementById('cat-name').value.trim();
-  const icon = document.getElementById('cat-icon').value.trim() || '📦';
+  const icon = document.getElementById('cat-icon').value.trim();
   if (!name) return showToast('대분류 이름을 입력해주세요.', 'error');
   if (editId) {
     const cat = DATA.categories.find(c => c.id === editId);
@@ -1859,7 +1862,10 @@ function openChildCategoryModal(id, presetParentId) {
     <div class="field"><label class="field-lbl">대분류</label><select id="cat-parent">${parents.map(p => `<option value="${p.id}" ${p.id === parent.id ? 'selected' : ''}>${p.icon} ${escapeHtml(p.name)}</option>`).join('')}</select></div>
     <div class="field"><label class="field-lbl">소분류 이름</label><input type="text" id="cat-name" value="${escapeHtml(editing ? editing.name : '')}" placeholder="예: 카페/간식"></div>
     <div class="field"><label class="field-lbl">아이콘</label>
-      <div class="emoji-pick" id="emoji-pick">${EMOJI_CHOICES.map(e => `<button type="button" class="${e === icon ? 'active' : ''}" onclick="pickEmoji('${e}', this)">${e}</button>`).join('')}</div>
+      <div class="emoji-pick" id="emoji-pick">
+        <button type="button" class="${icon === '' ? 'active' : ''}" onclick="pickEmoji('', this)" style="width:auto;padding:0 8px;font-size:11px;white-space:nowrap;">없음</button>
+        ${EMOJI_CHOICES.map(e => `<button type="button" class="${e === icon ? 'active' : ''}" onclick="pickEmoji('${e}', this)">${e}</button>`).join('')}
+      </div>
       <input type="text" id="cat-icon" value="${escapeHtml(icon)}" maxlength="4" style="width:70px;">
     </div>
     <div class="form-actions">
@@ -1870,7 +1876,7 @@ function openChildCategoryModal(id, presetParentId) {
 }
 function submitChildCategory(editId, type) {
   const name = document.getElementById('cat-name').value.trim();
-  const icon = document.getElementById('cat-icon').value.trim() || '📦';
+  const icon = document.getElementById('cat-icon').value.trim();
   const parentId = document.getElementById('cat-parent').value;
   if (!name) return showToast('소분류 이름을 입력해주세요.', 'error');
   if (editId) {
