@@ -275,10 +275,11 @@
 const LS_KEY = 'ledger-data-v1';
 const CAT_COLORS = ['var(--cat-0)','var(--cat-1)','var(--cat-2)','var(--cat-3)','var(--cat-4)','var(--cat-5)','var(--cat-6)','var(--cat-7)'];
 const EMOJI_CHOICES = ['🍚','☕','🚌','🛒','👗','🧴','🎮','🏠','💊','📚','🎁','🛡️','💳','🚗','✈️','🐾','👨‍👩‍👧','💰','🍺','📦','💵','📈','💸','🎉','🏦','🔄','🛍️','📊'];
-const ACC_TYPES = ['cash', 'bank', 'investment', 'loan', 'installment', 'other'];
-const ACC_TYPE_LABEL = { cash: '현금', bank: '은행', investment: '투자', loan: '대출', installment: '할부', other: '기타' };
-const ACC_TYPE_ICON = { cash: '💵', bank: '🏦', investment: '📈', loan: '🏛️', installment: '💳', other: '📦' };
+const ACC_TYPES = ['cash', 'bank', 'savings', 'investment', 'loan', 'installment', 'other'];
+const ACC_TYPE_LABEL = { cash: '현금', bank: '은행', savings: '저축', investment: '투자', loan: '대출', installment: '할부', other: '기타' };
+const ACC_TYPE_ICON = { cash: '💵', bank: '🏦', savings: '🐷', investment: '📈', loan: '🏛️', installment: '💳', other: '📦' };
 const LIABILITY_TYPES = ['loan', 'installment'];
+const DATE_RANGE_TYPES = ['savings', 'loan', 'installment'];
 const CURRENCIES = ['KRW', 'USD'];
 const CURRENCY_LABEL = { KRW: '원화 (₩)', USD: '달러 ($)' };
 const DEFAULT_USD_KRW_RATE = 1350;
@@ -1416,6 +1417,7 @@ function renderAccounts() {
     <div class="acct-card ${a.includeInTotal === false ? 'excluded' : ''}">
       <div class="acct-name">${a.icon || ACC_TYPE_ICON[a.type] || '💰'} ${escapeHtml(a.name)}${a.currency === 'USD' ? ' <span class="ccy-badge usd">USD</span>' : ''}</div>
       <div class="acct-bal">${fmtCurrencySigned(accountBalance(a), a.currency || 'KRW')}</div>
+      ${(a.startDate || a.endDate) ? `<div class="form-note" style="margin:6px 0 0;">${a.startDate || '?'} ~ ${a.endDate || '?'}</div>` : ''}
       ${a.includeInTotal === false ? '<div class="form-note" style="margin:6px 0 0;">총 자산 제외</div>' : ''}
       <div class="acct-actions">
         <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openAccountModal('${a.id}')">수정</button>
@@ -1472,6 +1474,17 @@ function onAccTypeChangeInModal() {
   const cur = document.getElementById('acc-balance');
   const amountAbs = cur ? Math.abs(rawCurrencyAmount(cur, currency, true)) : 0;
   document.getElementById('acc-balance-field').innerHTML = balanceFieldInnerHtml(type, currency, amountAbs, false);
+  renderAccDateRangeField(type);
+}
+function renderAccDateRangeField(type, startDate, endDate) {
+  const el = document.getElementById('acc-daterange-field');
+  if (!el) return;
+  el.innerHTML = DATE_RANGE_TYPES.includes(type)
+    ? `<div class="form-grid">
+        <div><label class="field-lbl">시작일</label><input type="date" id="acc-start-date" value="${startDate || ''}"></div>
+        <div><label class="field-lbl">종료일</label><input type="date" id="acc-end-date" value="${endDate || ''}"></div>
+      </div>`
+    : '';
 }
 function openAccountModal(id, presetType) {
   const editing = id ? DATA.accounts.find(a => a.id === id) : null;
@@ -1493,12 +1506,14 @@ function openAccountModal(id, presetType) {
     </div>
     ${lockCurrency ? '<div class="form-note" style="margin-top:-6px;">이미 거래가 있는 자산은 통화를 바꿀 수 없어요.</div>' : ''}
     <div class="field" id="acc-balance-field">${balanceFieldInnerHtml(type, currency, editingAbs, editingNeg)}</div>
+    <div class="field" id="acc-daterange-field"></div>
     <div class="field"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);"><input type="checkbox" id="acc-include" style="width:15px;height:15px;" ${!editing || editing.includeInTotal !== false ? 'checked' : ''}> 총 자산 합계에 포함</label></div>
     <div class="form-actions">
       <button class="ghost-btn" onclick="closeModal()">취소</button>
       <button class="primary-btn" onclick="submitAccount(${editing ? `'${editing.id}'` : 'null'})">${editing ? '저장' : '추가'}</button>
     </div>
   `);
+  renderAccDateRangeField(type, editing ? editing.startDate : null, editing ? editing.endDate : null);
 }
 function submitAccount(editId) {
   const name = document.getElementById('acc-name').value.trim();
@@ -1507,12 +1522,14 @@ function submitAccount(editId) {
   const balanceEl = document.getElementById('acc-balance');
   const initialBalance = LIABILITY_TYPES.includes(type) ? -rawCurrencyAmount(balanceEl, currency) : rawCurrencyAmount(balanceEl, currency, true);
   const includeInTotal = document.getElementById('acc-include').checked;
+  const startDate = DATE_RANGE_TYPES.includes(type) ? (document.getElementById('acc-start-date').value || null) : null;
+  const endDate = DATE_RANGE_TYPES.includes(type) ? (document.getElementById('acc-end-date').value || null) : null;
   if (!name) return showToast('자산 이름을 입력해주세요.', 'error');
   if (editId) {
     const acc = DATA.accounts.find(a => a.id === editId);
-    Object.assign(acc, { name, type, currency, initialBalance, includeInTotal, icon: ACC_TYPE_ICON[type] });
+    Object.assign(acc, { name, type, currency, initialBalance, includeInTotal, icon: ACC_TYPE_ICON[type], startDate, endDate });
   } else {
-    DATA.accounts.push({ id: uid(), name, type, currency, initialBalance, includeInTotal, icon: ACC_TYPE_ICON[type] });
+    DATA.accounts.push({ id: uid(), name, type, currency, initialBalance, includeInTotal, icon: ACC_TYPE_ICON[type], startDate, endDate });
   }
   saveData();
   closeModal();
