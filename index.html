@@ -80,6 +80,10 @@
   button.icon-btn.danger:hover { background: var(--down-soft); }
   button.icon-btn:disabled { opacity: 0.35; cursor: default; }
   button.icon-btn:disabled:hover { background: none; color: var(--ink-soft); }
+  .cat-drag-handle { cursor: grab; touch-action: none; }
+  .cat-parent-group.cat-dragging, .cat-chip.cat-dragging { z-index: 9999; box-shadow: 0 6px 18px rgba(0,0,0,0.28); opacity: 0.96; pointer-events: none; }
+  .cat-drag-placeholder { border: 2px dashed var(--line); background: var(--line-soft); border-radius: 5px; }
+  .cat-child-list .cat-drag-placeholder { margin-bottom: 6px; }
   button.ghost-btn.danger-btn { color: var(--down); border-color: #f0c7c7; }
   button.ghost-btn.danger-btn:hover { background: var(--down-soft); }
 
@@ -766,18 +770,18 @@ function getAccount(id) { return DATA.accounts.find(a => a.id === id) || { name:
 function catColor(cat) { return CAT_COLORS[(cat.colorIdx || 0) % 8]; }
 function topCategories(type) { return DATA.categories.filter(c => c.type === type && !c.parentId); }
 function childCategories(parentId) { return DATA.categories.filter(c => c.parentId === parentId); }
-function moveCategory(id, direction) {
+function reorderCategory(id, newIndex) {
   const cat = DATA.categories.find(c => c.id === id);
   if (!cat) return;
-  const siblings = cat.parentId ? childCategories(cat.parentId) : topCategories(cat.type);
-  const pos = siblings.findIndex(c => c.id === id);
-  const targetPos = pos + direction;
-  if (targetPos < 0 || targetPos >= siblings.length) return;
-  const other = siblings[targetPos];
-  const i = DATA.categories.indexOf(cat);
-  const j = DATA.categories.indexOf(other);
-  DATA.categories[i] = other;
-  DATA.categories[j] = cat;
+  const oldSiblings = cat.parentId ? childCategories(cat.parentId) : topCategories(cat.type);
+  const oldIndex = oldSiblings.findIndex(c => c.id === id);
+  if (oldIndex === -1 || oldIndex === newIndex) return;
+  DATA.categories.splice(DATA.categories.indexOf(cat), 1);
+  const newSiblings = cat.parentId ? childCategories(cat.parentId) : topCategories(cat.type);
+  const insertAt = newIndex >= newSiblings.length
+    ? DATA.categories.indexOf(newSiblings[newSiblings.length - 1]) + 1
+    : DATA.categories.indexOf(newSiblings[newIndex]);
+  DATA.categories.splice(insertAt, 0, cat);
   saveData();
   renderSettings();
 }
@@ -1261,7 +1265,7 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
       if (!children.length) return '';
       return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}" ${presetCat === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
     }).join('');
-    catField.innerHTML = `<label class="field-lbl">카테고리</label><select id="tx-category">${groups}</select>`;
+    catField.innerHTML = `<label class="field-lbl">카테고리</label><select id="tx-category" onchange="renderBudgetQuickRow()">${groups}</select><div id="budget-quick-row" style="margin-top:6px;"></div>`;
     accField.innerHTML = `<label class="field-lbl">${type === 'income' ? '입금 자산' : '지출 자산'}</label><select id="tx-account" onchange="updateTxAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
     toAccField.innerHTML = '';
     excludeField.innerHTML = `<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);"><input type="checkbox" id="tx-exclude" style="width:15px;height:15px;" ${presetExclude ? 'checked' : ''}> 통계/예산 계산에서 제외 (예: 환급받은 금액)</label>`;
@@ -1274,6 +1278,7 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     } else {
       receiptField.innerHTML = '';
     }
+    renderBudgetQuickRow();
   }
   const payeeOptions = Array.from(new Set(DATA.transactions.filter(t => t.payee).map(t => t.payee)));
   payeeField.innerHTML = `<label class="field-lbl">대상</label>
@@ -1289,6 +1294,42 @@ function currentTxCurrency() {
 function updateTxAmountCurrencyBadge() {
   const badge = document.getElementById('tx-amount-currency');
   if (badge) badge.textContent = currentTxCurrency() === 'USD' ? '(USD $)' : '(KRW ₩)';
+}
+function renderBudgetQuickRow() {
+  const row = document.getElementById('budget-quick-row');
+  if (!row) return;
+  const sel = document.getElementById('tx-category');
+  const catId = sel ? sel.value : null;
+  if (!catId) { row.innerHTML = ''; return; }
+  const isIncome = getCategory(catId).type === 'income';
+  const label = isIncome ? '목표' : '예산';
+  const budget = DATA.budgets[catId];
+  row.innerHTML = budget > 0
+    ? `<div class="form-note">이 카테고리 ${label} ${won(budget)} 설정됨 <button class="ghost-btn" style="font-size:11px;padding:3px 7px;margin-left:4px;" onclick="startBudgetQuickEdit()">수정</button></div>`
+    : `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="startBudgetQuickEdit()"><i class="ti ti-plus"></i> ${label}편성 추가</button>`;
+}
+function startBudgetQuickEdit() {
+  const row = document.getElementById('budget-quick-row');
+  const sel = document.getElementById('tx-category');
+  if (!row || !sel) return;
+  const isIncome = getCategory(sel.value).type === 'income';
+  const current = DATA.budgets[sel.value] || 0;
+  row.innerHTML = `<div style="display:flex;gap:6px;">
+    <input type="text" inputmode="numeric" id="budget-quick-amount" placeholder="${isIncome ? '목표' : '예산'} 금액" value="${current ? current.toLocaleString('ko-KR') : ''}" oninput="formatAmountInput(this)" style="flex:1;">
+    <button class="ghost-btn" style="font-size:12px;padding:6px 10px;" onclick="saveBudgetQuickAmount()">저장</button>
+  </div>`;
+  document.getElementById('budget-quick-amount').focus();
+}
+function saveBudgetQuickAmount() {
+  const sel = document.getElementById('tx-category');
+  const el = document.getElementById('budget-quick-amount');
+  if (!sel || !el) return;
+  const isIncome = getCategory(sel.value).type === 'income';
+  const val = rawAmount(el);
+  if (val > 0) DATA.budgets[sel.value] = val; else delete DATA.budgets[sel.value];
+  saveData();
+  showToast(val > 0 ? `${isIncome ? '목표' : '예산'}을 등록했어요.` : `${isIncome ? '목표' : '예산'}을 삭제했어요.`, 'success');
+  renderBudgetQuickRow();
 }
 function onAmountInputDynamic(el) {
   formatCurrencyAmountInput(el, currentTxCurrency());
@@ -1642,31 +1683,47 @@ function renderStatsCategoryDetail(period, mKey, type, periodLabel) {
 /* ---------------- BUDGET ---------------- */
 function renderBudget() {
   const mKey = state.month;
-  const totals = categoryTotals(mKey, 'expense');
-  const spentMap = Object.fromEntries(totals.map(c => [c.categoryId, c.amount]));
+  const expSpentMap = Object.fromEntries(categoryTotals(mKey, 'expense').map(c => [c.categoryId, c.amount]));
+  const incSpentMap = Object.fromEntries(categoryTotals(mKey, 'income').map(c => [c.categoryId, c.amount]));
   const expenseCats = leafCategories('expense');
+  const incomeCats = leafCategories('income');
 
-  const budgeted = expenseCats.filter(c => (DATA.budgets[c.id] || 0) > 0);
-  const unbudgetedSpent = expenseCats.filter(c => !(DATA.budgets[c.id] > 0) && spentMap[c.id]);
+  const expBudgeted = expenseCats.filter(c => (DATA.budgets[c.id] || 0) > 0);
+  const incBudgeted = incomeCats.filter(c => (DATA.budgets[c.id] || 0) > 0);
 
-  const totalBudget = budgeted.reduce((s, c) => s + (DATA.budgets[c.id] || 0), 0);
-  const totalSpent = budgeted.reduce((s, c) => s + (spentMap[c.id] || 0), 0);
+  const totalBudget = expBudgeted.reduce((s, c) => s + (DATA.budgets[c.id] || 0), 0);
+  const totalSpent = expBudgeted.reduce((s, c) => s + (expSpentMap[c.id] || 0), 0);
+  const totalGoal = incBudgeted.reduce((s, c) => s + (DATA.budgets[c.id] || 0), 0);
+  const totalEarned = incBudgeted.reduce((s, c) => s + (incSpentMap[c.id] || 0), 0);
 
-  const rowHtml = (cat, spent, budget) => {
+  const rowHtml = (cat, spent, budget, isIncome) => {
     const pct = budget ? Math.round(spent / budget * 100) : 0;
-    const cls = pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok';
+    const cls = isIncome
+      ? (pct >= 100 ? 'ok' : pct >= 50 ? 'warn' : 'over')
+      : (pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok');
+    const remain = isIncome
+      ? (spent >= budget ? '목표 달성' : '남은 ' + won(budget - spent))
+      : '남은 ' + wonSigned(budget - spent);
     return `<div class="budget-item">
       <div class="budget-head">
         <span class="left">${cat.icon} ${escapeHtml(cat.name)}</span>
         <span style="display:flex;align-items:center;gap:8px;">
           <span class="budget-pct-tag ${cls}">${pct}%</span>
-          <input type="text" class="budget-edit-input" inputmode="numeric" value="${budget ? budget.toLocaleString('ko-KR') : ''}" placeholder="예산 없음" oninput="formatAmountInput(this)" onchange="setBudget('${cat.id}', this)">
+          <input type="text" class="budget-edit-input" inputmode="numeric" value="${budget ? budget.toLocaleString('ko-KR') : ''}" placeholder="${isIncome ? '목표 없음' : '예산 없음'}" oninput="formatAmountInput(this)" onchange="setBudget('${cat.id}', this)">
         </span>
       </div>
       <div class="budget-track"><div class="budget-fill ${cls}" style="width:${Math.min(100, pct)}%"></div></div>
-      <div class="form-note" style="margin:6px 0 0;">${won(spent)} 사용 ${budget ? ' / ' + won(budget) + ' · 남은 ' + wonSigned(budget - spent) : ''}</div>
+      <div class="form-note" style="margin:6px 0 0;">${won(spent)} ${isIncome ? '달성' : '사용'}${budget ? ' / ' + won(budget) + (isIncome ? ' 목표 · ' + remain : ' · ' + remain) : ''}</div>
     </div>`;
   };
+  const groupListHtml = (type, spentMap, isIncome) => topCategories(type).map(p => {
+    const children = childCategories(p.id).filter(c => !(DATA.budgets[c.id] > 0));
+    if (!children.length) return '';
+    return `<details class="budget-group">
+      <summary><span class="cat-chip-name">${p.icon} ${escapeHtml(p.name)}</span><span class="budget-group-meta">${children.length}개</span></summary>
+      ${children.map(c => rowHtml(c, spentMap[c.id] || 0, 0, isIncome)).join('')}
+    </details>`;
+  }).join('');
 
   document.getElementById('panel-budget').innerHTML = `
     ${monthNavHtml('navMonth(-1)', 'navMonth(1)', mKey)}
@@ -1677,18 +1734,24 @@ function renderBudget() {
     </div>
     <div class="section-block">
       <div class="section-heading">예산 설정된 카테고리</div>
-      ${budgeted.length ? budgeted.map(c => rowHtml(c, spentMap[c.id] || 0, DATA.budgets[c.id])).join('') : `<div class="empty">아직 예산을 설정하지 않았어요. 아래 목록에서 금액을 입력해보세요.</div>`}
+      ${expBudgeted.length ? expBudgeted.map(c => rowHtml(c, expSpentMap[c.id] || 0, DATA.budgets[c.id], false)).join('') : `<div class="empty">아직 예산을 설정하지 않았어요. 아래 목록에서 금액을 입력해보세요.</div>`}
     </div>
     <div class="section-block">
       <div class="section-heading">예산 미설정 카테고리</div>
-      ${topCategories('expense').map(p => {
-        const children = childCategories(p.id).filter(c => !(DATA.budgets[c.id] > 0));
-        if (!children.length) return '';
-        return `<details class="budget-group">
-          <summary><span class="cat-chip-name">${p.icon} ${escapeHtml(p.name)}</span><span class="budget-group-meta">${children.length}개</span></summary>
-          ${children.map(c => rowHtml(c, spentMap[c.id] || 0, 0)).join('')}
-        </details>`;
-      }).join('')}
+      ${groupListHtml('expense', expSpentMap, false)}
+    </div>
+    <div class="kpi-row" style="margin-bottom:20px;">
+      <div class="kpi"><div class="lbl">총 수입 목표</div><div class="val">${won(totalGoal)}</div></div>
+      <div class="kpi"><div class="lbl">총 수입 실적</div><div class="val income">${won(totalEarned)}</div></div>
+      <div class="kpi"><div class="lbl">목표까지</div><div class="val ${totalEarned - totalGoal >= 0 ? 'income' : 'expense'}">${wonSigned(totalEarned - totalGoal)}</div></div>
+    </div>
+    <div class="section-block">
+      <div class="section-heading">수입 목표 설정된 카테고리</div>
+      ${incBudgeted.length ? incBudgeted.map(c => rowHtml(c, incSpentMap[c.id] || 0, DATA.budgets[c.id], true)).join('') : `<div class="empty">아직 수입 목표를 설정하지 않았어요. 아래 목록에서 금액을 입력해보세요.</div>`}
+    </div>
+    <div class="section-block">
+      <div class="section-heading">수입 목표 미설정 카테고리</div>
+      ${groupListHtml('income', incSpentMap, true)}
     </div>
   `;
 }
@@ -2114,25 +2177,77 @@ function notifyDueRecurringToday() {
 }
 
 /* ---------------- SETTINGS (categories / backup) ---------------- */
+let catDrag = null;
+function startCatDrag(ev, id) {
+  ev.preventDefault();
+  if (catDrag) return;
+  const row = ev.currentTarget.closest('.cat-parent-group, .cat-chip');
+  if (!row) return;
+  const list = row.parentElement;
+  const cls = row.classList.contains('cat-parent-group') ? 'cat-parent-group' : 'cat-chip';
+  const rect = row.getBoundingClientRect();
+  const placeholder = document.createElement('div');
+  placeholder.className = cls + ' cat-drag-placeholder';
+  placeholder.style.height = rect.height + 'px';
+  list.insertBefore(placeholder, row);
+  row.classList.add('cat-dragging');
+  row.style.position = 'fixed';
+  row.style.width = rect.width + 'px';
+  row.style.left = rect.left + 'px';
+  row.style.top = rect.top + 'px';
+  document.body.appendChild(row);
+  catDrag = { id, row, list, cls, placeholder, startClientY: ev.clientY, startTop: rect.top };
+  document.addEventListener('pointermove', onCatDragMove);
+  document.addEventListener('pointerup', onCatDragEnd);
+}
+function onCatDragMove(ev) {
+  if (!catDrag) return;
+  ev.preventDefault();
+  const dy = ev.clientY - catDrag.startClientY;
+  catDrag.row.style.top = (catDrag.startTop + dy) + 'px';
+  const rowRect = catDrag.row.getBoundingClientRect();
+  const rowCenter = rowRect.top + rowRect.height / 2;
+  const siblings = Array.from(catDrag.list.children).filter(el => el.classList.contains(catDrag.cls) || el === catDrag.placeholder);
+  const phIndex = siblings.indexOf(catDrag.placeholder);
+  for (let i = 0; i < siblings.length; i++) {
+    const sib = siblings[i];
+    if (sib === catDrag.placeholder) continue;
+    const r = sib.getBoundingClientRect();
+    const sibCenter = r.top + r.height / 2;
+    if (i < phIndex && rowCenter < sibCenter) { catDrag.list.insertBefore(catDrag.placeholder, sib); break; }
+    if (i > phIndex && rowCenter > sibCenter) { catDrag.list.insertBefore(catDrag.placeholder, sib.nextSibling); break; }
+  }
+}
+function onCatDragEnd() {
+  if (!catDrag) return;
+  document.removeEventListener('pointermove', onCatDragMove);
+  document.removeEventListener('pointerup', onCatDragEnd);
+  const { id, row, list, cls, placeholder } = catDrag;
+  const finalSiblings = Array.from(list.children).filter(el => el.classList.contains(cls) || el === placeholder);
+  const newIndex = finalSiblings.indexOf(placeholder);
+  list.replaceChild(row, placeholder);
+  row.classList.remove('cat-dragging');
+  row.style.position = ''; row.style.width = ''; row.style.left = ''; row.style.top = '';
+  catDrag = null;
+  reorderCategory(id, newIndex);
+}
 function renderSettings() {
-  const moveBtns = (id, idx, total) => `<button class="icon-btn" style="margin-left:0;" ${idx === 0 ? 'disabled' : ''} onclick="moveCategory('${id}', -1)" title="위로" aria-label="위로 이동"><i class="ti ti-chevron-up"></i></button><button class="icon-btn" ${idx === total - 1 ? 'disabled' : ''} onclick="moveCategory('${id}', 1)" title="아래로" aria-label="아래로 이동"><i class="ti ti-chevron-down"></i></button>`;
-  const parentGroupHtml = (p, idx, total) => {
+  const dragHandle = (id) => `<button class="icon-btn cat-drag-handle" style="margin-left:0;" onpointerdown="startCatDrag(event, '${id}')" title="드래그해서 순서 변경" aria-label="드래그해서 순서 변경"><i class="ti ti-grip-vertical"></i></button>`;
+  const parentGroupHtml = (p) => {
     const children = childCategories(p.id);
-    return `<div class="cat-parent-group">
+    return `<div class="cat-parent-group" data-cat-id="${p.id}">
       <div class="cat-parent-head">
-        <span class="cat-chip-name">${p.icon} ${escapeHtml(p.name)}</span>
+        <span class="cat-chip-name">${dragHandle(p.id)} ${p.icon} ${escapeHtml(p.name)}</span>
         <span>
-          ${moveBtns(p.id, idx, total)}
           <button class="icon-btn" onclick="openChildCategoryModal(null, '${p.id}')" title="소분류 추가" aria-label="소분류 추가">+</button>
           <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openParentCategoryModal('${p.id}')">수정</button>
           <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteCategory('${p.id}')">삭제</button>
         </span>
       </div>
       <div class="cat-child-list">
-        ${children.length ? children.map((c, ci) => `<div class="cat-chip">
-          <span class="cat-chip-name"><span class="cat-swatch" style="background:${catColor(c)}"></span>${c.icon} ${escapeHtml(c.name)}${categoryUsageCount(c.id) ? ` <span class="form-note" style="margin:0;">(거래 ${categoryUsageCount(c.id)}건)</span>` : ''}</span>
+        ${children.length ? children.map((c) => `<div class="cat-chip" data-cat-id="${c.id}">
+          <span class="cat-chip-name">${dragHandle(c.id)} <span class="cat-swatch" style="background:${catColor(c)}"></span>${c.icon} ${escapeHtml(c.name)}${categoryUsageCount(c.id) ? ` <span class="form-note" style="margin:0;">(거래 ${categoryUsageCount(c.id)}건)</span>` : ''}</span>
           <span>
-            ${moveBtns(c.id, ci, children.length)}
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReassignCategoryModal('${c.id}')" title="다른 카테고리로 일괄 변경">변경</button>
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openChildCategoryModal('${c.id}')">수정</button>
             <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteCategory('${c.id}')">삭제</button>
@@ -2149,8 +2264,8 @@ function renderSettings() {
       <div class="section-heading">카테고리 관리<button class="ghost-btn" onclick="openParentCategoryModal()"><i class="ti ti-plus"></i> 대분류 추가</button></div>
       <div class="form-note">대분류 안에 소분류를 두는 2단계 구조예요. 실제 거래는 소분류에 기록돼요.</div>
       <div class="cat-manage-grid">
-        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">지출</h4>${expenseParents.map((p, i) => parentGroupHtml(p, i, expenseParents.length)).join('') || '<div class="form-note">대분류가 없어요.</div>'}</div>
-        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">수입</h4>${incomeParents.map((p, i) => parentGroupHtml(p, i, incomeParents.length)).join('') || '<div class="form-note">대분류가 없어요.</div>'}</div>
+        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">지출</h4>${expenseParents.map(parentGroupHtml).join('') || '<div class="form-note">대분류가 없어요.</div>'}</div>
+        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">수입</h4>${incomeParents.map(parentGroupHtml).join('') || '<div class="form-note">대분류가 없어요.</div>'}</div>
       </div>
     </div>
     <div class="section-block">
