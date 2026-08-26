@@ -991,7 +991,6 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     toAccField.innerHTML = `<label class="field-lbl">입금 자산</label><select id="tx-toaccount">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
     excludeField.innerHTML = '';
     receiptField.innerHTML = '';
-    payeeField.innerHTML = '';
   } else {
     const groups = topCategories(type).map(p => {
       const children = childCategories(p.id);
@@ -1011,11 +1010,11 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     } else {
       receiptField.innerHTML = '';
     }
-    const payeeOptions = Array.from(new Set(DATA.transactions.filter(t => t.payee).map(t => t.payee)));
-    payeeField.innerHTML = `<label class="field-lbl">대상</label>
-      <input type="text" id="tx-payee" list="tx-payee-list" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : '예: 스타벅스, 이마트'}" value="${escapeHtml(presetPayee || '')}">
-      <datalist id="tx-payee-list">${payeeOptions.map(p => `<option value="${escapeHtml(p)}">`).join('')}</datalist>`;
   }
+  const payeeOptions = Array.from(new Set(DATA.transactions.filter(t => t.payee).map(t => t.payee)));
+  payeeField.innerHTML = `<label class="field-lbl">대상</label>
+    <input type="text" id="tx-payee" list="tx-payee-list" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 정기적금 이체' : '예: 스타벅스, 이마트'}" value="${escapeHtml(presetPayee || '')}">
+    <datalist id="tx-payee-list">${payeeOptions.map(p => `<option value="${escapeHtml(p)}">`).join('')}</datalist>`;
   updateTxAmountCurrencyBadge();
 }
 function currentTxCurrency() {
@@ -1107,8 +1106,8 @@ function submitTx(editId) {
     payload.categoryId = categoryId; payload.accountId = accountId;
     payload.excludeFromStats = document.getElementById('tx-exclude').checked;
     payload.receipt = type === 'expense' ? (state._txModal.receipt || null) : undefined;
-    payload.payee = document.getElementById('tx-payee').value.trim() || null;
   }
+  payload.payee = document.getElementById('tx-payee').value.trim() || null;
 
   if (editId) {
     const idx = DATA.transactions.findIndex(t => t.id === editId);
@@ -1713,17 +1712,16 @@ function renderRecModalFields(presetCat, presetAcc, presetToAcc, presetPayee) {
     catField.innerHTML = '';
     accField.innerHTML = `<label class="field-lbl">출금자산</label><select id="rec-account" onchange="updateRecAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
     toAccField.innerHTML = `<label class="field-lbl">이체자산</label><select id="rec-toaccount">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
-    payeeField.innerHTML = '';
   } else {
     const cats = DATA.categories.filter(c => c.type === type);
     catField.innerHTML = `<label class="field-lbl">카테고리</label><select id="rec-category">${cats.map(c => `<option value="${c.id}" ${presetCat === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</select>`;
     accField.innerHTML = `<label class="field-lbl">자산</label><select id="rec-account" onchange="updateRecAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
     toAccField.innerHTML = '';
-    const payeeOptions = Array.from(new Set(DATA.transactions.filter(t => t.payee).map(t => t.payee)));
-    payeeField.innerHTML = `<label class="field-lbl">대상</label>
-      <input type="text" id="rec-payee" list="rec-payee-list" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : '예: 스타벅스, 이마트'}" value="${escapeHtml(presetPayee || '')}">
-      <datalist id="rec-payee-list">${payeeOptions.map(p => `<option value="${escapeHtml(p)}">`).join('')}</datalist>`;
   }
+  const payeeOptions = Array.from(new Set(DATA.transactions.filter(t => t.payee).map(t => t.payee)));
+  payeeField.innerHTML = `<label class="field-lbl">대상</label>
+    <input type="text" id="rec-payee" list="rec-payee-list" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 정기적금 이체' : '예: 스타벅스, 이마트'}" value="${escapeHtml(presetPayee || '')}">
+    <datalist id="rec-payee-list">${payeeOptions.map(p => `<option value="${escapeHtml(p)}">`).join('')}</datalist>`;
   updateRecAmountCurrencyBadge();
 }
 function currentRecCurrency() {
@@ -1767,8 +1765,8 @@ function submitRecurring(editId) {
   } else {
     payload.categoryId = document.getElementById('rec-category').value;
     payload.accountId = document.getElementById('rec-account').value;
-    payload.payee = document.getElementById('rec-payee').value.trim() || null;
   }
+  payload.payee = document.getElementById('rec-payee').value.trim() || null;
   if (editId) {
     const idx = DATA.recurring.findIndex(r => r.id === editId);
     DATA.recurring[idx] = { ...DATA.recurring[idx], ...payload };
