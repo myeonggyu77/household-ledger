@@ -96,12 +96,13 @@
   .receipt-thumb { width: 96px; height: 96px; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); }
 
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  tbody td { white-space: nowrap; padding: 10px 8px; border-bottom: 1px solid var(--line-soft); }
-  .name-cell { white-space: normal; line-height: 1.35; word-break: keep-all; overflow-wrap: break-word; }
-  thead th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-faint); font-weight: 500; padding: 8px; border-bottom: 1px solid var(--ink); position: sticky; top: 0; background: var(--paper); z-index: 4; box-shadow: 0 1px 0 var(--ink); white-space: nowrap; }
-  th.num, td.num { text-align: right; font-family: var(--mono); }
+  .overflow-x table { table-layout: fixed; }
+  tbody td { white-space: nowrap; padding: 10px 8px; border-bottom: 1px solid var(--line-soft); overflow: hidden; text-overflow: ellipsis; }
+  .name-cell { line-height: 1.35; }
+  thead th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-faint); font-weight: 500; padding: 8px; border-bottom: 1px solid var(--ink); position: sticky; top: 0; background: var(--paper); z-index: 4; box-shadow: 0 1px 0 var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  th.num, td.num { text-align: right; font-family: var(--mono); width: 100px; }
   tbody tr:hover { background: var(--accent-tint); }
-  .actions-cell { text-align: right; white-space: nowrap; }
+  .actions-cell { text-align: right; white-space: normal; overflow: visible; width: 100px; }
   .overflow-x { overflow-x: auto; overflow-y: auto; max-height: 66vh; border-radius: 4px; }
   .empty { text-align: center; padding: 40px 0; color: var(--ink-faint); font-size: 13px; }
   .empty .big { font-size: 14px; color: var(--ink-soft); margin-bottom: 4px; }
@@ -204,10 +205,11 @@
 
   .cat-manage-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
   @media (max-width: 640px) { .cat-manage-grid { grid-template-columns: 1fr; } }
-  .cat-chip { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; border: 1px solid var(--line); border-radius: 4px; margin-bottom: 6px; font-size: 13px; }
-  .cat-chip .cat-chip-name { display: flex; align-items: center; gap: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cat-chip { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 7px 10px; border: 1px solid var(--line); border-radius: 4px; margin-bottom: 6px; font-size: 13px; }
+  .cat-chip .cat-chip-name { display: flex; align-items: center; gap: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 140px; }
+  .cat-chip > span:last-child, .cat-parent-head > span:last-child { flex-shrink: 0; white-space: nowrap; }
   .cat-parent-group { border: 1px solid var(--line); border-radius: 5px; margin-bottom: 12px; overflow: hidden; }
-  .cat-parent-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; background: var(--line-soft); font-size: 13px; font-weight: 600; }
+  .cat-parent-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 8px 10px; background: var(--line-soft); font-size: 13px; font-weight: 600; }
   .cat-parent-head .cat-chip-name { display: flex; align-items: center; gap: 7px; }
   .cat-child-list { padding: 8px 10px 2px; }
   .cat-child-list .cat-chip { margin-left: 6px; }
@@ -828,8 +830,8 @@ function abbrevWon(n) {
 function renderTxTable(list, hideDate) {
   return `<div class="overflow-x"><table>
     <thead><tr>
-      ${hideDate ? '' : '<th>날짜</th>'}
-      <th>구분</th><th>카테고리 / 자산</th><th class="name-cell">대상 / 메모</th><th class="num">금액</th><th class="actions-cell">관리</th>
+      ${hideDate ? '' : '<th style="width:52px;">날짜</th>'}
+      <th class="name-cell">내역</th><th class="num">금액</th><th class="actions-cell">관리</th>
     </tr></thead>
     <tbody>
       ${list.map(t => {
@@ -843,11 +845,19 @@ function renderTxTable(list, hideDate) {
           mid = `${cat.icon} ${escapeHtml(cat.name)} <span style="color:var(--ink-faint)">· ${escapeHtml(acc.name)}</span>`;
         }
         const sign = t.type === 'income' ? '+' : t.type === 'expense' ? '-' : '';
+        const subParts = [];
+        if (t.payee) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.payee)}</span>`);
+        if (t.memo) subParts.push(escapeHtml(t.memo));
+        if (t.excludeFromStats) subParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
+        const subLine = subParts.length || t.receipt
+          ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}${t.receipt ? ' 🧾' : ''}</div>`
+          : '';
         return `<tr>
           ${hideDate ? '' : `<td>${t.date.slice(5)}</td>`}
-          <td><span class="type-tag ${t.type}">${t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체'}</span></td>
-          <td class="name-cell">${mid}</td>
-          <td class="name-cell">${t.payee ? `<span style="font-weight:600;">${escapeHtml(t.payee)}</span>${t.memo ? ' · ' : ''}` : ''}${escapeHtml(t.memo || '')}${t.excludeFromStats ? ' <span style="color:var(--ink-faint);font-size:11px;">(통계 제외)</span>' : ''}${t.receipt ? ' <span title="영수증 첨부">🧾</span>' : ''}</td>
+          <td>
+            <div class="name-cell"><span class="type-tag ${t.type}">${t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체'}</span> ${mid}</div>
+            ${subLine}
+          </td>
           <td class="num amt ${t.type}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</td>
           <td class="actions-cell">
             ${t.receipt ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
@@ -1241,7 +1251,7 @@ function renderBulkPreview() {
   wrap.innerHTML = `
     <div class="form-note">${rows.length}행 중 <strong style="color:var(--accent)">${validCount}건</strong> 등록 가능, ${rows.length - validCount}건 오류</div>
     <div class="overflow-x" style="max-height:40vh;"><table>
-      <thead><tr><th>#</th><th>날짜</th><th>구분</th><th class="name-cell">내용</th><th class="num">금액</th><th>상태</th></tr></thead>
+      <thead><tr><th style="width:28px;">#</th><th style="width:56px;">날짜</th><th style="width:42px;">구분</th><th class="name-cell">내용</th><th class="num">금액</th><th style="width:50px;">상태</th></tr></thead>
       <tbody>
         ${rows.map(r => `<tr>
           <td>${r.idx + 2}</td>
@@ -1565,15 +1575,18 @@ function renderRecurring() {
       <button class="primary-btn" onclick="openRecurringModal()"><i class="ti ti-plus"></i> 정기거래 추가</button>
     </div>
     ${DATA.recurring.length ? `<div class="overflow-x"><table>
-      <thead><tr><th>이름</th><th>카테고리/자산</th><th>대상</th><th class="num">금액</th><th>주기</th><th class="actions-cell">관리</th></tr></thead>
+      <thead><tr><th class="name-cell">이름</th><th class="num">금액</th><th style="width:76px;">주기</th><th class="actions-cell">관리</th></tr></thead>
       <tbody>
         ${DATA.recurring.map(r => {
           const acc = getAccount(r.accountId);
           const mid = r.type === 'transfer' ? `${acc.icon} ${escapeHtml(acc.name)} → ${getAccount(r.toAccountId).icon} ${escapeHtml(getAccount(r.toAccountId).name)}` : `${getCategory(r.categoryId).icon} ${escapeHtml(getCategory(r.categoryId).name)} · ${escapeHtml(acc.name)}`;
+          const subParts = [mid];
+          if (r.payee) subParts.push(escapeHtml(r.payee));
           return `<tr>
-            <td class="name-cell"><span class="type-tag ${r.type}">${r.type === 'income' ? '수입' : r.type === 'expense' ? '지출' : '이체'}</span> ${escapeHtml(r.name)}${r.type === 'expense' && r.noHolidayShift ? ` <span class="form-note" style="display:inline;margin:0;">(휴일무관)</span>` : ''}${r.type === 'income' && r.payBeforeHoliday ? ` <span class="form-note" style="display:inline;margin:0;">(휴일 전 평일)</span>` : ''}</td>
-            <td class="name-cell">${mid}</td>
-            <td class="name-cell">${r.payee ? escapeHtml(r.payee) : ''}</td>
+            <td>
+              <div class="name-cell"><span class="type-tag ${r.type}">${r.type === 'income' ? '수입' : r.type === 'expense' ? '지출' : '이체'}</span> ${escapeHtml(r.name)}${r.type === 'expense' && r.noHolidayShift ? ` <span class="form-note" style="display:inline;margin:0;">(휴일무관)</span>` : ''}${r.type === 'income' && r.payBeforeHoliday ? ` <span class="form-note" style="display:inline;margin:0;">(휴일 전 평일)</span>` : ''}</div>
+              <div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}</div>
+            </td>
             <td class="num">${fmtCurrency(r.amount, acc.currency || 'KRW')}</td>
             <td>${recurringScheduleLabel(r)}</td>
             <td class="actions-cell">
