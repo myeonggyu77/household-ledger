@@ -1128,13 +1128,11 @@ function openReceiptLightboxForTx(id) {
   const t = DATA.transactions.find(x => x.id === id);
   if (!t || !t.receipt) return;
   openModal(`
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-      <h3 style="margin:0;">영수증 사진</h3>
-      <button class="ghost-btn" onclick="closeModal()">닫기</button>
-    </div>
+    <h3>영수증 사진</h3>
     <div style="overflow:auto;max-height:65vh;border-radius:6px;">
       <img src="${t.receipt}" style="width:100%;display:block;" alt="영수증">
     </div>
+    <div class="form-actions"><button class="ghost-btn" onclick="closeModal()">닫기</button></div>
   `);
 }
 function submitTx(editId) {
