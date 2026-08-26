@@ -377,8 +377,17 @@ async function onAuthed(userId) {
     if (result.ok && result.data === undefined) {
       await sb.from('user_data').upsert({ user_id: userId, data: DATA, updated_at: new Date().toISOString() });
     } else if (result.ok && result.data && Array.isArray(result.data.categories) && result.data.categories.length) {
-      DATA = result.data;
+      let cloudData = result.data;
+      cloudData.transactions = cloudData.transactions || [];
+      cloudData.budgets = cloudData.budgets || {};
+      cloudData.recurring = cloudData.recurring || [];
+      cloudData = migrateCategoriesToHierarchy(cloudData);
+      cloudData = migrateAccountTypes(cloudData);
+      const beforeVersion = cloudData.categoryTreeVersion;
+      cloudData = migrateToUpdatedCategoryTree(cloudData);
+      DATA = cloudData;
       try { localStorage.setItem(LS_KEY, JSON.stringify(DATA)); } catch (e) {}
+      if (beforeVersion !== CATEGORY_TREE_VERSION) scheduleCloudSave();
     }
   } catch (e) {
     console.error('cloud sync on login failed', e);
