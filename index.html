@@ -372,12 +372,16 @@ function scheduleCloudSave() {
 async function onAuthed(userId) {
   currentUserId = userId;
   const { data: { user } } = await sb.auth.getUser();
-  const result = await loadCloudData(userId);
-  if (result.ok && result.data === undefined) {
-    await sb.from('user_data').upsert({ user_id: userId, data: DATA, updated_at: new Date().toISOString() });
-  } else if (result.ok && result.data) {
-    DATA = result.data;
-    try { localStorage.setItem(LS_KEY, JSON.stringify(DATA)); } catch (e) {}
+  try {
+    const result = await loadCloudData(userId);
+    if (result.ok && result.data === undefined) {
+      await sb.from('user_data').upsert({ user_id: userId, data: DATA, updated_at: new Date().toISOString() });
+    } else if (result.ok && result.data && Array.isArray(result.data.categories) && result.data.categories.length) {
+      DATA = result.data;
+      try { localStorage.setItem(LS_KEY, JSON.stringify(DATA)); } catch (e) {}
+    }
+  } catch (e) {
+    console.error('cloud sync on login failed', e);
   }
   startApp(user ? user.email : '');
 }
