@@ -485,12 +485,38 @@ function prevBusinessDay(d) {
   while (isHolidayDate(nd)) nd.setDate(nd.getDate() - 1);
   return nd;
 }
-function recurringEffectiveDate(r, y, m) {
-  const day = Math.min(r.day, daysInMonth(y, m));
-  let d = new Date(y, m - 1, day);
-  if (r.type === 'expense' && !r.noHolidayShift) d = nextBusinessDay(d);
-  else if (r.type === 'income' && r.payBeforeHoliday) d = prevBusinessDay(d);
-  return d;
+function isRecurringDueOn(r, d) {
+  const freq = r.frequency || 'monthly';
+  if (freq === 'daily') {
+    return (r.dailyMode || 'weekdaysOnly') === 'everyday' || !isHolidayDate(d);
+  }
+  // Scan nearby calendar days for the un-shifted ("raw") occurrence and check whether its
+  // holiday-shifted date lands on d — scanning (rather than reconstructing raw from d's own
+  // week/month) keeps this correct even when a shift chain crosses a week/month boundary.
+  const isRawDay = freq === 'weekly'
+    ? (cand) => cand.getDay() === (r.weekday != null ? r.weekday : 1)
+    : (cand) => cand.getDate() === Math.min(r.day || 1, daysInMonth(cand.getFullYear(), cand.getMonth() + 1));
+  for (let off = -8; off <= 8; off++) {
+    const raw = _addDays(d, off);
+    if (!isRawDay(raw)) continue;
+    let eff = raw;
+    if (r.type === 'expense' && !r.noHolidayShift) eff = nextBusinessDay(raw);
+    else if (r.type === 'income' && r.payBeforeHoliday) eff = prevBusinessDay(raw);
+    if (ymd(eff) === ymd(d)) return true;
+  }
+  return false;
+}
+function recurringAlreadyAppliedForPeriod(r, d) {
+  const freq = r.frequency || 'monthly';
+  if (freq === 'daily') {
+    return DATA.transactions.some(t => t.fromRecurringId === r.id && t.date === ymd(d));
+  }
+  if (freq === 'weekly') {
+    const sun = ymd(_addDays(d, -d.getDay())), sat = ymd(_addDays(d, 6 - d.getDay()));
+    return DATA.transactions.some(t => t.fromRecurringId === r.id && t.date >= sun && t.date <= sat);
+  }
+  const mKey = monthKey(d);
+  return DATA.transactions.some(t => t.fromRecurringId === r.id && t.date.slice(0, 7) === mKey);
 }
 
 /* ---------------- formatting ---------------- */
@@ -1509,6 +1535,12 @@ function recFieldLabels(type) {
   if (type === 'transfer') return { name: '이체명', day: '이체주기' };
   return { name: '지출명', day: '지출주기' };
 }
+function recurringScheduleLabel(r) {
+  const freq = r.frequency || 'monthly';
+  if (freq === 'weekly') return `매주 ${['일', '월', '화', '수', '목', '금', '토'][r.weekday != null ? r.weekday : 1]}요일`;
+  if (freq === 'daily') return (r.dailyMode || 'weekdaysOnly') === 'everyday' ? '매일 (휴일포함)' : '매일 (평일만)';
+  return `매월 ${r.day}일`;
+}
 function renderRecurring() {
   document.getElementById('panel-recurring').innerHTML = `
     <div class="toolbar">
@@ -1516,7 +1548,7 @@ function renderRecurring() {
       <button class="primary-btn" onclick="openRecurringModal()"><i class="ti ti-plus"></i> 정기거래 추가</button>
     </div>
     ${DATA.recurring.length ? `<div class="overflow-x"><table>
-      <thead><tr><th>이름</th><th>카테고리/자산</th><th class="num">금액</th><th>주기(일)</th><th class="actions-cell">관리</th></tr></thead>
+      <thead><tr><th>이름</th><th>카테고리/자산</th><th class="num">금액</th><th>주기</th><th class="actions-cell">관리</th></tr></thead>
       <tbody>
         ${DATA.recurring.map(r => {
           const acc = getAccount(r.accountId);
@@ -1525,7 +1557,7 @@ function renderRecurring() {
             <td class="name-cell"><span class="type-tag ${r.type}">${r.type === 'income' ? '수입' : r.type === 'expense' ? '지출' : '이체'}</span> ${escapeHtml(r.name)}${r.type === 'expense' && r.noHolidayShift ? ` <span class="form-note" style="display:inline;margin:0;">(휴일무관)</span>` : ''}${r.type === 'income' && r.payBeforeHoliday ? ` <span class="form-note" style="display:inline;margin:0;">(휴일 전 평일)</span>` : ''}</td>
             <td class="name-cell">${mid}</td>
             <td class="num">${fmtCurrency(r.amount, acc.currency || 'KRW')}</td>
-            <td>${r.day}일</td>
+            <td>${recurringScheduleLabel(r)}</td>
             <td class="actions-cell">
               <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringApplyModal('${r.id}')">적용</button>
               <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringModal('${r.id}')">수정</button>
@@ -1566,6 +1598,7 @@ function submitRecurringApply(id) {
 function openRecurringModal(id) {
   const editing = id ? DATA.recurring.find(r => r.id === id) : null;
   const type = editing ? editing.type : 'expense';
+  const freq = editing ? (editing.frequency || 'monthly') : 'monthly';
   const labels = recFieldLabels(type);
   openModal(`
     <h3>${editing ? '정기거래 수정' : '정기거래 추가'}</h3>
@@ -1576,8 +1609,16 @@ function openRecurringModal(id) {
     </div>
     <div class="field"><label class="field-lbl" id="rec-name-label">${labels.name}</label><input type="text" id="rec-name" value="${escapeHtml(editing ? editing.name : '')}" placeholder="예: 월세, 넷플릭스, 급여"></div>
     <div class="field"><label class="field-lbl">금액 <span id="rec-amount-currency" style="color:var(--ink-faint);font-weight:400;text-transform:none;"></span></label><input type="text" inputmode="decimal" id="rec-amount" oninput="onRecAmountInputDynamic(this)" value="${editing ? (getAccount(editing.accountId).currency === 'USD' ? Number(editing.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(editing.amount).toLocaleString('ko-KR')) : ''}"></div>
-    <div class="field"><label class="field-lbl" id="rec-day-label">${labels.day}</label><input type="number" id="rec-day" min="1" max="31" value="${editing ? editing.day : 1}"></div>
-    <div class="field" id="rec-holiday-field" style="display:${type !== 'transfer' ? '' : 'none'};">
+    <div class="field">
+      <label class="field-lbl" id="rec-day-label">${labels.day}</label>
+      <div class="seg" id="rec-freq-seg" style="margin-bottom:8px;">
+        <button type="button" data-v="monthly" class="${freq === 'monthly' ? 'active' : ''}" onclick="setRecFreq('monthly')">매월</button>
+        <button type="button" data-v="weekly" class="${freq === 'weekly' ? 'active' : ''}" onclick="setRecFreq('weekly')">매주</button>
+        <button type="button" data-v="daily" class="${freq === 'daily' ? 'active' : ''}" onclick="setRecFreq('daily')">매일</button>
+      </div>
+      <div id="rec-freq-detail"></div>
+    </div>
+    <div class="field" id="rec-holiday-field" style="display:${(type !== 'transfer' && freq !== 'daily') ? '' : 'none'};">
       <label style="display:flex;align-items:center;gap:8px;font-weight:400;cursor:pointer;">
         <input type="checkbox" id="rec-holiday-adjust" ${editing && (editing.noHolidayShift || editing.payBeforeHoliday) ? 'checked' : ''} style="width:16px;height:16px;">
         <span id="rec-holiday-label">${type === 'income' ? '휴일이면 전 평일에 표시 (월급 등)' : '휴일이어도 해당일에 표시 (월세 등)'}</span>
@@ -1592,7 +1633,8 @@ function openRecurringModal(id) {
       <button class="primary-btn" onclick="submitRecurring(${editing ? `'${editing.id}'` : 'null'})">${editing ? '저장' : '추가'}</button>
     </div>
   `);
-  state._recModal = { type };
+  state._recModal = { type, freq };
+  renderRecFreqDetail(freq, editing ? editing.day : 1, editing ? editing.weekday : null, editing ? editing.dailyMode : null);
   renderRecModalFields(editing ? editing.categoryId : null, editing ? editing.accountId : null, editing ? editing.toAccountId : null, editing ? (editing.payee || '') : '');
 }
 function setRecType(t) {
@@ -1606,10 +1648,37 @@ function setRecType(t) {
   const labels = recFieldLabels(t);
   document.getElementById('rec-name-label').textContent = labels.name;
   document.getElementById('rec-day-label').textContent = labels.day;
-  document.getElementById('rec-holiday-field').style.display = t !== 'transfer' ? '' : 'none';
+  document.getElementById('rec-holiday-field').style.display = (t !== 'transfer' && state._recModal.freq !== 'daily') ? '' : 'none';
   document.getElementById('rec-holiday-label').textContent = t === 'income' ? '휴일이면 전 평일에 표시 (월급 등)' : '휴일이어도 해당일에 표시 (월세 등)';
   document.getElementById('rec-holiday-adjust').checked = false;
   renderRecModalFields();
+}
+function renderRecFreqDetail(freq, presetDay, presetWeekday, presetDailyMode) {
+  const el = document.getElementById('rec-freq-detail');
+  if (freq === 'weekly') {
+    const wLabels = ['일', '월', '화', '수', '목', '금', '토'];
+    const wd = presetWeekday != null ? presetWeekday : 1;
+    el.innerHTML = `<select id="rec-weekday">${wLabels.map((w, i) => `<option value="${i}" ${wd === i ? 'selected' : ''}>${w}요일</option>`).join('')}</select>`;
+  } else if (freq === 'daily') {
+    const mode = presetDailyMode || 'weekdaysOnly';
+    el.innerHTML = `<div class="seg" id="rec-daily-mode-seg">
+        <button type="button" data-v="weekdaysOnly" class="${mode !== 'everyday' ? 'active' : ''}" onclick="setRecDailyMode('weekdaysOnly', this)">평일만</button>
+        <button type="button" data-v="everyday" class="${mode === 'everyday' ? 'active' : ''}" onclick="setRecDailyMode('everyday', this)">휴일포함</button>
+      </div>
+      <input type="hidden" id="rec-daily-mode" value="${mode}">`;
+  } else {
+    el.innerHTML = `<input type="number" id="rec-day" min="1" max="31" value="${presetDay || 1}">`;
+  }
+}
+function setRecDailyMode(m, btn) {
+  document.getElementById('rec-daily-mode').value = m;
+  document.querySelectorAll('#rec-daily-mode-seg button').forEach(b => b.classList.toggle('active', b === btn));
+}
+function setRecFreq(f) {
+  state._recModal.freq = f;
+  document.querySelectorAll('#rec-freq-seg button').forEach(b => b.classList.toggle('active', b.dataset.v === f));
+  document.getElementById('rec-holiday-field').style.display = (state._recModal.type !== 'transfer' && f !== 'daily') ? '' : 'none';
+  renderRecFreqDetail(f);
 }
 function renderRecModalFields(presetCat, presetAcc, presetToAcc, presetPayee) {
   const type = state._recModal.type;
@@ -1649,18 +1718,25 @@ function onRecAmountInputDynamic(el) {
 }
 function submitRecurring(editId) {
   const type = state._recModal.type;
+  const freq = state._recModal.freq;
   const name = document.getElementById('rec-name').value.trim();
   const amount = rawCurrencyAmount(document.getElementById('rec-amount'), currentRecCurrency());
-  const day = Math.min(31, Math.max(1, Number(document.getElementById('rec-day').value) || 1));
   if (!name) return showToast('이름을 입력해주세요.', 'error');
   if (!amount || amount <= 0) return showToast('금액을 입력해주세요.', 'error');
 
   const holidayAdjustChecked = document.getElementById('rec-holiday-adjust').checked;
   let payload = {
-    type, name, amount, day,
-    noHolidayShift: type === 'expense' && holidayAdjustChecked,
-    payBeforeHoliday: type === 'income' && holidayAdjustChecked,
+    type, name, amount, frequency: freq,
+    noHolidayShift: type === 'expense' && freq !== 'daily' && holidayAdjustChecked,
+    payBeforeHoliday: type === 'income' && freq !== 'daily' && holidayAdjustChecked,
   };
+  if (freq === 'weekly') {
+    payload.weekday = Number(document.getElementById('rec-weekday').value);
+  } else if (freq === 'daily') {
+    payload.dailyMode = document.getElementById('rec-daily-mode').value === 'everyday' ? 'everyday' : 'weekdaysOnly';
+  } else {
+    payload.day = Math.min(31, Math.max(1, Number(document.getElementById('rec-day').value) || 1));
+  }
   if (type === 'transfer') {
     payload.accountId = document.getElementById('rec-account').value;
     payload.toAccountId = document.getElementById('rec-toaccount').value;
@@ -1690,12 +1766,9 @@ function deleteRecurring(id) {
 }
 function todaysRecurring() {
   const today = new Date();
-  const y = today.getFullYear(), m = today.getMonth() + 1;
-  const mKey = monthKey(today);
-  const todayKey = ymd(today);
   return DATA.recurring
-    .filter(r => ymd(recurringEffectiveDate(r, y, m)) === todayKey)
-    .map(r => ({ ...r, alreadyApplied: DATA.transactions.some(t => t.fromRecurringId === r.id && t.date.slice(0, 7) === mKey) }));
+    .filter(r => isRecurringDueOn(r, today))
+    .map(r => ({ ...r, alreadyApplied: recurringAlreadyAppliedForPeriod(r, today) }));
 }
 function notifyDueRecurringToday() {
   const due = todaysRecurring().filter(r => !r.alreadyApplied);
