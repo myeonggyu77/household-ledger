@@ -468,6 +468,7 @@ function shiftMonth(mKey, delta) {
 }
 function monthLabel(mKey) { const [y, m] = mKey.split('-').map(Number); return `${y}년 ${m}월`; }
 function daysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
+function monthlyDayForMonth(r, y, m) { return r.day === 'last' ? daysInMonth(y, m) : Math.min(r.day || 1, daysInMonth(y, m)); }
 function todayStr() { return ymd(new Date()); }
 function isHolidayDate(d) {
   const wd = d.getDay();
@@ -495,7 +496,7 @@ function isRecurringDueOn(r, d) {
   // week/month) keeps this correct even when a shift chain crosses a week/month boundary.
   const isRawDay = freq === 'weekly'
     ? (cand) => cand.getDay() === (r.weekday != null ? r.weekday : 1)
-    : (cand) => cand.getDate() === Math.min(r.day || 1, daysInMonth(cand.getFullYear(), cand.getMonth() + 1));
+    : (cand) => cand.getDate() === monthlyDayForMonth(r, cand.getFullYear(), cand.getMonth() + 1);
   for (let off = -8; off <= 8; off++) {
     const raw = _addDays(d, off);
     if (!isRawDay(raw)) continue;
@@ -1539,7 +1540,7 @@ function recurringScheduleLabel(r) {
   const freq = r.frequency || 'monthly';
   if (freq === 'weekly') return `매주 ${['일', '월', '화', '수', '목', '금', '토'][r.weekday != null ? r.weekday : 1]}요일`;
   if (freq === 'daily') return (r.dailyMode || 'weekdaysOnly') === 'everyday' ? '매일 (휴일포함)' : '매일 (평일만)';
-  return `매월 ${r.day}일`;
+  return r.day === 'last' ? '매월 말일' : `매월 ${r.day}일`;
 }
 function renderRecurring() {
   document.getElementById('panel-recurring').innerHTML = `
@@ -1667,7 +1668,10 @@ function renderRecFreqDetail(freq, presetDay, presetWeekday, presetDailyMode) {
       </div>
       <input type="hidden" id="rec-daily-mode" value="${mode}">`;
   } else {
-    el.innerHTML = `<input type="number" id="rec-day" min="1" max="31" value="${presetDay || 1}">`;
+    const dayVal = presetDay || 1;
+    const dayOptions = Array.from({ length: 31 }, (_, i) => i + 1)
+      .map(i => `<option value="${i}" ${dayVal === i ? 'selected' : ''}>${i}일</option>`).join('');
+    el.innerHTML = `<select id="rec-day">${dayOptions}<option value="last" ${dayVal === 'last' ? 'selected' : ''}>말일</option></select>`;
   }
 }
 function setRecDailyMode(m, btn) {
@@ -1735,7 +1739,8 @@ function submitRecurring(editId) {
   } else if (freq === 'daily') {
     payload.dailyMode = document.getElementById('rec-daily-mode').value === 'everyday' ? 'everyday' : 'weekdaysOnly';
   } else {
-    payload.day = Math.min(31, Math.max(1, Number(document.getElementById('rec-day').value) || 1));
+    const dayRaw = document.getElementById('rec-day').value;
+    payload.day = dayRaw === 'last' ? 'last' : Math.min(31, Math.max(1, Number(dayRaw) || 1));
   }
   if (type === 'transfer') {
     payload.accountId = document.getElementById('rec-account').value;
