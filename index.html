@@ -499,6 +499,8 @@ function isRecurringDueOn(r, d) {
   // week/month) keeps this correct even when a shift chain crosses a week/month boundary.
   const isRawDay = freq === 'weekly'
     ? (cand) => cand.getDay() === (r.weekday != null ? r.weekday : 1)
+    : freq === 'yearly'
+    ? (cand) => cand.getMonth() + 1 === (r.month || 1) && cand.getDate() === Math.min(r.day || 1, daysInMonth(cand.getFullYear(), r.month || 1))
     : (cand) => cand.getDate() === monthlyDayForMonth(r, cand.getFullYear(), cand.getMonth() + 1);
   for (let off = -8; off <= 8; off++) {
     const raw = _addDays(d, off);
@@ -518,6 +520,10 @@ function recurringAlreadyAppliedForPeriod(r, d) {
   if (freq === 'weekly') {
     const sun = ymd(_addDays(d, -d.getDay())), sat = ymd(_addDays(d, 6 - d.getDay()));
     return DATA.transactions.some(t => t.fromRecurringId === r.id && t.date >= sun && t.date <= sat);
+  }
+  if (freq === 'yearly') {
+    const y = String(d.getFullYear());
+    return DATA.transactions.some(t => t.fromRecurringId === r.id && t.date.slice(0, 4) === y);
   }
   const mKey = monthKey(d);
   return DATA.transactions.some(t => t.fromRecurringId === r.id && t.date.slice(0, 7) === mKey);
@@ -1566,6 +1572,7 @@ function recurringScheduleLabel(r) {
   const freq = r.frequency || 'monthly';
   if (freq === 'weekly') return `매주 ${['일', '월', '화', '수', '목', '금', '토'][r.weekday != null ? r.weekday : 1]}요일`;
   if (freq === 'daily') return (r.dailyMode || 'weekdaysOnly') === 'everyday' ? '매일 (휴일포함)' : '매일 (평일만)';
+  if (freq === 'yearly') return `매년 ${r.month}월 ${r.day}일`;
   return r.day === 'last' ? '매월 말일' : `매월 ${r.day}일`;
 }
 function renderRecurring() {
@@ -1645,6 +1652,7 @@ function openRecurringModal(id) {
       <div class="seg" id="rec-freq-seg" style="margin-bottom:8px;">
         <button type="button" data-v="monthly" class="${freq === 'monthly' ? 'active' : ''}" onclick="setRecFreq('monthly')">매월</button>
         <button type="button" data-v="weekly" class="${freq === 'weekly' ? 'active' : ''}" onclick="setRecFreq('weekly')">매주</button>
+        <button type="button" data-v="yearly" class="${freq === 'yearly' ? 'active' : ''}" onclick="setRecFreq('yearly')">매년</button>
         <button type="button" data-v="daily" class="${freq === 'daily' ? 'active' : ''}" onclick="setRecFreq('daily')">매일</button>
       </div>
       <div id="rec-freq-detail"></div>
@@ -1665,7 +1673,7 @@ function openRecurringModal(id) {
     </div>
   `);
   state._recModal = { type, freq };
-  renderRecFreqDetail(freq, editing ? editing.day : 1, editing ? editing.weekday : null, editing ? editing.dailyMode : null);
+  renderRecFreqDetail(freq, editing ? editing.day : 1, editing ? editing.weekday : null, editing ? editing.dailyMode : null, editing ? editing.month : null);
   renderRecModalFields(editing ? editing.categoryId : null, editing ? editing.accountId : null, editing ? editing.toAccountId : null, editing ? (editing.payee || '') : '');
 }
 function setRecType(t) {
@@ -1684,7 +1692,7 @@ function setRecType(t) {
   document.getElementById('rec-holiday-adjust').checked = false;
   renderRecModalFields();
 }
-function renderRecFreqDetail(freq, presetDay, presetWeekday, presetDailyMode) {
+function renderRecFreqDetail(freq, presetDay, presetWeekday, presetDailyMode, presetMonth) {
   const el = document.getElementById('rec-freq-detail');
   if (freq === 'weekly') {
     const wLabels = ['일', '월', '화', '수', '목', '금', '토'];
@@ -1697,6 +1705,17 @@ function renderRecFreqDetail(freq, presetDay, presetWeekday, presetDailyMode) {
         <button type="button" data-v="everyday" class="${mode === 'everyday' ? 'active' : ''}" onclick="setRecDailyMode('everyday', this)">휴일포함</button>
       </div>
       <input type="hidden" id="rec-daily-mode" value="${mode}">`;
+  } else if (freq === 'yearly') {
+    const monthVal = presetMonth || 1;
+    const dayVal = presetDay || 1;
+    const monthOptions = Array.from({ length: 12 }, (_, i) => i + 1)
+      .map(i => `<option value="${i}" ${monthVal === i ? 'selected' : ''}>${i}월</option>`).join('');
+    const dayOptions = Array.from({ length: 31 }, (_, i) => i + 1)
+      .map(i => `<option value="${i}" ${dayVal === i ? 'selected' : ''}>${i}일</option>`).join('');
+    el.innerHTML = `<div style="display:flex;gap:8px;">
+        <select id="rec-month" style="flex:1;">${monthOptions}</select>
+        <select id="rec-day" style="flex:1;">${dayOptions}</select>
+      </div>`;
   } else {
     const dayVal = presetDay || 1;
     const dayOptions = Array.from({ length: 31 }, (_, i) => i + 1)
@@ -1767,6 +1786,9 @@ function submitRecurring(editId) {
     payload.weekday = Number(document.getElementById('rec-weekday').value);
   } else if (freq === 'daily') {
     payload.dailyMode = document.getElementById('rec-daily-mode').value === 'everyday' ? 'everyday' : 'weekdaysOnly';
+  } else if (freq === 'yearly') {
+    payload.month = Number(document.getElementById('rec-month').value);
+    payload.day = Math.min(31, Math.max(1, Number(document.getElementById('rec-day').value) || 1));
   } else {
     const dayRaw = document.getElementById('rec-day').value;
     payload.day = dayRaw === 'last' ? 'last' : Math.min(31, Math.max(1, Number(dayRaw) || 1));
