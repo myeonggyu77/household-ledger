@@ -101,11 +101,12 @@
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .overflow-x table { table-layout: fixed; }
   tbody td { white-space: nowrap; padding: 10px 8px; border-bottom: 1px solid var(--line-soft); overflow: hidden; text-overflow: ellipsis; }
-  .name-cell { line-height: 1.35; white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word; }
+  .name-cell { line-height: 1.35; white-space: normal; overflow: visible; text-overflow: clip; word-break: keep-all; overflow-wrap: break-word; }
   thead th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-faint); font-weight: 500; padding: 8px; border-bottom: 1px solid var(--ink); position: sticky; top: 0; background: var(--paper); z-index: 4; box-shadow: 0 1px 0 var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   th.num, td.num { text-align: right; font-family: var(--mono); width: 128px; }
   tbody tr:hover { background: var(--accent-tint); }
-  .actions-cell { text-align: right; white-space: normal; overflow: visible; width: 78px; }
+  .actions-cell { text-align: right; white-space: normal; overflow: visible; width: 86px; }
+  .actions-cell button { padding: 3px 5px !important; margin-left: 2px; font-size: 11px !important; }
   .overflow-x { overflow-x: auto; overflow-y: auto; max-height: 66vh; border-radius: 4px; }
   .empty { text-align: center; padding: 40px 0; color: var(--ink-faint); font-size: 13px; }
   .empty .big { font-size: 14px; color: var(--ink-soft); margin-bottom: 4px; }
