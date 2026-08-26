@@ -459,6 +459,7 @@ let state = {
   txFilter: { type: 'all', categoryId: '', accountId: '', q: '' },
   statsType: 'expense',
   statsPeriod: 'month',
+  statsSelectedCategoryId: null,
 };
 
 /* ---------------- date helpers ---------------- */
@@ -1390,12 +1391,13 @@ function renderStats() {
       <div class="form-note">${periodLabel} 합계 ${won(sum)}</div>
       ${totals.length ? renderPieChart(totals, sum) : ''}
       ${totals.length ? totals.map(c => `
-        <div class="pie-legend-row" style="cursor:pointer;" onclick="openStatsCategoryModal('${c.categoryId}')">
+        <div class="pie-legend-row" style="cursor:pointer;${c.categoryId === state.statsSelectedCategoryId ? 'background:var(--accent-tint);border-radius:4px;' : ''}" onclick="selectStatsCategory('${c.categoryId}')">
           <span class="pct-badge" style="background:${catColor(c.category)}">${sum ? Math.round(c.amount / sum * 100) : 0}%</span>
           <span class="name">${c.category.icon} ${escapeHtml(c.category.name)}</span>
           <span class="amt">${won(c.amount)}</span>
         </div>`).join('') : `<div class="empty">해당 기간 데이터가 없어요.</div>`}
     </div>
+    ${renderStatsCategoryDetail(period, mKey, type, periodLabel)}
 
     <div class="section-block">
       <div class="section-heading">최근 6개월 추이</div>
@@ -1411,24 +1413,25 @@ function renderStats() {
     </div>
   `;
 }
-function setStatsType(t) { state.statsType = t; renderStats(); }
+function setStatsType(t) { state.statsType = t; state.statsSelectedCategoryId = null; renderStats(); }
 function setStatsPeriod(p) { state.statsPeriod = p; renderStats(); }
-function openStatsCategoryModal(categoryId) {
-  const type = state.statsType;
-  const period = state.statsPeriod || 'month';
-  const mKey = state.month;
+function selectStatsCategory(categoryId) {
+  state.statsSelectedCategoryId = state.statsSelectedCategoryId === categoryId ? null : categoryId;
+  renderStats();
+}
+function renderStatsCategoryDetail(period, mKey, type, periodLabel) {
+  const categoryId = state.statsSelectedCategoryId;
+  if (!categoryId) return '';
   const cat = getCategory(categoryId);
-  const periodLabel = period === 'all' ? '전체 기간' : period === 'year' ? `${mKey.slice(0, 4)}년` : monthLabel(mKey);
   const list = txInPeriod(period, mKey)
     .filter(t => t.categoryId === categoryId && t.type === type && !t.excludeFromStats)
     .sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
   const sum = list.reduce((s, t) => s + txAmountKRW(t), 0);
-  openModal(`
-    <h3>${cat.icon} ${escapeHtml(cat.name)}</h3>
-    <div class="form-note" style="margin-bottom:12px;">${periodLabel} · ${list.length}건 · 합계 ${won(sum)}</div>
+  return `<div class="section-block">
+    <div class="section-heading">${cat.icon} ${escapeHtml(cat.name)}<button class="ghost-btn" onclick="selectStatsCategory('${categoryId}')">닫기</button></div>
+    <div class="form-note">${periodLabel} · ${list.length}건 · 합계 ${won(sum)}</div>
     ${list.length ? renderTxTable(list, false) : `<div class="empty">해당 기간에 거래가 없어요.</div>`}
-    <div class="form-actions"><button class="ghost-btn" onclick="closeModal()">닫기</button></div>
-  `);
+  </div>`;
 }
 
 /* ---------------- BUDGET ---------------- */
