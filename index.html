@@ -445,6 +445,7 @@ const CATEGORY_TREE = {
     { name: '금융소득', icon: '🏦', children: [['이자소득','🏦'], ['저축/투자수익','📊']] },
     { name: '판매', icon: '🛍️', children: [['당근판매','🛍️']] },
     { name: '주식소득', icon: '📈', children: [['아빠배당소득','👨'], ['엄마배당소득','👩'], ['주식매매소득','💹']] },
+    { name: '기타', icon: '📦', children: [['기타','📦']] },
   ],
 };
 
@@ -520,7 +521,7 @@ function defaultData() {
     });
   });
   const accounts = [{ id: uid(), name: '현금', type: 'cash', icon: '💵', initialBalance: 0, includeInTotal: true, currency: 'KRW' }];
-  return { version: 1, categorySchema: 2, accounts, categories, transactions: [], budgets: {}, recurring: [], holidays: [], settings: { usdKrwRate: null, rateUpdatedAt: null } };
+  return { version: 1, categorySchema: 2, categoryTreeVersion: CATEGORY_TREE_VERSION, accounts, categories, transactions: [], budgets: {}, recurring: [], holidays: [], settings: { usdKrwRate: null, rateUpdatedAt: null } };
 }
 
 /* 구버전(대/소분류 구분 없는 평평한 카테고리) 데이터를 대분류 트리 밑으로 옮겨요.
@@ -563,6 +564,51 @@ function migrateAccountTypes(d) {
   return d;
 }
 
+/* 카테고리 대분류/소분류 목록을 CATEGORY_TREE의 최신 구성으로 통째로 교체해요(한 번만 실행).
+   기존에 쓰던 카테고리는 이 최신 목록엔 없는 이름들이라 그대로 옮길 수 없어서,
+   그 카테고리가 달려있던 거래/예산/정기거래는 전부 각 타입의 '기타' 카테고리로 옮겨요. */
+const CATEGORY_TREE_VERSION = 1;
+function migrateToUpdatedCategoryTree(d) {
+  if (d.categoryTreeVersion === CATEGORY_TREE_VERSION) return d;
+  const oldTypeById = {};
+  (d.categories || []).forEach((c) => { oldTypeById[c.id] = c.type; });
+
+  const categories = [];
+  const colorCounter = { expense: 0, income: 0 };
+  const fallbackLeafId = {};
+  ['expense', 'income'].forEach((type) => {
+    CATEGORY_TREE[type].forEach((group) => {
+      const parentId = uid();
+      categories.push({ id: parentId, type, name: group.name, icon: group.icon, parentId: null });
+      group.children.forEach(([name, icon]) => {
+        const leafId = uid();
+        categories.push({ id: leafId, type, name, icon, parentId, colorIdx: colorCounter[type]++ % 8 });
+        if (group.name === '기타' && name === '기타') fallbackLeafId[type] = leafId;
+      });
+    });
+  });
+
+  (d.transactions || []).forEach((t) => {
+    const type = oldTypeById[t.categoryId] || t.type;
+    if (fallbackLeafId[type]) t.categoryId = fallbackLeafId[type];
+  });
+  (d.recurring || []).forEach((r) => {
+    if (r.categoryId == null) return;
+    const type = oldTypeById[r.categoryId] || r.type;
+    if (fallbackLeafId[type]) r.categoryId = fallbackLeafId[type];
+  });
+  const migratedBudgets = {};
+  Object.entries(d.budgets || {}).forEach(([catId, amt]) => {
+    const fallbackId = fallbackLeafId.expense;
+    if (fallbackId) migratedBudgets[fallbackId] = (migratedBudgets[fallbackId] || 0) + amt;
+  });
+
+  d.categories = categories;
+  d.budgets = migratedBudgets;
+  d.categoryTreeVersion = CATEGORY_TREE_VERSION;
+  return d;
+}
+
 function loadData() {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -576,6 +622,7 @@ function loadData() {
     d.settings = d.settings || { usdKrwRate: null, rateUpdatedAt: null };
     d = migrateCategoriesToHierarchy(d);
     d = migrateAccountTypes(d);
+    d = migrateToUpdatedCategoryTree(d);
     return d;
   } catch (e) { console.error(e); return defaultData(); }
 }
