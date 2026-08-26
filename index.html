@@ -100,7 +100,7 @@
   tbody td { white-space: nowrap; padding: 10px 8px; border-bottom: 1px solid var(--line-soft); overflow: hidden; text-overflow: ellipsis; }
   .name-cell { line-height: 1.35; }
   thead th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-faint); font-weight: 500; padding: 8px; border-bottom: 1px solid var(--ink); position: sticky; top: 0; background: var(--paper); z-index: 4; box-shadow: 0 1px 0 var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  th.num, td.num { text-align: right; font-family: var(--mono); width: 100px; }
+  th.num, td.num { text-align: right; font-family: var(--mono); width: 128px; }
   tbody tr:hover { background: var(--accent-tint); }
   .actions-cell { text-align: right; white-space: normal; overflow: visible; width: 100px; }
   .overflow-x { overflow-x: auto; overflow-y: auto; max-height: 66vh; border-radius: 4px; }
@@ -867,7 +867,7 @@ function abbrevWon(n) {
 function renderTxTable(list, hideDate) {
   return `<div class="overflow-x"><table>
     <thead><tr>
-      ${hideDate ? '' : '<th style="width:52px;">날짜</th>'}
+      ${hideDate ? '' : '<th style="width:64px;">날짜</th>'}
       <th class="name-cell">내역</th><th class="num">금액</th><th class="actions-cell">관리</th>
     </tr></thead>
     <tbody>
@@ -1288,7 +1288,7 @@ function renderBulkPreview() {
   wrap.innerHTML = `
     <div class="form-note">${rows.length}행 중 <strong style="color:var(--accent)">${validCount}건</strong> 등록 가능, ${rows.length - validCount}건 오류</div>
     <div class="overflow-x" style="max-height:40vh;"><table>
-      <thead><tr><th style="width:28px;">#</th><th style="width:56px;">날짜</th><th style="width:42px;">구분</th><th class="name-cell">내용</th><th class="num">금액</th><th style="width:50px;">상태</th></tr></thead>
+      <thead><tr><th style="width:30px;">#</th><th style="width:64px;">날짜</th><th style="width:48px;">구분</th><th class="name-cell">내용</th><th class="num">금액</th><th style="width:54px;">상태</th></tr></thead>
       <tbody>
         ${rows.map(r => `<tr>
           <td>${r.idx + 2}</td>
@@ -1643,7 +1643,7 @@ function renderRecurring() {
       <button class="primary-btn" onclick="openRecurringModal()"><i class="ti ti-plus"></i> 정기거래 추가</button>
     </div>
     ${DATA.recurring.length ? `<div class="overflow-x"><table>
-      <thead><tr><th class="name-cell">이름</th><th class="num">금액</th><th style="width:76px;">주기</th><th class="actions-cell">관리</th></tr></thead>
+      <thead><tr><th class="name-cell">이름</th><th class="num">금액</th><th style="width:86px;">주기</th><th class="actions-cell">관리</th></tr></thead>
       <tbody>
         ${DATA.recurring.map(r => {
           const acc = getAccount(r.accountId);
