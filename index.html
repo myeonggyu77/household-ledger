@@ -184,6 +184,14 @@
   .legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: 1px; }
 
   .budget-item { padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+  .budget-group { border: 1px solid var(--line); border-radius: 5px; margin-bottom: 10px; overflow: hidden; }
+  .budget-group summary { list-style: none; cursor: pointer; padding: 10px 12px; background: var(--line-soft); font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .budget-group summary::-webkit-details-marker { display: none; }
+  .budget-group .budget-group-meta { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 400; color: var(--ink-faint); }
+  .budget-group .budget-group-meta::after { content: '▸'; transition: transform 0.15s; }
+  .budget-group[open] .budget-group-meta::after { transform: rotate(90deg); }
+  .budget-group .budget-item { padding: 12px; }
+  .budget-group .budget-item:last-child { border-bottom: none; }
   .budget-item .budget-head { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; gap: 8px; }
   .budget-item .budget-head .left { display: flex; align-items: center; gap: 6px; }
   .budget-item .budget-track { height: 10px; background: var(--line-soft); border-radius: 5px; overflow: hidden; }
@@ -1673,7 +1681,14 @@ function renderBudget() {
     </div>
     <div class="section-block">
       <div class="section-heading">예산 미설정 카테고리</div>
-      ${expenseCats.filter(c => !(DATA.budgets[c.id] > 0)).map(c => rowHtml(c, spentMap[c.id] || 0, 0)).join('')}
+      ${topCategories('expense').map(p => {
+        const children = childCategories(p.id).filter(c => !(DATA.budgets[c.id] > 0));
+        if (!children.length) return '';
+        return `<details class="budget-group">
+          <summary><span class="cat-chip-name">${p.icon} ${escapeHtml(p.name)}</span><span class="budget-group-meta">${children.length}개</span></summary>
+          ${children.map(c => rowHtml(c, spentMap[c.id] || 0, 0)).join('')}
+        </details>`;
+      }).join('')}
     </div>
   `;
 }
