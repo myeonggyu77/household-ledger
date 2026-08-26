@@ -98,7 +98,7 @@
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .overflow-x table { table-layout: fixed; }
   tbody td { white-space: nowrap; padding: 10px 8px; border-bottom: 1px solid var(--line-soft); overflow: hidden; text-overflow: ellipsis; }
-  .name-cell { line-height: 1.35; }
+  .name-cell { line-height: 1.35; white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word; }
   thead th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-faint); font-weight: 500; padding: 8px; border-bottom: 1px solid var(--ink); position: sticky; top: 0; background: var(--paper); z-index: 4; box-shadow: 0 1px 0 var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   th.num, td.num { text-align: right; font-family: var(--mono); width: 128px; }
   tbody tr:hover { background: var(--accent-tint); }
