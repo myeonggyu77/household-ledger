@@ -1105,6 +1105,7 @@ function renderTxTable(list, hideDate) {
         const sign = t.type === 'income' ? '+' : t.type === 'expense' ? '-' : '';
         const subParts = [];
         if (t.payee) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.payee)}</span>`);
+        if (t.vendor) subParts.push(escapeHtml(t.vendor));
         if (t.memo) subParts.push(escapeHtml(t.memo));
         if (t.excludeFromStats) subParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
         const subLine = subParts.length || t.receipt
@@ -1212,6 +1213,7 @@ function openTxModal(txId, presetDate, fromRecurring) {
     <div id="tx-acc-field" class="field"></div>
     <div id="tx-toacc-field" class="field"></div>
     <div class="field" id="tx-payee-field"></div>
+    <div class="field" id="tx-vendor-field"></div>
     <div class="field"><label class="field-lbl">메모</label><input type="text" id="tx-memo" placeholder="메모 (선택)" value="${escapeHtml(editing ? (editing.memo || '') : (fromRecurring ? fromRecurring.name : ''))}"></div>
     <div class="field" id="tx-receipt-field"></div>
     <div class="field" id="tx-exclude-field"></div>
@@ -1226,7 +1228,8 @@ function openTxModal(txId, presetDate, fromRecurring) {
     editing ? editing.accountId : (fromRecurring ? fromRecurring.accountId : null),
     editing ? editing.toAccountId : (fromRecurring ? fromRecurring.toAccountId : null),
     editing ? !!editing.excludeFromStats : false,
-    editing ? (editing.payee || '') : (fromRecurring ? (fromRecurring.payee || '') : '')
+    editing ? (editing.payee || '') : (fromRecurring ? (fromRecurring.payee || '') : ''),
+    editing ? (editing.vendor || '') : ''
   );
 }
 function openRecurringQuickApplyModal(id) {
@@ -1244,7 +1247,7 @@ function setTxType(t) {
   });
   renderTxModalFields();
 }
-function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, presetPayee) {
+function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, presetPayee, presetVendor) {
   const type = state._txModal.type;
   const catField = document.getElementById('tx-cat-field');
   const accField = document.getElementById('tx-acc-field');
@@ -1252,6 +1255,7 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
   const excludeField = document.getElementById('tx-exclude-field');
   const receiptField = document.getElementById('tx-receipt-field');
   const payeeField = document.getElementById('tx-payee-field');
+  const vendorField = document.getElementById('tx-vendor-field');
   const acctOption = (a, presetId) => `<option value="${a.id}" ${presetId === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}${a.currency === 'USD' ? ' (USD)' : ''}</option>`;
   if (type === 'transfer') {
     catField.innerHTML = '';
@@ -1259,6 +1263,7 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     toAccField.innerHTML = `<label class="field-lbl">입금 자산</label><select id="tx-toaccount">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
     excludeField.innerHTML = '';
     receiptField.innerHTML = '';
+    vendorField.innerHTML = '';
   } else {
     const groups = topCategories(type).map(p => {
       const children = childCategories(p.id);
@@ -1277,6 +1282,14 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
       renderReceiptPreview();
     } else {
       receiptField.innerHTML = '';
+    }
+    if (type === 'expense') {
+      const vendorOptions = Array.from(new Set(DATA.transactions.filter(t => t.vendor).map(t => t.vendor)));
+      vendorField.innerHTML = `<label class="field-lbl">거래처</label>
+        <input type="text" id="tx-vendor" list="tx-vendor-list" placeholder="예: 스타벅스 강남점" value="${escapeHtml(presetVendor || '')}">
+        <datalist id="tx-vendor-list">${vendorOptions.map(v => `<option value="${escapeHtml(v)}">`).join('')}</datalist>`;
+    } else {
+      vendorField.innerHTML = '';
     }
     renderBudgetQuickRow();
   }
@@ -1401,7 +1414,7 @@ function submitTx(editId) {
   if (!date) return showToast('날짜를 선택해주세요.', 'error');
   if (!amount || amount <= 0) return showToast('금액을 입력해주세요.', 'error');
 
-  let payload = { type, date, amount, memo, receipt: undefined, payee: undefined };
+  let payload = { type, date, amount, memo, receipt: undefined, payee: undefined, vendor: undefined };
   if (type === 'transfer') {
     const accountId = document.getElementById('tx-account').value;
     const toAccountId = document.getElementById('tx-toaccount').value;
@@ -1417,6 +1430,7 @@ function submitTx(editId) {
     payload.categoryId = categoryId; payload.accountId = accountId;
     payload.excludeFromStats = document.getElementById('tx-exclude').checked;
     payload.receipt = type === 'expense' ? (state._txModal.receipt || null) : undefined;
+    payload.vendor = type === 'expense' ? (document.getElementById('tx-vendor').value.trim() || null) : undefined;
   }
   payload.payee = document.getElementById('tx-payee').value.trim() || null;
 
