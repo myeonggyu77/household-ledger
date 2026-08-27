@@ -151,7 +151,8 @@
   .seg button.active.income-active { background: var(--accent); }
 
   .month-nav { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
-  .month-nav .m-label { font-family: var(--mono); font-size: 14px; font-weight: 600; min-width: 96px; text-align: center; }
+  .month-nav .m-label { font-family: var(--mono); font-size: 14px; font-weight: 600; min-width: 96px; text-align: center; position: relative; cursor: pointer; }
+  .month-nav .m-label input { position: absolute; inset: 0; opacity: 0; cursor: pointer; border: none; padding: 0; }
 
   .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); margin-bottom: 20px; }
   .cal-dow { background: var(--paper); text-align: center; font-size: 11px; color: var(--ink-faint); padding: 6px 0; text-transform: uppercase; }
@@ -1035,16 +1036,24 @@ function renderHome() {
 }
 
 /* ---------------- month nav (shared) ---------------- */
-function monthNavHtml(onPrev, onNext, mKey) {
+function monthNavHtml(onPrev, onNext, mKey, opts) {
+  opts = opts || {};
+  const onToday = opts.onToday || 'jumpToday()';
+  const onPick = opts.onPick || 'navToMonth';
   return `<div class="month-nav">
     <button class="icon-btn" onclick="${onPrev}" aria-label="이전 달">&lt;</button>
-    <div class="m-label">${monthLabel(mKey)}</div>
+    <div class="m-label" title="달을 선택하려면 클릭하세요">${monthLabel(mKey)}<input type="month" value="${mKey}" aria-label="달 선택" onchange="${onPick}(this.value)"></div>
     <button class="icon-btn" onclick="${onNext}" aria-label="다음 달">&gt;</button>
-    <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="jumpToday()">오늘</button>
+    <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="${onToday}">오늘</button>
   </div>`;
 }
 function navMonth(delta) {
   state.month = shiftMonth(state.month, delta);
+  renderPanel();
+}
+function navToMonth(value) {
+  if (!value) return;
+  state.month = value;
   renderPanel();
 }
 function jumpToday() {
@@ -2044,6 +2053,11 @@ function jumpAcctToday() {
   state.acctMonth = monthKey(new Date());
   renderAccounts();
 }
+function navAcctToMonth(value) {
+  if (!value) return;
+  state.acctMonth = value;
+  renderAccounts();
+}
 function setAcctPeriod(p) {
   state.acctPeriod = p;
   renderAccounts();
@@ -2069,7 +2083,7 @@ function renderAccountDetail(acc) {
     : period === 'year' ? accountBalance(acc, (Number(mKey.slice(0, 4)) + 1) + '-01-01')
     : accountBalance(acc, shiftMonth(mKey, 1) + '-01');
   const periodLabel = period === 'all' ? '전체 기간' : period === 'year' ? `${mKey.slice(0, 4)}년` : monthLabel(mKey);
-  const periodNav = period === 'all' ? '' : period === 'year' ? acctYearNavHtml(mKey) : monthNavHtml('navAcctPeriod(-1)', 'navAcctPeriod(1)', mKey);
+  const periodNav = period === 'all' ? '' : period === 'year' ? acctYearNavHtml(mKey) : monthNavHtml('navAcctPeriod(-1)', 'navAcctPeriod(1)', mKey, { onToday: 'jumpAcctToday()', onPick: 'navAcctToMonth' });
   const list = txInPeriod(period, mKey)
     .filter(t => t.accountId === acc.id || t.toAccountId === acc.id || t.linkedLoanAccountId === acc.id)
     .sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
