@@ -840,6 +840,7 @@ function accountBalance(acc, beforeDate) {
       if (t.accountId === acc.id) bal -= t.amount;
       if (t.toAccountId === acc.id) bal += t.amount;
     }
+    if (t.type === 'expense' && t.linkedLoanAccountId === acc.id) bal += t.amount;
   });
   return bal;
 }
@@ -884,7 +885,7 @@ function statsCategoryTotals(period, mKey, type, groupBy) {
     .sort((a, b) => b.amount - a.amount);
 }
 function categoryUsageCount(catId) { return DATA.transactions.filter(t => t.categoryId === catId).length; }
-function accountUsageCount(accId) { return DATA.transactions.filter(t => t.accountId === accId || t.toAccountId === accId).length; }
+function accountUsageCount(accId) { return DATA.transactions.filter(t => t.accountId === accId || t.toAccountId === accId || t.linkedLoanAccountId === accId).length; }
 
 /* ---------------- toast ---------------- */
 function showToast(message, type = 'info', duration = 3800) {
@@ -1274,6 +1275,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     <div id="tx-cat-field" class="field"></div>
     <div id="tx-acc-field" class="field"></div>
     <div id="tx-toacc-field" class="field"></div>
+    <div class="field" id="tx-loan-field"></div>
     <div class="field" id="tx-payee-field"></div>
     <div class="field" id="tx-vendor-field"></div>
     <div class="field"><label class="field-lbl">메모</label><input type="text" id="tx-memo" placeholder="메모 (선택)" value="${escapeHtml(editing ? (editing.memo || '') : (fromRecurring ? fromRecurring.name : (duplicateFrom ? (duplicateFrom.memo || '') : '')))}"></div>
@@ -1292,7 +1294,8 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     editing ? editing.toAccountId : (fromRecurring ? fromRecurring.toAccountId : (duplicateFrom ? duplicateFrom.toAccountId : null)),
     editing ? !!editing.excludeFromStats : (duplicateFrom ? !!duplicateFrom.excludeFromStats : false),
     editing ? (editing.payee || '') : (fromRecurring ? (fromRecurring.payee || '') : (duplicateFrom ? (duplicateFrom.payee || '') : '')),
-    editing ? (editing.vendor || '') : (duplicateFrom ? (duplicateFrom.vendor || '') : '')
+    editing ? (editing.vendor || '') : (duplicateFrom ? (duplicateFrom.vendor || '') : ''),
+    editing ? (editing.linkedLoanAccountId || '') : (duplicateFrom ? (duplicateFrom.linkedLoanAccountId || '') : '')
   );
 }
 function openRecurringQuickApplyModal(id) {
@@ -1310,7 +1313,7 @@ function setTxType(t) {
   });
   renderTxModalFields(null, state._txModal.presetAccountId);
 }
-function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, presetPayee, presetVendor) {
+function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, presetPayee, presetVendor, presetLoanAccountId) {
   const type = state._txModal.type;
   const catField = document.getElementById('tx-cat-field');
   const accField = document.getElementById('tx-acc-field');
@@ -1319,6 +1322,7 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
   const receiptField = document.getElementById('tx-receipt-field');
   const payeeField = document.getElementById('tx-payee-field');
   const vendorField = document.getElementById('tx-vendor-field');
+  const loanField = document.getElementById('tx-loan-field');
   const acctOption = (a, presetId) => `<option value="${a.id}" ${presetId === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}${a.currency === 'USD' ? ' (USD)' : ''}</option>`;
   if (type === 'transfer') {
     catField.innerHTML = '';
@@ -1327,6 +1331,7 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     excludeField.innerHTML = '';
     receiptField.innerHTML = '';
     vendorField.innerHTML = '';
+    loanField.innerHTML = '';
   } else {
     const groups = topCategories(type).map(p => {
       const children = childCategories(p.id);
@@ -1353,6 +1358,17 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
         <datalist id="tx-vendor-list">${vendorOptions.map(v => `<option value="${escapeHtml(v)}">`).join('')}</datalist>`;
     } else {
       vendorField.innerHTML = '';
+    }
+    const liabilityAccounts = DATA.accounts.filter(a => LIABILITY_TYPES.includes(a.type));
+    if (type === 'expense' && liabilityAccounts.length) {
+      loanField.innerHTML = `<label class="field-lbl">대출 상환 계좌 (선택)</label>
+        <select id="tx-loan-account">
+          <option value="">연결 안 함</option>
+          ${liabilityAccounts.map(a => `<option value="${a.id}" ${presetLoanAccountId === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}
+        </select>
+        <div class="form-note" style="margin-top:6px;">선택하면 이 지출 금액만큼 해당 대출 계좌의 잔액(빚)도 함께 줄어들어요.</div>`;
+    } else {
+      loanField.innerHTML = '';
     }
     renderBudgetQuickRow();
   }
@@ -1517,6 +1533,12 @@ function submitTx(editId) {
     payload.excludeFromStats = document.getElementById('tx-exclude').checked;
     payload.receipt = type === 'expense' ? (state._txModal.receipt || null) : undefined;
     payload.vendor = type === 'expense' ? (document.getElementById('tx-vendor').value.trim() || null) : undefined;
+    const loanEl = document.getElementById('tx-loan-account');
+    const linkedLoanAccountId = type === 'expense' && loanEl ? (loanEl.value || null) : null;
+    if (linkedLoanAccountId && (getAccount(linkedLoanAccountId).currency || 'KRW') !== (getAccount(accountId).currency || 'KRW')) {
+      return showToast('대출 계좌와 지출 자산의 통화가 달라 연결할 수 없어요.', 'error');
+    }
+    payload.linkedLoanAccountId = type === 'expense' ? linkedLoanAccountId : undefined;
   }
   payload.payee = document.getElementById('tx-payee').value.trim() || null;
 
@@ -1886,6 +1908,7 @@ function accountMonthFlow(acc, mKey) {
       if (t.toAccountId === acc.id) inflow += t.amount;
       if (t.accountId === acc.id) outflow += t.amount;
     }
+    if (t.type === 'expense' && t.linkedLoanAccountId === acc.id) inflow += t.amount;
   });
   return { inflow, outflow, net: inflow - outflow };
 }
@@ -1922,7 +1945,7 @@ function accountTrendChartSvg(acc, mKey) {
   </svg>`;
 }
 function accountRunningBalances(acc) {
-  const relevant = DATA.transactions.filter(t => t.accountId === acc.id || t.toAccountId === acc.id)
+  const relevant = DATA.transactions.filter(t => t.accountId === acc.id || t.toAccountId === acc.id || t.linkedLoanAccountId === acc.id)
     .sort((a, b) => (a.date + a.id).localeCompare(b.date + b.id));
   let bal = Number(acc.initialBalance) || 0;
   const map = {};
@@ -1933,6 +1956,7 @@ function accountRunningBalances(acc) {
       if (t.accountId === acc.id) bal -= t.amount;
       if (t.toAccountId === acc.id) bal += t.amount;
     }
+    if (t.type === 'expense' && t.linkedLoanAccountId === acc.id) bal += t.amount;
     map[t.id] = bal;
   });
   return map;
@@ -1948,6 +1972,7 @@ function renderAccountTxTable(list, acc) {
     </tr></thead>
     <tbody>
       ${list.map(t => {
+        const isLoanLink = t.linkedLoanAccountId === acc.id && t.accountId !== acc.id;
         let mid;
         if (t.type === 'transfer') {
           const outgoing = t.accountId === acc.id;
@@ -1961,15 +1986,19 @@ function renderAccountTxTable(list, acc) {
             : `${parent.icon || ''} ${escapeHtml(parent.name)}`;
         }
         const subParts = [];
+        if (isLoanLink) {
+          const payAcc = getAccount(t.accountId);
+          subParts.push(`<span style="font-weight:600;">${payAcc.icon || ''} ${escapeHtml(payAcc.name)}에서 상환</span>`);
+        }
         if (t.payee) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.payee)}</span>`);
         if (t.vendor) subParts.push(escapeHtml(t.vendor));
         if (t.memo) subParts.push(escapeHtml(t.memo));
         const subLine = subParts.length
           ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}</div>`
           : '';
-        const outgoing = t.type === 'expense' || (t.type === 'transfer' && t.accountId === acc.id);
-        const sign = t.type === 'transfer' ? (outgoing ? '-' : '+') : (t.type === 'income' ? '+' : '-');
-        const amtCls = t.type === 'transfer' ? (outgoing ? 'expense' : 'income') : t.type;
+        const outgoing = !isLoanLink && (t.type === 'expense' || (t.type === 'transfer' && t.accountId === acc.id));
+        const sign = isLoanLink ? '+' : (t.type === 'transfer' ? (outgoing ? '-' : '+') : (t.type === 'income' ? '+' : '-'));
+        const amtCls = isLoanLink ? 'income' : (t.type === 'transfer' ? (outgoing ? 'expense' : 'income') : t.type);
         const bal = runningMap[t.id];
         return `<tr>
           <td>${t.date.slice(5)}</td>
@@ -2010,7 +2039,7 @@ function renderAccountDetail(acc) {
   const usagePeriod = `${String(y).slice(2)}. ${m}. 1. ~ ${String(y).slice(2)}. ${m}. ${daysInMonth(y, m)}.`;
   const flow = accountMonthFlow(acc, mKey);
   const cumulative = accountBalance(acc, shiftMonth(mKey, 1) + '-01');
-  const list = DATA.transactions.filter(t => t.accountId === acc.id || t.toAccountId === acc.id)
+  const list = DATA.transactions.filter(t => t.accountId === acc.id || t.toAccountId === acc.id || t.linkedLoanAccountId === acc.id)
     .filter(t => t.date.slice(0, 7) === mKey)
     .sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
   return `
