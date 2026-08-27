@@ -139,6 +139,18 @@
   .modal-overlay { position: fixed; inset: 0; background: rgba(26,36,32,0.45); z-index: 8000; display: flex; align-items: center; justify-content: center; padding: 20px; overflow-y: auto; }
   .modal-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; padding: 20px; width: 100%; max-width: 440px; max-height: 88vh; overflow-y: auto; margin: auto; }
   .modal-card h3 { margin: 0 0 14px; font-size: 15px; font-weight: 600; }
+  .dp-pop { position: fixed; z-index: 10000; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 10px; width: 250px; }
+  .dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .dp-head .dp-label { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+  .dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+  .dp-dow { text-align: center; font-size: 10px; color: var(--ink-faint); padding: 2px 0; }
+  .dp-cell { text-align: center; font-size: 12px; padding: 6px 0; border-radius: 4px; cursor: pointer; color: var(--ink); }
+  .dp-cell:hover { background: var(--line-soft); }
+  .dp-cell.today { box-shadow: inset 0 0 0 1px var(--accent); }
+  .dp-cell.sel { background: var(--accent); color: #fff; font-weight: 600; }
+  .dp-cell.empty { cursor: default; }
+  .dp-foot { display: flex; justify-content: flex-end; margin-top: 6px; }
+  input[type="date"][readonly] { cursor: pointer; background: var(--paper); }
 
   #auth-gate { position: fixed; inset: 0; background: var(--paper); z-index: 9500; display: flex; align-items: center; justify-content: center; padding: 20px; overflow-y: auto; }
   .auth-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; padding: 28px 24px; width: 100%; max-width: 360px; margin: auto; }
@@ -909,6 +921,86 @@ function openModal(innerHtml) {
 }
 function closeModal() { document.getElementById('modal-root').innerHTML = ''; }
 
+/* ---------------- custom date picker (single-tap select, no OS confirm step) ---------------- */
+let dpState = null;
+function openDatePicker(input) {
+  if (dpState && dpState.input === input) { closeDatePicker(); return; }
+  closeDatePicker();
+  const pop = document.createElement('div');
+  pop.className = 'dp-pop';
+  document.body.appendChild(pop);
+  dpState = { input, mKey: (input.value || todayStr()).slice(0, 7), pop };
+  renderDatePicker();
+  positionDatePicker();
+  setTimeout(() => document.addEventListener('mousedown', onDatePickerOutsideClick), 0);
+  window.addEventListener('resize', closeDatePicker);
+  window.addEventListener('scroll', closeDatePicker, true);
+}
+function positionDatePicker() {
+  if (!dpState) return;
+  const rect = dpState.input.getBoundingClientRect();
+  const top = Math.min(rect.bottom + 4, window.innerHeight - 300);
+  const left = Math.min(rect.left, window.innerWidth - 262);
+  dpState.pop.style.top = Math.max(8, top) + 'px';
+  dpState.pop.style.left = Math.max(8, left) + 'px';
+}
+function renderDatePicker() {
+  if (!dpState) return;
+  const { input, mKey, pop } = dpState;
+  const [y, m] = mKey.split('-').map(Number);
+  const cells = buildCalendarCells(mKey);
+  const dows = ['일', '월', '화', '수', '목', '금', '토'];
+  const today = todayStr();
+  pop.innerHTML = `
+    <div class="dp-head">
+      <button type="button" class="icon-btn" onclick="dpNav(-1)" aria-label="이전 달">&lt;</button>
+      <div class="dp-label">${y}년 ${m}월</div>
+      <button type="button" class="icon-btn" onclick="dpNav(1)" aria-label="다음 달">&gt;</button>
+    </div>
+    <div class="dp-grid">
+      ${dows.map(d => `<div class="dp-dow">${d}</div>`).join('')}
+      ${cells.map(date => {
+        if (!date) return `<div class="dp-cell empty"></div>`;
+        const d = Number(date.slice(-2));
+        const cls = ['dp-cell'];
+        if (date === today) cls.push('today');
+        if (date === input.value) cls.push('sel');
+        return `<div class="${cls.join(' ')}" onclick="dpPick('${date}')">${d}</div>`;
+      }).join('')}
+    </div>
+    <div class="dp-foot"><button type="button" class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="dpPick('${today}')">오늘</button></div>
+  `;
+}
+function dpNav(delta) {
+  if (!dpState) return;
+  dpState.mKey = shiftMonth(dpState.mKey, delta);
+  renderDatePicker();
+}
+function dpPick(date) {
+  if (!dpState) return;
+  const input = dpState.input;
+  input.value = date;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  closeDatePicker();
+}
+function onDatePickerOutsideClick(e) {
+  if (!dpState) return;
+  if (dpState.pop.contains(e.target) || e.target === dpState.input) return;
+  closeDatePicker();
+}
+function closeDatePicker() {
+  if (!dpState) return;
+  dpState.pop.remove();
+  document.removeEventListener('mousedown', onDatePickerOutsideClick);
+  window.removeEventListener('resize', closeDatePicker);
+  window.removeEventListener('scroll', closeDatePicker, true);
+  dpState = null;
+}
+document.addEventListener('click', (e) => {
+  const target = e.target.closest('input[type="date"][readonly]');
+  if (target) openDatePicker(target);
+});
+
 function formatAmountInput(el) {
   const digits = el.value.replace(/[^0-9]/g, '');
   el.value = digits ? Number(digits).toLocaleString('ko-KR') : '';
@@ -1288,7 +1380,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     </div>
     <div class="field">
       <label class="field-lbl">날짜</label>
-      <input type="date" id="tx-date" value="${date}">
+      <input type="date" id="tx-date" value="${date}" readonly>
       ${duplicateFrom ? `<div style="display:flex;gap:6px;margin-top:6px;">
         <button type="button" class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="document.getElementById('tx-date').value='${duplicateFrom.date}'">해당일 (${duplicateFrom.date.slice(5)})</button>
       </div>` : ''}
@@ -2199,8 +2291,8 @@ function renderAccDateRangeField(type, startDate, endDate) {
   if (!el) return;
   el.innerHTML = DATE_RANGE_TYPES.includes(type)
     ? `<div class="form-grid">
-        <div><label class="field-lbl">시작일</label><input type="date" id="acc-start-date" value="${startDate || ''}"></div>
-        <div><label class="field-lbl">종료일</label><input type="date" id="acc-end-date" value="${endDate || ''}"></div>
+        <div><label class="field-lbl">시작일</label><input type="date" id="acc-start-date" value="${startDate || ''}" readonly></div>
+        <div><label class="field-lbl">종료일</label><input type="date" id="acc-end-date" value="${endDate || ''}" readonly></div>
       </div>`
     : '';
 }
@@ -2317,7 +2409,7 @@ function openRecurringApplyModal(id) {
   openModal(`
     <h3>${escapeHtml(r.name)} 적용</h3>
     <div class="form-note">선택한 날짜로 거래를 등록해요.</div>
-    <div class="field"><label class="field-lbl">날짜</label><input type="date" id="rec-apply-date" value="${todayStr()}"></div>
+    <div class="field"><label class="field-lbl">날짜</label><input type="date" id="rec-apply-date" value="${todayStr()}" readonly></div>
     <div class="form-actions">
       <button class="ghost-btn" onclick="closeModal()">취소</button>
       <button class="primary-btn" onclick="submitRecurringApply('${id}')">적용</button>
@@ -2646,7 +2738,7 @@ function renderSettings() {
       <div class="section-heading">공휴일 관리</div>
       <div class="form-note" style="margin-bottom:10px;">공휴일(주말·신정·설날·추석·부처님오신날 등 음력 포함, 대체공휴일 규정)은 한국 달력 기준으로 자동 계산돼요. 지출 정기거래는 예정일이 휴일이면 다음 평일에 표시하고, "휴일이어도 해당일에 표시"를 켠 항목(예: 월세)은 그대로 표시해요. 수입 정기거래 중 "휴일이면 전 평일에 표시"를 켠 항목(예: 월급)은 휴일 전 평일에 표시해요. 회사 임시 휴무일처럼 자동 계산에 없는 날짜만 아래에 직접 추가하세요.</div>
       <div style="display:flex;gap:8px;margin-bottom:12px;">
-        <input type="date" id="holiday-input">
+        <input type="date" id="holiday-input" readonly>
         <button class="ghost-btn" onclick="addHoliday()">추가</button>
       </div>
       <div class="cat-child-list">
