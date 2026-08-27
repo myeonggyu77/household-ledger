@@ -243,6 +243,15 @@
     .acct-detail-pane.active { display: block; }
   }
 
+  @media (min-width: 860px) {
+    .cal-layout { display: flex; gap: 24px; align-items: flex-start; }
+    .cal-main { flex: 0 0 460px; }
+    .cal-layout .day-list-card { flex: 1; min-width: 0; margin-bottom: 0; }
+    .stats-chart-layout { display: flex; gap: 28px; align-items: center; }
+    .stats-chart-col { flex: 0 0 300px; }
+    .stats-legend-col { flex: 1; min-width: 0; }
+  }
+
   .cat-manage-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
   @media (max-width: 640px) { .cat-manage-grid { grid-template-columns: 1fr; } }
   .cat-chip { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 7px 10px; border: 1px solid var(--line); border-radius: 4px; margin-bottom: 6px; font-size: 13px; }
@@ -1102,14 +1111,18 @@ function renderCalendar() {
   const dayLabel = state.calSelected.replace(/^\d+-0?/, '').replace('-', '월 ') + '일';
 
   document.getElementById('panel-calendar').innerHTML = `
-    ${monthNavHtml('navMonth(-1)', 'navMonth(1)', mKey)}
-    ${gridHtml}
-    <div class="day-list-card">
-      <div class="section-heading" style="border-bottom:none;margin-bottom:8px;padding-bottom:0;">
-        ${escapeHtml(dayLabel)} 내역
-        <button class="ghost-btn" onclick="openTxModal(null, '${state.calSelected}')"><i class="ti ti-plus"></i> 이 날짜에 추가</button>
+    <div class="cal-layout">
+      <div class="cal-main">
+        ${monthNavHtml('navMonth(-1)', 'navMonth(1)', mKey)}
+        ${gridHtml}
       </div>
-      ${dayTx.length ? renderTxTable(dayTx, true) : `<div class="empty">이 날짜에 등록된 거래가 없어요.</div>`}
+      <div class="day-list-card">
+        <div class="section-heading" style="border-bottom:none;margin-bottom:8px;padding-bottom:0;">
+          ${escapeHtml(dayLabel)} 내역
+          <button class="ghost-btn" onclick="openTxModal(null, '${state.calSelected}')"><i class="ti ti-plus"></i> 이 날짜에 추가</button>
+        </div>
+        ${dayTx.length ? renderTxTable(dayTx, true) : `<div class="empty">이 날짜에 등록된 거래가 없어요.</div>`}
+      </div>
     </div>
   `;
 }
@@ -1715,13 +1728,17 @@ function renderStats() {
         <button type="button" class="${groupBy === 'parent' ? 'active' : ''}" onclick="setStatsGroupBy('parent')">대분류</button>
       </div>
       <div class="form-note">${periodLabel} 합계 ${won(sum)}</div>
-      ${totals.length ? renderPieChart(totals, sum) : ''}
-      ${totals.length ? totals.map(c => `
-        <div class="pie-legend-row" style="cursor:pointer;${c.categoryId === state.statsSelectedCategoryId ? 'background:var(--accent-tint);border-radius:4px;' : ''}" onclick="selectStatsCategory('${c.categoryId}')">
-          <span class="pct-badge" style="background:${catColor(c.category)}">${sum ? Math.round(c.amount / sum * 100) : 0}%</span>
-          <span class="name">${c.category.icon} ${escapeHtml(c.category.name)}</span>
-          <span class="amt">${won(c.amount)}</span>
-        </div>`).join('') : `<div class="empty">해당 기간 데이터가 없어요.</div>`}
+      <div class="stats-chart-layout">
+        <div class="stats-chart-col">${totals.length ? renderPieChart(totals, sum) : ''}</div>
+        <div class="stats-legend-col">
+          ${totals.length ? totals.map(c => `
+            <div class="pie-legend-row" style="cursor:pointer;${c.categoryId === state.statsSelectedCategoryId ? 'background:var(--accent-tint);border-radius:4px;' : ''}" onclick="selectStatsCategory('${c.categoryId}')">
+              <span class="pct-badge" style="background:${catColor(c.category)}">${sum ? Math.round(c.amount / sum * 100) : 0}%</span>
+              <span class="name">${c.category.icon} ${escapeHtml(c.category.name)}</span>
+              <span class="amt">${won(c.amount)}</span>
+            </div>`).join('') : `<div class="empty">해당 기간 데이터가 없어요.</div>`}
+        </div>
+      </div>
     </div>
     ${renderStatsCategoryDetail(period, mKey, type, periodLabel)}
   `;
