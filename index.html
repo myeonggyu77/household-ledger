@@ -1120,6 +1120,7 @@ function renderTxTable(list, hideDate) {
           <td class="num amt ${t.type}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</td>
           <td class="actions-cell">
             ${t.receipt ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
+            <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="duplicateTx('${t.id}')" title="이 거래를 복사해서 새로 등록">복사</button>
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openTxModal('${t.id}')">수정</button>
             <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteTx('${t.id}')">삭제</button>
           </td>
@@ -1186,22 +1187,31 @@ function onFilterChange() {
   renderTransactions();
 }
 
-function openTxModal(txId, presetDate, fromRecurring) {
+function duplicateTx(id) {
+  const t = DATA.transactions.find(x => x.id === id);
+  if (!t) return;
+  openTxModal(null, todayStr(), null, t);
+}
+function openTxModal(txId, presetDate, fromRecurring, duplicateFrom) {
   const editing = txId ? DATA.transactions.find(t => t.id === txId) : null;
-  const type = editing ? editing.type : (fromRecurring ? fromRecurring.type : 'expense');
+  const type = editing ? editing.type : (fromRecurring ? fromRecurring.type : (duplicateFrom ? duplicateFrom.type : 'expense'));
   const date = editing ? editing.date : (presetDate || todayStr());
   const editingCurrency = editing ? (getAccount(editing.accountId).currency || 'KRW')
-    : (fromRecurring ? (getAccount(fromRecurring.accountId).currency || 'KRW') : 'KRW');
+    : (fromRecurring ? (getAccount(fromRecurring.accountId).currency || 'KRW')
+      : (duplicateFrom ? (getAccount(duplicateFrom.accountId).currency || 'KRW') : 'KRW'));
   const editingAmountStr = editing
     ? (editingCurrency === 'USD' ? Number(editing.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(editing.amount).toLocaleString('ko-KR'))
     : (fromRecurring
       ? (editingCurrency === 'USD' ? Number(fromRecurring.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(fromRecurring.amount).toLocaleString('ko-KR'))
-      : '');
-  const modalTitle = editing ? '거래 수정' : (fromRecurring ? `${escapeHtml(fromRecurring.name)} 적용` : '거래 추가');
+      : (duplicateFrom
+        ? (editingCurrency === 'USD' ? Number(duplicateFrom.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(duplicateFrom.amount).toLocaleString('ko-KR'))
+        : ''));
+  const modalTitle = editing ? '거래 수정' : (fromRecurring ? `${escapeHtml(fromRecurring.name)} 적용` : (duplicateFrom ? '거래 복사' : '거래 추가'));
   const submitLabel = editing ? '저장' : (fromRecurring ? '적용' : '추가');
   openModal(`
     <h3>${modalTitle}</h3>
     ${fromRecurring ? `<div class="form-note" style="margin-bottom:10px;">등록 전 마지막으로 내용을 확인하고 필요하면 수정하세요.</div>` : ''}
+    ${duplicateFrom ? `<div class="form-note" style="margin-bottom:10px;">기존 거래 내용을 그대로 불러왔어요. 날짜·금액 등을 확인하고 등록하세요.</div>` : ''}
     <div class="seg" id="tx-type-seg">
       <button type="button" data-v="expense" class="${type === 'expense' ? 'active expense-active' : ''}" onclick="setTxType('expense')">지출</button>
       <button type="button" data-v="income" class="${type === 'income' ? 'active income-active' : ''}" onclick="setTxType('income')">수입</button>
@@ -1214,7 +1224,7 @@ function openTxModal(txId, presetDate, fromRecurring) {
     <div id="tx-toacc-field" class="field"></div>
     <div class="field" id="tx-payee-field"></div>
     <div class="field" id="tx-vendor-field"></div>
-    <div class="field"><label class="field-lbl">메모</label><input type="text" id="tx-memo" placeholder="메모 (선택)" value="${escapeHtml(editing ? (editing.memo || '') : (fromRecurring ? fromRecurring.name : ''))}"></div>
+    <div class="field"><label class="field-lbl">메모</label><input type="text" id="tx-memo" placeholder="메모 (선택)" value="${escapeHtml(editing ? (editing.memo || '') : (fromRecurring ? fromRecurring.name : (duplicateFrom ? (duplicateFrom.memo || '') : '')))}"></div>
     <div class="field" id="tx-receipt-field"></div>
     <div class="field" id="tx-exclude-field"></div>
     <div class="form-actions">
@@ -1224,12 +1234,12 @@ function openTxModal(txId, presetDate, fromRecurring) {
   `);
   state._txModal = { type, editing, receipt: editing && editing.type === 'expense' ? (editing.receipt || null) : null, fromRecurringId: fromRecurring ? fromRecurring.id : null };
   renderTxModalFields(
-    editing ? editing.categoryId : (fromRecurring ? fromRecurring.categoryId : null),
-    editing ? editing.accountId : (fromRecurring ? fromRecurring.accountId : null),
-    editing ? editing.toAccountId : (fromRecurring ? fromRecurring.toAccountId : null),
-    editing ? !!editing.excludeFromStats : false,
-    editing ? (editing.payee || '') : (fromRecurring ? (fromRecurring.payee || '') : ''),
-    editing ? (editing.vendor || '') : ''
+    editing ? editing.categoryId : (fromRecurring ? fromRecurring.categoryId : (duplicateFrom ? duplicateFrom.categoryId : null)),
+    editing ? editing.accountId : (fromRecurring ? fromRecurring.accountId : (duplicateFrom ? duplicateFrom.accountId : null)),
+    editing ? editing.toAccountId : (fromRecurring ? fromRecurring.toAccountId : (duplicateFrom ? duplicateFrom.toAccountId : null)),
+    editing ? !!editing.excludeFromStats : (duplicateFrom ? !!duplicateFrom.excludeFromStats : false),
+    editing ? (editing.payee || '') : (fromRecurring ? (fromRecurring.payee || '') : (duplicateFrom ? (duplicateFrom.payee || '') : '')),
+    editing ? (editing.vendor || '') : (duplicateFrom ? (duplicateFrom.vendor || '') : '')
   );
 }
 function openRecurringQuickApplyModal(id) {
