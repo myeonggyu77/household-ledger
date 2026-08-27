@@ -250,7 +250,12 @@
   .acct-list-bal.expense { color: var(--down); }
   .acct-detail-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 8px; }
   .acct-detail-title { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
-  .acct-trend-chart { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 5px; padding: 14px 10px 8px; margin: 18px 0 24px; }
+  .acct-summary-row { display: flex; margin: 16px 0 20px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+  .acct-summary-row .item { flex: 1; text-align: center; }
+  .acct-summary-row .item .lbl { font-size: 11px; color: var(--ink-faint); margin-bottom: 5px; }
+  .acct-summary-row .item .val { font-family: var(--mono); font-size: 14px; font-weight: 600; }
+  .acct-summary-row .item .val.income { color: var(--accent); }
+  .acct-summary-row .item .val.expense { color: var(--down); }
   @media (max-width: 860px) {
     .acct-master-detail { display: block; }
     .acct-list-pane.has-selection { display: none; }
@@ -2026,38 +2031,6 @@ function accountMonthFlow(acc, mKey, period) {
   });
   return { inflow, outflow, net: inflow - outflow };
 }
-function accountTrendChartSvg(acc, mKey) {
-  const months = [];
-  for (let i = 11; i >= 0; i--) months.push(shiftMonth(mKey, -i));
-  const values = months.map(m => accountBalance(acc, shiftMonth(m, 1) + '-01'));
-  const w = 640, h = 200, padL = 46, padR = 10, padT = 14, padB = 22;
-  const min = Math.min(0, ...values);
-  const max = Math.max(...values, 0, 1);
-  const range = (max - min) || 1;
-  const stepX = (w - padL - padR) / (months.length - 1);
-  const xAt = (i) => padL + i * stepX;
-  const yAt = (v) => padT + (1 - (v - min) / range) * (h - padT - padB);
-  const points = values.map((v, i) => `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(' ');
-  const dots = values.map((v, i) => `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(v).toFixed(1)}" r="3" fill="var(--accent)"/>`).join('');
-  const labels = months.map((m, i) => `<text x="${xAt(i).toFixed(1)}" y="${h - 4}" font-size="9" fill="var(--ink-faint)" text-anchor="middle">${Number(m.slice(5))}월</text>`).join('');
-  const gridCount = 4;
-  const grid = [];
-  for (let g = 0; g <= gridCount; g++) {
-    const v = min + (range * g / gridCount);
-    const y = yAt(v);
-    grid.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${w - padR}" y2="${y.toFixed(1)}" stroke="var(--line-soft)" stroke-width="1"/>`);
-    grid.push(`<text x="${padL - 6}" y="${(y + 3).toFixed(1)}" font-size="9" fill="var(--ink-faint)" text-anchor="end">${abbrevWon(Math.round(v))}</text>`);
-  }
-  const markerX = xAt(months.length - 1);
-  const marker = `<line x1="${markerX.toFixed(1)}" y1="${padT}" x2="${markerX.toFixed(1)}" y2="${h - padB}" stroke="var(--ink-faint)" stroke-width="1" stroke-dasharray="3,3"/>`;
-  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:180px;display:block;">
-    ${grid.join('')}
-    ${marker}
-    <polyline points="${points}" fill="none" stroke="var(--accent)" stroke-width="2"/>
-    ${dots}
-    ${labels}
-  </svg>`;
-}
 function accountRunningBalances(acc) {
   const relevant = DATA.transactions.filter(t => t.accountId === acc.id || t.toAccountId === acc.id || t.linkedLoanAccountId === acc.id)
     .sort((a, b) => (a.date + a.id).localeCompare(b.date + b.id));
@@ -2206,13 +2179,12 @@ function renderAccountDetail(acc) {
       <button type="button" class="${period === 'all' ? 'active' : ''}" onclick="setAcctPeriod('all')">전체</button>
     </div>
     ${periodNav}
-    <div class="kpi-row" style="margin:16px 0 0;">
-      <div class="kpi"><div class="lbl">입금</div><div class="val income">${won(flow.inflow)}</div></div>
-      <div class="kpi"><div class="lbl">출금</div><div class="val expense">${won(flow.outflow)}</div></div>
-      <div class="kpi"><div class="lbl">합계</div><div class="val ${flow.net >= 0 ? 'income' : 'expense'}">${wonSigned(flow.net)}</div></div>
-      <div class="kpi"><div class="lbl">누적잔액</div><div class="val">${fmtCurrencySigned(cumulative, acc.currency || 'KRW')}</div></div>
+    <div class="acct-summary-row">
+      <div class="item"><div class="lbl">입금</div><div class="val income">${won(flow.inflow)}</div></div>
+      <div class="item"><div class="lbl">출금</div><div class="val expense">${won(flow.outflow)}</div></div>
+      <div class="item"><div class="lbl">합계</div><div class="val ${flow.net >= 0 ? 'income' : 'expense'}">${wonSigned(flow.net)}</div></div>
+      <div class="item"><div class="lbl">누적잔액</div><div class="val">${fmtCurrencySigned(cumulative, acc.currency || 'KRW')}</div></div>
     </div>
-    <div class="acct-trend-chart">${accountTrendChartSvg(acc, period === 'year' ? mKey.slice(0, 4) + '-12' : mKey)}</div>
     <div class="section-block">
       <div class="section-heading">${periodLabel} 내역 (${list.length}건)<button class="ghost-btn" onclick="addTxForAccount('${acc.id}')"><i class="ti ti-plus"></i> 내역 추가</button></div>
       ${list.length ? renderAccountTxTable(list, acc) : `<div class="empty">해당 기간에는 거래가 없어요.</div>`}
