@@ -1456,7 +1456,7 @@ function deleteTx(id) {
 }
 
 /* ---------------- BULK IMPORT (엑셀) ---------------- */
-const BULK_HEADERS = ['날짜(YYYY-MM-DD)', '구분(지출/수입/이체)', '카테고리(소분류명)', '자산', '입금자산(이체시)', '대상(선택)', '금액', '메모(선택)'];
+const BULK_HEADERS = ['날짜(YYYY-MM-DD)', '구분(지출/수입/이체)', '카테고리(소분류명)', '자산', '입금자산(이체시)', '대상(선택)', '거래처(지출만, 선택)', '금액', '메모(선택)'];
 const BULK_TYPE_LABEL = { expense: '지출', income: '수입', transfer: '이체' };
 const BULK_TYPE_FROM_LABEL = { '지출': 'expense', '수입': 'income', '이체': 'transfer' };
 
@@ -1476,11 +1476,11 @@ function normalizeDateString(s) {
 function downloadBulkTemplate() {
   if (!window.XLSX) return showToast('엑셀 라이브러리를 불러오는 중이에요. 잠시 후 다시 시도해주세요.', 'error');
   const sample = [
-    ['2026-08-01', '지출', '식비', '현금', '', '스타벅스', 4500, '아메리카노'],
-    ['2026-08-01', '수입', '급여', '현금', '', '회사', 3000000, '8월 급여'],
+    ['2026-08-01', '지출', '식비', '현금', '', '스타벅스', '스타벅스 강남점', 4500, '아메리카노'],
+    ['2026-08-01', '수입', '급여', '현금', '', '회사', '', 3000000, '8월 급여'],
   ];
   const ws = XLSX.utils.aoa_to_sheet([BULK_HEADERS, ...sample]);
-  ws['!cols'] = [{ wch: 15 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 10 }, { wch: 22 }];
+  ws['!cols'] = [{ wch: 15 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 10 }, { wch: 22 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, '거래내역');
 
@@ -1532,7 +1532,7 @@ async function onBulkFileChange(input) {
   }
 }
 function parseBulkRow(row, idx) {
-  const [dateRaw, typeRaw, catName, accName, toAccName, payeeRaw, amountRaw, memoRaw] = row;
+  const [dateRaw, typeRaw, catName, accName, toAccName, payeeRaw, vendorRaw, amountRaw, memoRaw] = row;
   const errors = [];
   const date = normalizeDateString(dateRaw);
   if (!date) errors.push('날짜 형식 오류');
@@ -1541,7 +1541,7 @@ function parseBulkRow(row, idx) {
   const amount = Math.round(Number(String(amountRaw || '').replace(/[^0-9.-]/g, '')));
   if (!amount || amount <= 0) errors.push('금액 오류');
   const memo = String(memoRaw || '').trim();
-  let categoryId = null, accountId = null, toAccountId = null, payee = null;
+  let categoryId = null, accountId = null, toAccountId = null, payee = null, vendor = null;
   if (type === 'transfer') {
     const acc = DATA.accounts.find(a => a.name === String(accName || '').trim());
     const toAcc = DATA.accounts.find(a => a.name === String(toAccName || '').trim());
@@ -1556,8 +1556,9 @@ function parseBulkRow(row, idx) {
     if (!acc) errors.push(`자산 없음: ${accName || '(비어있음)'}`);
     categoryId = cat ? cat.id : null; accountId = acc ? acc.id : null;
     payee = String(payeeRaw || '').trim() || null;
+    if (type === 'expense') vendor = String(vendorRaw || '').trim() || null;
   }
-  return { idx, date, type, amount, categoryId, accountId, toAccountId, payee, memo, errors };
+  return { idx, date, type, amount, categoryId, accountId, toAccountId, payee, vendor, memo, errors };
 }
 function renderBulkPreview() {
   const rows = state._bulkImport.rows;
@@ -1572,7 +1573,7 @@ function renderBulkPreview() {
           <td>${r.idx + 2}</td>
           <td>${escapeHtml(r.date || '-')}</td>
           <td>${r.type ? `<span class="type-tag ${r.type}">${BULK_TYPE_LABEL[r.type]}</span>` : '-'}</td>
-          <td class="name-cell">${r.errors.length ? `<span style="color:var(--down);">${escapeHtml(r.errors.join(', '))}</span>` : `${r.payee ? escapeHtml(r.payee) + ' · ' : ''}${escapeHtml(r.memo || '')}`}</td>
+          <td class="name-cell">${r.errors.length ? `<span style="color:var(--down);">${escapeHtml(r.errors.join(', '))}</span>` : `${r.payee ? escapeHtml(r.payee) + ' · ' : ''}${r.vendor ? escapeHtml(r.vendor) + ' · ' : ''}${escapeHtml(r.memo || '')}`}</td>
           <td class="num">${r.amount ? won(r.amount) : '-'}</td>
           <td>${r.errors.length ? '<span class="budget-pct-tag over">오류</span>' : '<span class="budget-pct-tag ok">정상</span>'}</td>
         </tr>`).join('')}
@@ -1592,6 +1593,7 @@ function commitBulkImport() {
     else {
       payload.categoryId = r.categoryId; payload.accountId = r.accountId; payload.excludeFromStats = false;
       payload.payee = r.payee;
+      if (r.type === 'expense') payload.vendor = r.vendor;
     }
     DATA.transactions.push(payload);
   });
