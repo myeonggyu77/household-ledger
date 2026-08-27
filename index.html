@@ -1279,6 +1279,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     <div class="field"><label class="field-lbl">메모</label><input type="text" id="tx-memo" placeholder="메모 (선택)" value="${escapeHtml(editing ? (editing.memo || '') : (fromRecurring ? fromRecurring.name : (duplicateFrom ? (duplicateFrom.memo || '') : '')))}"></div>
     <div class="field" id="tx-receipt-field"></div>
     <div class="field" id="tx-exclude-field"></div>
+    ${fromRecurring ? '' : `<div class="field"><button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="registerAsRecurringFromTxForm()"><i class="ti ti-repeat"></i> 정기거래로 등록</button></div>`}
     <div class="form-actions">
       <button class="ghost-btn" onclick="closeModal()">취소</button>
       <button class="primary-btn" onclick="submitTx(${editing ? `'${editing.id}'` : 'null'})">${submitLabel}</button>
@@ -1467,6 +1468,29 @@ function openReceiptLightboxForTx(id) {
     </div>
     <div class="form-actions"><button class="ghost-btn" onclick="closeModal()">닫기</button></div>
   `);
+}
+function registerAsRecurringFromTxForm() {
+  const type = state._txModal.type;
+  const amount = rawCurrencyAmount(document.getElementById('tx-amount'), currentTxCurrency());
+  if (!amount || amount <= 0) return showToast('금액을 입력해주세요.', 'error');
+  const dateVal = document.getElementById('tx-date').value;
+  const day = dateVal ? Number(dateVal.slice(8, 10)) || 1 : 1;
+  const memo = document.getElementById('tx-memo').value.trim();
+  const payeeEl = document.getElementById('tx-payee');
+  const payee = payeeEl ? payeeEl.value.trim() : '';
+  const typeLabel = type === 'income' ? '수입' : type === 'expense' ? '지출' : '이체';
+  const template = { type, amount, day, frequency: 'monthly', name: memo || payee || typeLabel, payee: payee || null };
+  if (type === 'transfer') {
+    template.accountId = document.getElementById('tx-account').value;
+    template.toAccountId = document.getElementById('tx-toaccount').value;
+    if (!template.accountId || !template.toAccountId) return showToast('자산을 선택해주세요.', 'error');
+  } else {
+    template.categoryId = document.getElementById('tx-category').value;
+    template.accountId = document.getElementById('tx-account').value;
+    if (!template.categoryId || !template.accountId) return showToast('카테고리와 자산을 선택해주세요.', 'error');
+  }
+  closeModal();
+  openRecurringModal(null, template);
 }
 function submitTx(editId) {
   const type = state._txModal.type;
@@ -2222,10 +2246,11 @@ function submitRecurringApply(id) {
   showToast(`${date} 날짜로 등록했어요.`, 'success');
   renderAll();
 }
-function openRecurringModal(id) {
+function openRecurringModal(id, presetTemplate) {
   const editing = id ? DATA.recurring.find(r => r.id === id) : null;
-  const type = editing ? editing.type : 'expense';
-  const freq = editing ? (editing.frequency || 'monthly') : 'monthly';
+  const seed = editing || presetTemplate || null;
+  const type = seed ? seed.type : 'expense';
+  const freq = seed ? (seed.frequency || 'monthly') : 'monthly';
   const labels = recFieldLabels(type);
   openModal(`
     <h3>${editing ? '정기거래 수정' : '정기거래 추가'}</h3>
@@ -2234,8 +2259,8 @@ function openRecurringModal(id) {
       <button type="button" data-v="income" class="${type === 'income' ? 'active income-active' : ''}" onclick="setRecType('income')">수입</button>
       <button type="button" data-v="transfer" class="${type === 'transfer' ? 'active' : ''}" onclick="setRecType('transfer')">이체</button>
     </div>
-    <div class="field"><label class="field-lbl" id="rec-name-label">${labels.name}</label><input type="text" id="rec-name" value="${escapeHtml(editing ? editing.name : '')}" placeholder="예: 월세, 넷플릭스, 급여"></div>
-    <div class="field"><label class="field-lbl">금액 <span id="rec-amount-currency" style="color:var(--ink-faint);font-weight:400;text-transform:none;"></span></label><input type="text" inputmode="decimal" id="rec-amount" oninput="onRecAmountInputDynamic(this)" value="${editing ? (getAccount(editing.accountId).currency === 'USD' ? Number(editing.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(editing.amount).toLocaleString('ko-KR')) : ''}"></div>
+    <div class="field"><label class="field-lbl" id="rec-name-label">${labels.name}</label><input type="text" id="rec-name" value="${escapeHtml(seed ? seed.name : '')}" placeholder="예: 월세, 넷플릭스, 급여"></div>
+    <div class="field"><label class="field-lbl">금액 <span id="rec-amount-currency" style="color:var(--ink-faint);font-weight:400;text-transform:none;"></span></label><input type="text" inputmode="decimal" id="rec-amount" oninput="onRecAmountInputDynamic(this)" value="${seed ? (getAccount(seed.accountId).currency === 'USD' ? Number(seed.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(seed.amount).toLocaleString('ko-KR')) : ''}"></div>
     <div class="field">
       <label class="field-lbl" id="rec-day-label">${labels.day}</label>
       <div class="seg" id="rec-freq-seg" style="margin-bottom:8px;">
@@ -2248,7 +2273,7 @@ function openRecurringModal(id) {
     </div>
     <div class="field" id="rec-holiday-field" style="display:${(type !== 'transfer' && freq !== 'daily') ? '' : 'none'};">
       <label style="display:flex;align-items:center;gap:8px;font-weight:400;cursor:pointer;">
-        <input type="checkbox" id="rec-holiday-adjust" ${editing && (editing.noHolidayShift || editing.payBeforeHoliday) ? 'checked' : ''} style="width:16px;height:16px;">
+        <input type="checkbox" id="rec-holiday-adjust" ${seed && (seed.noHolidayShift || seed.payBeforeHoliday) ? 'checked' : ''} style="width:16px;height:16px;">
         <span id="rec-holiday-label">${type === 'income' ? '휴일이면 전 평일에 표시 (월급 등)' : '휴일이어도 해당일에 표시 (월세 등)'}</span>
       </label>
     </div>
@@ -2262,8 +2287,8 @@ function openRecurringModal(id) {
     </div>
   `);
   state._recModal = { type, freq };
-  renderRecFreqDetail(freq, editing ? editing.day : 1, editing ? editing.weekday : null, editing ? editing.dailyMode : null, editing ? editing.month : null);
-  renderRecModalFields(editing ? editing.categoryId : null, editing ? editing.accountId : null, editing ? editing.toAccountId : null, editing ? (editing.payee || '') : '');
+  renderRecFreqDetail(freq, seed ? seed.day : 1, seed ? seed.weekday : null, seed ? seed.dailyMode : null, seed ? seed.month : null);
+  renderRecModalFields(seed ? seed.categoryId : null, seed ? seed.accountId : null, seed ? seed.toAccountId : null, seed ? (seed.payee || '') : '');
 }
 function setRecType(t) {
   state._recModal.type = t;
