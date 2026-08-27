@@ -1284,7 +1284,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
       <button class="primary-btn" onclick="submitTx(${editing ? `'${editing.id}'` : 'null'})">${submitLabel}</button>
     </div>
   `);
-  state._txModal = { type, editing, receipt: editing && editing.type === 'expense' ? (editing.receipt || null) : null, fromRecurringId: fromRecurring ? fromRecurring.id : null };
+  state._txModal = { type, editing, receipt: editing && editing.type === 'expense' ? (editing.receipt || null) : null, fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null };
   renderTxModalFields(
     editing ? editing.categoryId : (fromRecurring ? fromRecurring.categoryId : (duplicateFrom ? duplicateFrom.categoryId : null)),
     editing ? editing.accountId : (fromRecurring ? fromRecurring.accountId : (duplicateFrom ? duplicateFrom.accountId : (presetAccountId || null))),
@@ -1307,7 +1307,7 @@ function setTxType(t) {
     b.classList.toggle('expense-active', active && t === 'expense');
     b.classList.toggle('income-active', active && t === 'income');
   });
-  renderTxModalFields();
+  renderTxModalFields(null, state._txModal.presetAccountId);
 }
 function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, presetPayee, presetVendor) {
   const type = state._txModal.type;
