@@ -1280,7 +1280,14 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
       <button type="button" data-v="income" class="${type === 'income' ? 'active income-active' : ''}" onclick="setTxType('income')">수입</button>
       <button type="button" data-v="transfer" class="${type === 'transfer' ? 'active' : ''}" onclick="setTxType('transfer')">이체</button>
     </div>
-    <div class="field"><label class="field-lbl">날짜</label><input type="date" id="tx-date" value="${date}"></div>
+    <div class="field">
+      <label class="field-lbl">날짜</label>
+      <input type="date" id="tx-date" value="${date}">
+      ${duplicateFrom ? `<div style="display:flex;gap:6px;margin-top:6px;">
+        <button type="button" class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="document.getElementById('tx-date').value='${todayStr()}'">오늘</button>
+        <button type="button" class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="document.getElementById('tx-date').value='${duplicateFrom.date}'">해당일 (${duplicateFrom.date.slice(5)})</button>
+      </div>` : ''}
+    </div>
     <div class="field"><label class="field-lbl">금액 <span id="tx-amount-currency" style="color:var(--ink-faint);font-weight:400;text-transform:none;"></span></label><input type="text" inputmode="decimal" id="tx-amount" placeholder="0" oninput="onAmountInputDynamic(this)" value="${editingAmountStr}"></div>
     <div id="tx-cat-field" class="field"></div>
     <div id="tx-acc-field" class="field"></div>
