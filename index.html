@@ -222,7 +222,11 @@
   .acct-list-pane { width: 260px; flex-shrink: 0; }
   .acct-detail-pane { flex: 1; min-width: 0; }
   .acct-list-group { margin-bottom: 10px; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
-  .acct-list-group-head { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; padding: 8px 10px; background: var(--line-soft); }
+  .acct-list-group-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; padding: 8px 10px; background: var(--line-soft); }
+  summary.acct-list-group-head { list-style: none; cursor: pointer; }
+  summary.acct-list-group-head::-webkit-details-marker { display: none; }
+  summary.acct-list-group-head .acct-group-toggle::after { content: '▾'; color: var(--ink-faint); font-size: 10px; margin-left: 6px; }
+  details.acct-list-group[open] summary.acct-list-group-head .acct-group-toggle::after { content: '▴'; }
   .acct-list-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 10px; cursor: pointer; font-size: 13px; border-top: 1px solid var(--line-soft); }
   .acct-list-row:hover { background: var(--line-soft); }
   .acct-list-row.selected { background: var(--accent-tint); font-weight: 600; }
@@ -1827,9 +1831,9 @@ function accountTrendChartSvg(acc, mKey) {
   const months = [];
   for (let i = 11; i >= 0; i--) months.push(shiftMonth(mKey, -i));
   const values = months.map(m => accountBalance(acc, shiftMonth(m, 1) + '-01'));
-  const w = 640, h = 160, padL = 8, padR = 8, padT = 14, padB = 22;
+  const w = 640, h = 200, padL = 46, padR = 10, padT = 14, padB = 22;
   const min = Math.min(0, ...values);
-  const max = Math.max(...values, 0);
+  const max = Math.max(...values, 0, 1);
   const range = (max - min) || 1;
   const stepX = (w - padL - padR) / (months.length - 1);
   const xAt = (i) => padL + i * stepX;
@@ -1837,11 +1841,88 @@ function accountTrendChartSvg(acc, mKey) {
   const points = values.map((v, i) => `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(' ');
   const dots = values.map((v, i) => `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(v).toFixed(1)}" r="3" fill="var(--accent)"/>`).join('');
   const labels = months.map((m, i) => `<text x="${xAt(i).toFixed(1)}" y="${h - 4}" font-size="9" fill="var(--ink-faint)" text-anchor="middle">${Number(m.slice(5))}월</text>`).join('');
-  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:150px;display:block;">
+  const gridCount = 4;
+  const grid = [];
+  for (let g = 0; g <= gridCount; g++) {
+    const v = min + (range * g / gridCount);
+    const y = yAt(v);
+    grid.push(`<line x1="${padL}" y1="${y.toFixed(1)}" x2="${w - padR}" y2="${y.toFixed(1)}" stroke="var(--line-soft)" stroke-width="1"/>`);
+    grid.push(`<text x="${padL - 6}" y="${(y + 3).toFixed(1)}" font-size="9" fill="var(--ink-faint)" text-anchor="end">${abbrevWon(Math.round(v))}</text>`);
+  }
+  const markerX = xAt(months.length - 1);
+  const marker = `<line x1="${markerX.toFixed(1)}" y1="${padT}" x2="${markerX.toFixed(1)}" y2="${h - padB}" stroke="var(--ink-faint)" stroke-width="1" stroke-dasharray="3,3"/>`;
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:180px;display:block;">
+    ${grid.join('')}
+    ${marker}
     <polyline points="${points}" fill="none" stroke="var(--accent)" stroke-width="2"/>
     ${dots}
     ${labels}
   </svg>`;
+}
+function accountRunningBalances(acc) {
+  const relevant = DATA.transactions.filter(t => t.accountId === acc.id || t.toAccountId === acc.id)
+    .sort((a, b) => (a.date + a.id).localeCompare(b.date + b.id));
+  let bal = Number(acc.initialBalance) || 0;
+  const map = {};
+  relevant.forEach(t => {
+    if (t.type === 'income' && t.accountId === acc.id) bal += t.amount;
+    else if (t.type === 'expense' && t.accountId === acc.id) bal -= t.amount;
+    else if (t.type === 'transfer') {
+      if (t.accountId === acc.id) bal -= t.amount;
+      if (t.toAccountId === acc.id) bal += t.amount;
+    }
+    map[t.id] = bal;
+  });
+  return map;
+}
+function renderAccountTxTable(list, acc) {
+  const runningMap = accountRunningBalances(acc);
+  return `<div class="overflow-x"><table>
+    <thead><tr>
+      <th style="width:64px;">날짜</th>
+      <th class="name-cell">분류</th>
+      <th class="name-cell">소분류</th>
+      <th class="num">금액</th>
+      <th class="name-cell">내용</th>
+      <th class="name-cell">메모</th>
+      <th class="actions-cell">관리</th>
+    </tr></thead>
+    <tbody>
+      ${list.map(t => {
+        let parentLabel, childLabel;
+        if (t.type === 'transfer') {
+          const outgoing = t.accountId === acc.id;
+          const other = getAccount(outgoing ? t.toAccountId : t.accountId);
+          parentLabel = `${outgoing ? '→' : '←'} ${other.icon || ''} ${escapeHtml(other.name)}`;
+          childLabel = '';
+        } else {
+          const cat = getCategory(t.categoryId);
+          const parent = cat.parentId ? getCategory(cat.parentId) : cat;
+          parentLabel = `${parent.icon || ''} ${escapeHtml(parent.name)}`;
+          childLabel = cat.parentId ? escapeHtml(cat.name) : '';
+        }
+        const outgoing = t.type === 'expense' || (t.type === 'transfer' && t.accountId === acc.id);
+        const sign = t.type === 'transfer' ? (outgoing ? '-' : '+') : (t.type === 'income' ? '+' : '-');
+        const amtCls = t.type === 'transfer' ? (outgoing ? 'expense' : 'income') : t.type;
+        const bal = runningMap[t.id];
+        return `<tr>
+          <td>${t.date.slice(5)}</td>
+          <td class="name-cell">${parentLabel}</td>
+          <td class="name-cell">${childLabel}</td>
+          <td class="num">
+            <div class="amt ${amtCls}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</div>
+            <div class="form-note" style="margin:2px 0 0;text-align:right;">${bal != null ? bal.toLocaleString('ko-KR') : ''}</div>
+          </td>
+          <td class="name-cell">${escapeHtml(t.payee || '')}</td>
+          <td class="name-cell">${escapeHtml(t.memo || '')}</td>
+          <td class="actions-cell">
+            <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openTxModal('${t.id}')">수정</button>
+            <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteTx('${t.id}')">삭제</button>
+          </td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table></div>`;
 }
 function selectAccountDetail(id) {
   state.acctSelectedId = id;
@@ -1858,6 +1939,8 @@ function navAcctMonth(delta) {
 }
 function renderAccountDetail(acc) {
   const mKey = state.acctMonth;
+  const [y, m] = mKey.split('-').map(Number);
+  const usagePeriod = `${String(y).slice(2)}. ${m}. 1. ~ ${String(y).slice(2)}. ${m}. ${daysInMonth(y, m)}.`;
   const flow = accountMonthFlow(acc, mKey);
   const cumulative = accountBalance(acc, shiftMonth(mKey, 1) + '-01');
   const list = DATA.transactions.filter(t => t.accountId === acc.id || t.toAccountId === acc.id)
@@ -1868,6 +1951,7 @@ function renderAccountDetail(acc) {
       <div class="acct-detail-title">
         <span>${acc.icon || ACC_TYPE_ICON[acc.type] || '💰'} ${escapeHtml(acc.name)}</span>
         <button class="icon-btn" onclick="openAccountModal('${acc.id}')" title="수정" aria-label="수정"><i class="ti ti-pencil"></i></button>
+        <span class="form-note" style="margin:0;">사용기간 ${usagePeriod}</span>
       </div>
       <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="deselectAccountDetail()"><i class="ti ti-arrow-left"></i> 목록으로</button>
     </div>
@@ -1881,7 +1965,7 @@ function renderAccountDetail(acc) {
     <div class="acct-trend-chart">${accountTrendChartSvg(acc, mKey)}</div>
     <div class="section-block">
       <div class="section-heading">${monthLabel(mKey)} 내역 (${list.length}건)</div>
-      ${list.length ? renderTxTable(list, false) : `<div class="empty">이 달에는 거래가 없어요.</div>`}
+      ${list.length ? renderAccountTxTable(list, acc) : `<div class="empty">이 달에는 거래가 없어요.</div>`}
     </div>
     <div class="form-actions" style="justify-content:flex-start;margin-top:14px;">
       <button class="ghost-btn danger-btn" onclick="deleteAccount('${acc.id}')">이 자산 삭제</button>
@@ -1899,13 +1983,13 @@ function renderAccounts() {
     if (!accts.length) return '';
     const hasUsd = accts.some(a => a.currency === 'USD');
     const subtotalKRW = accts.reduce((s, a) => s + toKRW(accountBalance(a), a.currency || 'KRW'), 0);
-    return `<div class="acct-list-group">
-      <div class="acct-list-group-head">
+    return `<details class="acct-list-group" open>
+      <summary class="acct-list-group-head">
         <span>${ACC_TYPE_ICON[type]} ${ACC_TYPE_LABEL[type]} <span class="form-note" style="margin:0;">${accts.length}</span></span>
-        <span>${wonSigned(subtotalKRW)}${hasUsd ? ' (환산)' : ''} <button class="icon-btn" style="margin-left:4px;" onclick="event.stopPropagation();openAccountModal(null, '${type}')" title="자산 추가" aria-label="자산 추가">+</button></span>
-      </div>
+        <span class="acct-group-toggle">${wonSigned(subtotalKRW)}${hasUsd ? ' (환산)' : ''} <button class="icon-btn" style="margin-left:4px;" onclick="event.stopPropagation();openAccountModal(null, '${type}')" title="자산 추가" aria-label="자산 추가">+</button></span>
+      </summary>
       ${accts.map(listRow).join('')}
-    </div>`;
+    </details>`;
   };
   const rate = DATA.settings.usdKrwRate;
   const rateLine = rate
@@ -1923,7 +2007,7 @@ function renderAccounts() {
     <div class="acct-master-detail">
       <div class="acct-list-pane ${selected ? 'has-selection' : ''}">
         <div class="acct-list-group">
-          <div class="acct-list-group-head"><span>전체</span><span>${wonSigned(totalAssets())}</span></div>
+          <div class="acct-list-group-head"><span>전체 <span class="form-note" style="margin:0;">${DATA.accounts.length}</span></span><span>${wonSigned(totalAssets())}</span></div>
         </div>
         ${ACC_TYPES.map(groupBlock).join('')}
       </div>
