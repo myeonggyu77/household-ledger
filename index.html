@@ -688,6 +688,7 @@ let state = {
   txFilter: { type: 'all', categoryId: '', accountId: '', q: '' },
   statsType: 'expense',
   statsPeriod: 'month',
+  statsGroupBy: 'leaf',
   statsSelectedCategoryId: null,
   acctSelectedId: null,
   acctMonth: monthKey(new Date()),
@@ -792,7 +793,14 @@ function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (
 
 function getCategory(id) { return DATA.categories.find(c => c.id === id) || { name: '(삭제된 카테고리)', icon: '❔', colorIdx: 0 }; }
 function getAccount(id) { return DATA.accounts.find(a => a.id === id) || { name: '(삭제된 자산)', icon: '❔' }; }
-function catColor(cat) { return CAT_COLORS[(cat.colorIdx || 0) % 8]; }
+function catColor(cat) {
+  if (cat.colorIdx != null) return CAT_COLORS[cat.colorIdx % 8];
+  if (!cat.parentId && cat.type) {
+    const idx = topCategories(cat.type).findIndex(p => p.id === cat.id);
+    return CAT_COLORS[(idx >= 0 ? idx : 0) % 8];
+  }
+  return CAT_COLORS[0];
+}
 function topCategories(type) { return DATA.categories.filter(c => c.type === type && !c.parentId); }
 function childCategories(parentId) { return DATA.categories.filter(c => c.parentId === parentId); }
 function reorderCategory(id, newIndex) {
@@ -854,11 +862,13 @@ function txInPeriod(period, mKey) {
   if (period === 'year') return DATA.transactions.filter(t => t.date.slice(0, 4) === mKey.slice(0, 4));
   return txInMonth(mKey);
 }
-function statsCategoryTotals(period, mKey, type) {
+function statsCategoryTotals(period, mKey, type, groupBy) {
   const map = {};
   txInPeriod(period, mKey).forEach(t => {
     if (t.type !== type || t.excludeFromStats) return;
-    map[t.categoryId] = (map[t.categoryId] || 0) + txAmountKRW(t);
+    const leaf = getCategory(t.categoryId);
+    const key = (groupBy === 'parent' && leaf.parentId) ? leaf.parentId : t.categoryId;
+    map[key] = (map[key] || 0) + txAmountKRW(t);
   });
   return Object.entries(map)
     .map(([categoryId, amount]) => ({ categoryId, amount, category: getCategory(categoryId) }))
@@ -1677,7 +1687,8 @@ function renderStats() {
   const mKey = state.month;
   const type = state.statsType;
   const period = state.statsPeriod || 'month';
-  const totals = statsCategoryTotals(period, mKey, type);
+  const groupBy = state.statsGroupBy || 'leaf';
+  const totals = statsCategoryTotals(period, mKey, type, groupBy);
   const sum = totals.reduce((s, c) => s + c.amount, 0);
   const periodLabel = period === 'all' ? '전체 기간' : period === 'year' ? `${mKey.slice(0, 4)}년` : monthLabel(mKey);
   const periodNav = period === 'all'
@@ -1699,6 +1710,10 @@ function renderStats() {
           <button type="button" class="${type === 'income' ? 'active income-active' : ''}" onclick="setStatsType('income')">수입</button>
         </div>
       </div>
+      <div class="seg" style="width:160px;margin-bottom:10px;">
+        <button type="button" class="${groupBy === 'leaf' ? 'active' : ''}" onclick="setStatsGroupBy('leaf')">소분류</button>
+        <button type="button" class="${groupBy === 'parent' ? 'active' : ''}" onclick="setStatsGroupBy('parent')">대분류</button>
+      </div>
       <div class="form-note">${periodLabel} 합계 ${won(sum)}</div>
       ${totals.length ? renderPieChart(totals, sum) : ''}
       ${totals.length ? totals.map(c => `
@@ -1713,6 +1728,7 @@ function renderStats() {
 }
 function setStatsType(t) { state.statsType = t; state.statsSelectedCategoryId = null; renderStats(); }
 function setStatsPeriod(p) { state.statsPeriod = p; renderStats(); }
+function setStatsGroupBy(g) { state.statsGroupBy = g; state.statsSelectedCategoryId = null; renderStats(); }
 function selectStatsCategory(categoryId) {
   state.statsSelectedCategoryId = state.statsSelectedCategoryId === categoryId ? null : categoryId;
   renderStats();
@@ -1721,8 +1737,10 @@ function renderStatsCategoryDetail(period, mKey, type, periodLabel) {
   const categoryId = state.statsSelectedCategoryId;
   if (!categoryId) return '';
   const cat = getCategory(categoryId);
+  const groupBy = state.statsGroupBy || 'leaf';
   const list = txInPeriod(period, mKey)
-    .filter(t => t.categoryId === categoryId && t.type === type && !t.excludeFromStats)
+    .filter(t => t.type === type && !t.excludeFromStats)
+    .filter(t => groupBy === 'parent' ? getCategory(t.categoryId).parentId === categoryId : t.categoryId === categoryId)
     .sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
   const sum = list.reduce((s, t) => s + txAmountKRW(t), 0);
   return `<div class="section-block">
