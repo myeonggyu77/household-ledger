@@ -701,6 +701,7 @@ let state = {
   statsSelectedCategoryId: null,
   acctSelectedId: null,
   acctMonth: monthKey(new Date()),
+  acctPeriod: 'month',
 };
 
 /* ---------------- date helpers ---------------- */
@@ -1899,9 +1900,9 @@ function setBudget(catId, el) {
 }
 
 /* ---------------- ACCOUNTS ---------------- */
-function accountMonthFlow(acc, mKey) {
+function accountMonthFlow(acc, mKey, period) {
   let inflow = 0, outflow = 0;
-  txInMonth(mKey).forEach(t => {
+  txInPeriod(period || 'month', mKey).forEach(t => {
     if (t.type === 'income' && t.accountId === acc.id) inflow += t.amount;
     else if (t.type === 'expense' && t.accountId === acc.id) outflow += t.amount;
     else if (t.type === 'transfer') {
@@ -2023,24 +2024,54 @@ function renderAccountTxTable(list, acc) {
 function selectAccountDetail(id) {
   state.acctSelectedId = id;
   state.acctMonth = monthKey(new Date());
+  state.acctPeriod = 'month';
   renderAccounts();
 }
 function deselectAccountDetail() {
   state.acctSelectedId = null;
   renderAccounts();
 }
-function navAcctMonth(delta) {
-  state.acctMonth = shiftMonth(state.acctMonth, delta);
+function navAcctPeriod(delta) {
+  if (state.acctPeriod === 'year') {
+    const [y, m] = state.acctMonth.split('-');
+    state.acctMonth = (Number(y) + delta) + '-' + m;
+  } else {
+    state.acctMonth = shiftMonth(state.acctMonth, delta);
+  }
   renderAccounts();
+}
+function jumpAcctToday() {
+  state.acctMonth = monthKey(new Date());
+  renderAccounts();
+}
+function setAcctPeriod(p) {
+  state.acctPeriod = p;
+  renderAccounts();
+}
+function acctYearNavHtml(mKey) {
+  const year = mKey.slice(0, 4);
+  return `<div class="month-nav">
+    <button class="icon-btn" onclick="navAcctPeriod(-1)" aria-label="이전 해">&lt;</button>
+    <div class="m-label">${year}년</div>
+    <button class="icon-btn" onclick="navAcctPeriod(1)" aria-label="다음 해">&gt;</button>
+    <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="jumpAcctToday()">올해</button>
+  </div>`;
 }
 function renderAccountDetail(acc) {
   const mKey = state.acctMonth;
+  const period = state.acctPeriod || 'month';
   const [y, m] = mKey.split('-').map(Number);
-  const usagePeriod = `${String(y).slice(2)}. ${m}. 1. ~ ${String(y).slice(2)}. ${m}. ${daysInMonth(y, m)}.`;
-  const flow = accountMonthFlow(acc, mKey);
-  const cumulative = accountBalance(acc, shiftMonth(mKey, 1) + '-01');
-  const list = DATA.transactions.filter(t => t.accountId === acc.id || t.toAccountId === acc.id || t.linkedLoanAccountId === acc.id)
-    .filter(t => t.date.slice(0, 7) === mKey)
+  const usagePeriod = period === 'all' ? '전체'
+    : period === 'year' ? `${String(y).slice(2)}. 1. 1. ~ ${String(y).slice(2)}. 12. 31.`
+    : `${String(y).slice(2)}. ${m}. 1. ~ ${String(y).slice(2)}. ${m}. ${daysInMonth(y, m)}.`;
+  const flow = accountMonthFlow(acc, mKey, period);
+  const cumulative = period === 'all' ? accountBalance(acc)
+    : period === 'year' ? accountBalance(acc, (Number(mKey.slice(0, 4)) + 1) + '-01-01')
+    : accountBalance(acc, shiftMonth(mKey, 1) + '-01');
+  const periodLabel = period === 'all' ? '전체 기간' : period === 'year' ? `${mKey.slice(0, 4)}년` : monthLabel(mKey);
+  const periodNav = period === 'all' ? '' : period === 'year' ? acctYearNavHtml(mKey) : monthNavHtml('navAcctPeriod(-1)', 'navAcctPeriod(1)', mKey);
+  const list = txInPeriod(period, mKey)
+    .filter(t => t.accountId === acc.id || t.toAccountId === acc.id || t.linkedLoanAccountId === acc.id)
     .sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
   return `
     <div class="acct-detail-head">
@@ -2051,17 +2082,22 @@ function renderAccountDetail(acc) {
       </div>
       <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="deselectAccountDetail()"><i class="ti ti-arrow-left"></i> 목록으로</button>
     </div>
-    ${monthNavHtml('navAcctMonth(-1)', 'navAcctMonth(1)', mKey)}
+    <div class="seg" style="margin-bottom:12px;">
+      <button type="button" class="${period === 'month' ? 'active' : ''}" onclick="setAcctPeriod('month')">월간</button>
+      <button type="button" class="${period === 'year' ? 'active' : ''}" onclick="setAcctPeriod('year')">년간</button>
+      <button type="button" class="${period === 'all' ? 'active' : ''}" onclick="setAcctPeriod('all')">전체</button>
+    </div>
+    ${periodNav}
     <div class="kpi-row" style="margin:16px 0 0;">
       <div class="kpi"><div class="lbl">입금</div><div class="val income">${won(flow.inflow)}</div></div>
       <div class="kpi"><div class="lbl">출금</div><div class="val expense">${won(flow.outflow)}</div></div>
       <div class="kpi"><div class="lbl">합계</div><div class="val ${flow.net >= 0 ? 'income' : 'expense'}">${wonSigned(flow.net)}</div></div>
       <div class="kpi"><div class="lbl">누적잔액</div><div class="val">${fmtCurrencySigned(cumulative, acc.currency || 'KRW')}</div></div>
     </div>
-    <div class="acct-trend-chart">${accountTrendChartSvg(acc, mKey)}</div>
+    <div class="acct-trend-chart">${accountTrendChartSvg(acc, period === 'year' ? mKey.slice(0, 4) + '-12' : mKey)}</div>
     <div class="section-block">
-      <div class="section-heading">${monthLabel(mKey)} 내역 (${list.length}건)<button class="ghost-btn" onclick="addTxForAccount('${acc.id}')"><i class="ti ti-plus"></i> 내역 추가</button></div>
-      ${list.length ? renderAccountTxTable(list, acc) : `<div class="empty">이 달에는 거래가 없어요.</div>`}
+      <div class="section-heading">${periodLabel} 내역 (${list.length}건)<button class="ghost-btn" onclick="addTxForAccount('${acc.id}')"><i class="ti ti-plus"></i> 내역 추가</button></div>
+      ${list.length ? renderAccountTxTable(list, acc) : `<div class="empty">해당 기간에는 거래가 없어요.</div>`}
     </div>
     <div class="form-actions" style="justify-content:flex-start;margin-top:14px;">
       <button class="ghost-btn danger-btn" onclick="deleteAccount('${acc.id}')">이 자산 삭제</button>
