@@ -105,7 +105,7 @@
   .receipt-thumb { width: 96px; height: 96px; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); }
 
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .overflow-x table { table-layout: fixed; }
+  .overflow-x table { table-layout: fixed; min-width: 480px; }
   tbody td { white-space: nowrap; padding: 10px 8px; border-bottom: 1px solid var(--line-soft); overflow: hidden; text-overflow: ellipsis; }
   .name-cell { line-height: 1.35; white-space: normal; overflow: visible; text-overflow: clip; word-break: keep-all; overflow-wrap: break-word; }
   thead th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-faint); font-weight: 500; padding: 8px; border-bottom: 1px solid var(--ink); position: sticky; top: 0; background: var(--paper); z-index: 4; box-shadow: 0 1px 0 var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -218,13 +218,26 @@
   .budget-pct-tag.over { color: var(--status-crit); background: var(--down-soft); }
   .budget-edit-input { width: 110px; height: 28px; font-size: 12px; display: inline-block; }
 
-  .acct-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; margin-bottom: 20px; }
-  .acct-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 5px; padding: 14px 16px; }
-  .acct-card .acct-name { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
-  .acct-card .acct-type { font-size: 11px; color: var(--ink-faint); font-weight: 400; }
-  .acct-card .acct-bal { font-family: var(--mono); font-size: 17px; font-weight: 600; }
-  .acct-card .acct-actions { margin-top: 10px; display: flex; gap: 6px; }
-  .acct-card.excluded { opacity: 0.7; }
+  .acct-master-detail { display: flex; gap: 24px; align-items: flex-start; }
+  .acct-list-pane { width: 260px; flex-shrink: 0; }
+  .acct-detail-pane { flex: 1; min-width: 0; }
+  .acct-list-group { margin-bottom: 10px; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
+  .acct-list-group-head { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; padding: 8px 10px; background: var(--line-soft); }
+  .acct-list-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 10px; cursor: pointer; font-size: 13px; border-top: 1px solid var(--line-soft); }
+  .acct-list-row:hover { background: var(--line-soft); }
+  .acct-list-row.selected { background: var(--accent-tint); font-weight: 600; }
+  .acct-list-row.excluded { opacity: 0.6; }
+  .acct-list-bal { font-family: var(--mono); }
+  .acct-list-bal.expense { color: var(--down); }
+  .acct-detail-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 8px; }
+  .acct-detail-title { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .acct-trend-chart { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 5px; padding: 14px 10px 8px; margin: 18px 0 24px; }
+  @media (max-width: 860px) {
+    .acct-master-detail { display: block; }
+    .acct-list-pane.has-selection { display: none; }
+    .acct-detail-pane { display: none; }
+    .acct-detail-pane.active { display: block; }
+  }
 
   .cat-manage-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
   @media (max-width: 640px) { .cat-manage-grid { grid-template-columns: 1fr; } }
@@ -672,6 +685,8 @@ let state = {
   statsType: 'expense',
   statsPeriod: 'month',
   statsSelectedCategoryId: null,
+  acctSelectedId: null,
+  acctMonth: monthKey(new Date()),
 };
 
 /* ---------------- date helpers ---------------- */
@@ -794,9 +809,10 @@ function reorderCategory(id, newIndex) {
 function leafCategories(type) { return DATA.categories.filter(c => c.type === type && c.parentId); }
 
 /* ---------------- derived data ---------------- */
-function accountBalance(acc) {
+function accountBalance(acc, beforeDate) {
   let bal = Number(acc.initialBalance) || 0;
   DATA.transactions.forEach(t => {
+    if (beforeDate && t.date >= beforeDate) return;
     if (t.type === 'income' && t.accountId === acc.id) bal += t.amount;
     else if (t.type === 'expense' && t.accountId === acc.id) bal -= t.amount;
     else if (t.type === 'transfer') {
@@ -1795,33 +1811,100 @@ function setBudget(catId, el) {
 }
 
 /* ---------------- ACCOUNTS ---------------- */
-function renderAccounts() {
-  const acctCard = (a) => `
-    <div class="acct-card ${a.includeInTotal === false ? 'excluded' : ''}">
-      <div class="acct-name">${a.icon || ACC_TYPE_ICON[a.type] || '💰'} ${escapeHtml(a.name)}${a.currency === 'USD' ? ' <span class="ccy-badge usd">USD</span>' : ''}</div>
-      <div class="acct-bal">${fmtCurrencySigned(accountBalance(a), a.currency || 'KRW')}</div>
-      ${(a.startDate || a.endDate) ? `<div class="form-note" style="margin:6px 0 0;">${a.startDate || '?'} ~ ${a.endDate || '?'}</div>` : ''}
-      ${a.includeInTotal === false ? '<div class="form-note" style="margin:6px 0 0;">총 자산 제외</div>' : ''}
-      <div class="acct-actions">
-        <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openAccountModal('${a.id}')">수정</button>
-        <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteAccount('${a.id}')">삭제</button>
+function accountMonthFlow(acc, mKey) {
+  let inflow = 0, outflow = 0;
+  txInMonth(mKey).forEach(t => {
+    if (t.type === 'income' && t.accountId === acc.id) inflow += t.amount;
+    else if (t.type === 'expense' && t.accountId === acc.id) outflow += t.amount;
+    else if (t.type === 'transfer') {
+      if (t.toAccountId === acc.id) inflow += t.amount;
+      if (t.accountId === acc.id) outflow += t.amount;
+    }
+  });
+  return { inflow, outflow, net: inflow - outflow };
+}
+function accountTrendChartSvg(acc, mKey) {
+  const months = [];
+  for (let i = 11; i >= 0; i--) months.push(shiftMonth(mKey, -i));
+  const values = months.map(m => accountBalance(acc, shiftMonth(m, 1) + '-01'));
+  const w = 640, h = 160, padL = 8, padR = 8, padT = 14, padB = 22;
+  const min = Math.min(0, ...values);
+  const max = Math.max(...values, 0);
+  const range = (max - min) || 1;
+  const stepX = (w - padL - padR) / (months.length - 1);
+  const xAt = (i) => padL + i * stepX;
+  const yAt = (v) => padT + (1 - (v - min) / range) * (h - padT - padB);
+  const points = values.map((v, i) => `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).join(' ');
+  const dots = values.map((v, i) => `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(v).toFixed(1)}" r="3" fill="var(--accent)"/>`).join('');
+  const labels = months.map((m, i) => `<text x="${xAt(i).toFixed(1)}" y="${h - 4}" font-size="9" fill="var(--ink-faint)" text-anchor="middle">${Number(m.slice(5))}월</text>`).join('');
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:150px;display:block;">
+    <polyline points="${points}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+    ${dots}
+    ${labels}
+  </svg>`;
+}
+function selectAccountDetail(id) {
+  state.acctSelectedId = id;
+  state.acctMonth = monthKey(new Date());
+  renderAccounts();
+}
+function deselectAccountDetail() {
+  state.acctSelectedId = null;
+  renderAccounts();
+}
+function navAcctMonth(delta) {
+  state.acctMonth = shiftMonth(state.acctMonth, delta);
+  renderAccounts();
+}
+function renderAccountDetail(acc) {
+  const mKey = state.acctMonth;
+  const flow = accountMonthFlow(acc, mKey);
+  const cumulative = accountBalance(acc, shiftMonth(mKey, 1) + '-01');
+  const list = DATA.transactions.filter(t => t.accountId === acc.id || t.toAccountId === acc.id)
+    .filter(t => t.date.slice(0, 7) === mKey)
+    .sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
+  return `
+    <div class="acct-detail-head">
+      <div class="acct-detail-title">
+        <span>${acc.icon || ACC_TYPE_ICON[acc.type] || '💰'} ${escapeHtml(acc.name)}</span>
+        <button class="icon-btn" onclick="openAccountModal('${acc.id}')" title="수정" aria-label="수정"><i class="ti ti-pencil"></i></button>
       </div>
-    </div>`;
-  const groupHtml = (type) => {
+      <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="deselectAccountDetail()"><i class="ti ti-arrow-left"></i> 목록으로</button>
+    </div>
+    ${monthNavHtml('navAcctMonth(-1)', 'navAcctMonth(1)', mKey)}
+    <div class="kpi-row" style="margin:16px 0 0;">
+      <div class="kpi"><div class="lbl">입금</div><div class="val income">${won(flow.inflow)}</div></div>
+      <div class="kpi"><div class="lbl">출금</div><div class="val expense">${won(flow.outflow)}</div></div>
+      <div class="kpi"><div class="lbl">합계</div><div class="val ${flow.net >= 0 ? 'income' : 'expense'}">${wonSigned(flow.net)}</div></div>
+      <div class="kpi"><div class="lbl">누적잔액</div><div class="val">${fmtCurrencySigned(cumulative, acc.currency || 'KRW')}</div></div>
+    </div>
+    <div class="acct-trend-chart">${accountTrendChartSvg(acc, mKey)}</div>
+    <div class="section-block">
+      <div class="section-heading">${monthLabel(mKey)} 내역 (${list.length}건)</div>
+      ${list.length ? renderTxTable(list, false) : `<div class="empty">이 달에는 거래가 없어요.</div>`}
+    </div>
+    <div class="form-actions" style="justify-content:flex-start;margin-top:14px;">
+      <button class="ghost-btn danger-btn" onclick="deleteAccount('${acc.id}')">이 자산 삭제</button>
+    </div>
+  `;
+}
+function renderAccounts() {
+  const selected = state.acctSelectedId ? DATA.accounts.find(a => a.id === state.acctSelectedId) : null;
+  const listRow = (a) => `<div class="acct-list-row ${a.includeInTotal === false ? 'excluded' : ''} ${selected && selected.id === a.id ? 'selected' : ''}" onclick="selectAccountDetail('${a.id}')">
+    <span>${a.icon || ACC_TYPE_ICON[a.type] || '💰'} ${escapeHtml(a.name)}${a.currency === 'USD' ? ' <span class="ccy-badge usd">USD</span>' : ''}</span>
+    <span class="acct-list-bal ${accountBalance(a) < 0 ? 'expense' : ''}">${fmtCurrencySigned(accountBalance(a), a.currency || 'KRW')}</span>
+  </div>`;
+  const groupBlock = (type) => {
     const accts = DATA.accounts.filter(a => a.type === type);
+    if (!accts.length) return '';
     const hasUsd = accts.some(a => a.currency === 'USD');
     const subtotalKRW = accts.reduce((s, a) => s + toKRW(accountBalance(a), a.currency || 'KRW'), 0);
-    return `<div class="cat-parent-group">
-      <div class="cat-parent-head">
-        <span class="cat-chip-name">${ACC_TYPE_ICON[type]} ${ACC_TYPE_LABEL[type]}</span>
-        <span style="display:flex;align-items:center;gap:10px;">
-          <span class="form-note" style="margin:0;">${wonSigned(subtotalKRW)}${hasUsd ? ' (환산)' : ''}</span>
-          <button class="icon-btn" onclick="openAccountModal(null, '${type}')" title="자산 추가" aria-label="자산 추가">+</button>
-        </span>
+    return `<div class="acct-list-group">
+      <div class="acct-list-group-head">
+        <span>${ACC_TYPE_ICON[type]} ${ACC_TYPE_LABEL[type]} <span class="form-note" style="margin:0;">${accts.length}</span></span>
+        <span>${wonSigned(subtotalKRW)}${hasUsd ? ' (환산)' : ''} <button class="icon-btn" style="margin-left:4px;" onclick="event.stopPropagation();openAccountModal(null, '${type}')" title="자산 추가" aria-label="자산 추가">+</button></span>
       </div>
-      <div class="cat-child-list">
-        ${accts.length ? `<div class="acct-grid">${accts.map(acctCard).join('')}</div>` : `<div class="form-note" style="margin:2px 0 8px;">등록된 자산이 없어요.</div>`}
-      </div>
+      ${accts.map(listRow).join('')}
     </div>`;
   };
   const rate = DATA.settings.usdKrwRate;
@@ -1837,7 +1920,17 @@ function renderAccounts() {
       ${rateLine}
       <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="fetchExchangeRate(false)">환율 새로고침</button>
     </div>
-    ${ACC_TYPES.map(groupHtml).join('')}
+    <div class="acct-master-detail">
+      <div class="acct-list-pane ${selected ? 'has-selection' : ''}">
+        <div class="acct-list-group">
+          <div class="acct-list-group-head"><span>전체</span><span>${wonSigned(totalAssets())}</span></div>
+        </div>
+        ${ACC_TYPES.map(groupBlock).join('')}
+      </div>
+      <div class="acct-detail-pane ${selected ? 'active' : ''}">
+        ${selected ? renderAccountDetail(selected) : `<div class="empty">왼쪽에서 자산을 선택하면 상세 내역을 볼 수 있어요.</div>`}
+      </div>
+    </div>
   `;
 }
 function balanceFieldInnerHtml(type, currency, amountAbs, manualNegative) {
@@ -1925,6 +2018,7 @@ function deleteAccount(id) {
   if (DATA.accounts.length <= 1) return showToast('최소 1개의 자산은 있어야 해요.', 'error');
   if (!confirm('이 자산을 삭제할까요?')) return;
   DATA.accounts = DATA.accounts.filter(a => a.id !== id);
+  if (state.acctSelectedId === id) state.acctSelectedId = null;
   saveData();
   showToast('삭제했어요.', 'info');
   renderAll();
