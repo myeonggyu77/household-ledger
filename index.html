@@ -1006,6 +1006,36 @@ document.addEventListener('click', (e) => {
   if (target) openDatePicker(target);
 });
 
+/* ---------------- swipe left/right to move the month/year nav (mobile) ---------------- */
+(function setupSwipeNav() {
+  let sx = 0, sy = 0, st = 0, active = false;
+  document.addEventListener('touchstart', (e) => {
+    active = false;
+    if (e.touches.length !== 1) return;
+    if (document.getElementById('modal-root').children.length) return;
+    if (e.target.closest('.overflow-x')) return;
+    if (!document.querySelector('.panel.active .month-nav')) return;
+    sx = e.touches[0].clientX;
+    sy = e.touches[0].clientY;
+    st = Date.now();
+    active = true;
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (!active) return;
+    active = false;
+    const t = e.changedTouches[0];
+    if (!t) return;
+    const dx = t.clientX - sx;
+    const dy = t.clientY - sy;
+    if (Date.now() - st > 600 || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+    const nav = document.querySelector('.panel.active .month-nav');
+    if (!nav) return;
+    const [prevBtn, nextBtn] = nav.querySelectorAll('.icon-btn');
+    if (dx < 0 && nextBtn) nextBtn.click();
+    else if (dx > 0 && prevBtn) prevBtn.click();
+  }, { passive: true });
+})();
+
 function formatAmountInput(el) {
   const digits = el.value.replace(/[^0-9]/g, '');
   el.value = digits ? Number(digits).toLocaleString('ko-KR') : '';
