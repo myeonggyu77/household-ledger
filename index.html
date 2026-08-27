@@ -1918,41 +1918,45 @@ function renderAccountTxTable(list, acc) {
   return `<div class="overflow-x"><table>
     <thead><tr>
       <th style="width:64px;">날짜</th>
-      <th class="name-cell">분류</th>
-      <th class="name-cell">소분류</th>
+      <th class="name-cell">내역</th>
       <th class="num">금액</th>
-      <th class="name-cell">내용</th>
-      <th class="name-cell">메모</th>
       <th class="actions-cell">관리</th>
     </tr></thead>
     <tbody>
       ${list.map(t => {
-        let parentLabel, childLabel;
+        let mid;
         if (t.type === 'transfer') {
           const outgoing = t.accountId === acc.id;
           const other = getAccount(outgoing ? t.toAccountId : t.accountId);
-          parentLabel = `${outgoing ? '→' : '←'} ${other.icon || ''} ${escapeHtml(other.name)}`;
-          childLabel = '';
+          mid = `${outgoing ? '→' : '←'} ${other.icon || ''} ${escapeHtml(other.name)}`;
         } else {
           const cat = getCategory(t.categoryId);
           const parent = cat.parentId ? getCategory(cat.parentId) : cat;
-          parentLabel = `${parent.icon || ''} ${escapeHtml(parent.name)}`;
-          childLabel = cat.parentId ? escapeHtml(cat.name) : '';
+          mid = cat.parentId
+            ? `${parent.icon || ''} ${escapeHtml(parent.name)} <span style="color:var(--ink-faint)">· ${escapeHtml(cat.name)}</span>`
+            : `${parent.icon || ''} ${escapeHtml(parent.name)}`;
         }
+        const subParts = [];
+        if (t.payee) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.payee)}</span>`);
+        if (t.vendor) subParts.push(escapeHtml(t.vendor));
+        if (t.memo) subParts.push(escapeHtml(t.memo));
+        const subLine = subParts.length
+          ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}</div>`
+          : '';
         const outgoing = t.type === 'expense' || (t.type === 'transfer' && t.accountId === acc.id);
         const sign = t.type === 'transfer' ? (outgoing ? '-' : '+') : (t.type === 'income' ? '+' : '-');
         const amtCls = t.type === 'transfer' ? (outgoing ? 'expense' : 'income') : t.type;
         const bal = runningMap[t.id];
         return `<tr>
           <td>${t.date.slice(5)}</td>
-          <td class="name-cell">${parentLabel}</td>
-          <td class="name-cell">${childLabel}</td>
+          <td>
+            <div class="name-cell"><span class="type-tag ${t.type}">${t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체'}</span> ${mid}</div>
+            ${subLine}
+          </td>
           <td class="num">
             <div class="amt ${amtCls}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</div>
             <div class="form-note" style="margin:2px 0 0;text-align:right;">${bal != null ? bal.toLocaleString('ko-KR') : ''}</div>
           </td>
-          <td class="name-cell">${escapeHtml(t.payee || '')}</td>
-          <td class="name-cell">${escapeHtml(t.memo || '')}</td>
           <td class="actions-cell">
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="duplicateTx('${t.id}')" title="이 거래를 복사해서 새로 등록">복사</button>
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openTxModal('${t.id}')">수정</button>
