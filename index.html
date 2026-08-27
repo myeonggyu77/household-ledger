@@ -1954,6 +1954,7 @@ function renderAccountTxTable(list, acc) {
           <td class="name-cell">${escapeHtml(t.payee || '')}</td>
           <td class="name-cell">${escapeHtml(t.memo || '')}</td>
           <td class="actions-cell">
+            <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="duplicateTx('${t.id}')" title="이 거래를 복사해서 새로 등록">복사</button>
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openTxModal('${t.id}')">수정</button>
             <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteTx('${t.id}')">삭제</button>
           </td>
