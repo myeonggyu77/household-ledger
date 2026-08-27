@@ -1362,12 +1362,12 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     }
     const liabilityAccounts = DATA.accounts.filter(a => LIABILITY_TYPES.includes(a.type));
     if (type === 'expense' && liabilityAccounts.length) {
-      loanField.innerHTML = `<label class="field-lbl">대출 상환 계좌 (선택)</label>
+      loanField.innerHTML = `<label class="field-lbl">대출/할부 상환 계좌 (선택)</label>
         <select id="tx-loan-account">
           <option value="">연결 안 함</option>
           ${liabilityAccounts.map(a => `<option value="${a.id}" ${presetLoanAccountId === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}
         </select>
-        <div class="form-note" style="margin-top:6px;">선택하면 이 지출 금액만큼 해당 대출 계좌의 잔액(빚)도 함께 줄어들어요.</div>`;
+        <div class="form-note" style="margin-top:6px;">선택하면 이 지출 금액만큼 해당 대출/할부 계좌의 잔액(빚)도 함께 줄어들어요.</div>`;
     } else {
       loanField.innerHTML = '';
     }
@@ -1537,7 +1537,7 @@ function submitTx(editId) {
     const loanEl = document.getElementById('tx-loan-account');
     const linkedLoanAccountId = type === 'expense' && loanEl ? (loanEl.value || null) : null;
     if (linkedLoanAccountId && (getAccount(linkedLoanAccountId).currency || 'KRW') !== (getAccount(accountId).currency || 'KRW')) {
-      return showToast('대출 계좌와 지출 자산의 통화가 달라 연결할 수 없어요.', 'error');
+      return showToast('대출/할부 계좌와 지출 자산의 통화가 달라 연결할 수 없어요.', 'error');
     }
     payload.linkedLoanAccountId = type === 'expense' ? linkedLoanAccountId : undefined;
   }
