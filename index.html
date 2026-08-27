@@ -97,6 +97,8 @@
   input, select { height: 34px; }
   textarea { padding: 9px; min-height: 70px; resize: vertical; line-height: 1.6; }
   input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  input[type="date"], input[type="month"] { -webkit-appearance: none; appearance: none; }
+  input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   .form-note { font-size: 12px; color: var(--ink-faint); margin-bottom: 8px; }
   .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
   .field-lbl { font-size: 10px; color: var(--ink-faint); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.03em; display: block; }
@@ -1137,7 +1139,11 @@ function renderCalendar() {
     </div>
   `;
 }
-function selectCalDate(date) { state.calSelected = date; renderCalendar(); }
+function selectCalDate(date) {
+  state.calSelected = date;
+  renderCalendar();
+  openTxModal(null, date);
+}
 function abbrevWon(n) {
   if (n >= 100000000) return (n / 100000000).toFixed(1).replace(/\.0$/, '') + '억';
   if (n >= 10000) return (n / 10000).toFixed(1).replace(/\.0$/, '') + '만';
@@ -1284,7 +1290,6 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
       <label class="field-lbl">날짜</label>
       <input type="date" id="tx-date" value="${date}">
       ${duplicateFrom ? `<div style="display:flex;gap:6px;margin-top:6px;">
-        <button type="button" class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="document.getElementById('tx-date').value='${todayStr()}'">오늘</button>
         <button type="button" class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="document.getElementById('tx-date').value='${duplicateFrom.date}'">해당일 (${duplicateFrom.date.slice(5)})</button>
       </div>` : ''}
     </div>
