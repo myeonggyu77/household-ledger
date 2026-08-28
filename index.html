@@ -2112,8 +2112,9 @@ function renderAccountTxTable(list, acc) {
         if (t.payee) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.payee)}</span>`);
         if (t.vendor) subParts.push(escapeHtml(t.vendor));
         if (t.memo) subParts.push(escapeHtml(t.memo));
-        const subLine = subParts.length
-          ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}</div>`
+        if (t.excludeFromStats) subParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
+        const subLine = subParts.length || t.receipt
+          ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}${t.receipt ? ' 🧾' : ''}</div>`
           : '';
         const outgoing = !isLoanLink && (t.type === 'expense' || (t.type === 'transfer' && t.accountId === acc.id));
         const sign = isLoanLink ? '+' : (t.type === 'transfer' ? (outgoing ? '-' : '+') : (t.type === 'income' ? '+' : '-'));
@@ -2130,6 +2131,7 @@ function renderAccountTxTable(list, acc) {
             <div class="form-note" style="margin:2px 0 0;text-align:right;">${bal != null ? bal.toLocaleString('ko-KR') : ''}</div>
           </td>
           <td class="actions-cell">
+            ${t.receipt ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="duplicateTx('${t.id}')" title="이 거래를 복사해서 새로 등록">복사</button>
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openTxModal('${t.id}')">수정</button>
             <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteTx('${t.id}')">삭제</button>
