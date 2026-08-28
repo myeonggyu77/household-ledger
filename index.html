@@ -15,7 +15,6 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="가계부">
 
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -326,14 +325,14 @@
 </div>
 <div class="app" id="app-root" style="display:none;">
   <nav class="sidebar" id="tabs">
-    <button class="tab" data-tab="home"><i class="ti ti-home"></i><span>홈</span></button>
-    <button class="tab" data-tab="calendar"><i class="ti ti-calendar"></i><span>달력</span></button>
-    <button class="tab" data-tab="transactions"><i class="ti ti-list"></i><span>내역</span></button>
-    <button class="tab" data-tab="stats"><i class="ti ti-chart-pie"></i><span>통계</span></button>
-    <button class="tab" data-tab="budget"><i class="ti ti-wallet"></i><span>예산</span></button>
-    <button class="tab" data-tab="accounts"><i class="ti ti-building-bank"></i><span>자산</span></button>
-    <button class="tab" data-tab="recurring"><i class="ti ti-repeat"></i><span>정기거래</span></button>
-    <button class="tab" data-tab="settings"><i class="ti ti-settings"></i><span>설정</span></button>
+    <button class="tab" data-tab="home"><i>🏠</i><span>홈</span></button>
+    <button class="tab" data-tab="calendar"><i>📅</i><span>달력</span></button>
+    <button class="tab" data-tab="transactions"><i>📋</i><span>내역</span></button>
+    <button class="tab" data-tab="stats"><i>📊</i><span>통계</span></button>
+    <button class="tab" data-tab="budget"><i>💰</i><span>예산</span></button>
+    <button class="tab" data-tab="accounts"><i>🏦</i><span>자산</span></button>
+    <button class="tab" data-tab="recurring"><i>🔁</i><span>정기거래</span></button>
+    <button class="tab" data-tab="settings"><i>⚙️</i><span>설정</span></button>
   </nav>
   <div class="main-content">
     <div class="masthead">
@@ -343,8 +342,8 @@
       </div>
       <div class="masthead-right">
         <div class="backup-actions">
-          <button class="ghost-btn" id="btn-export"><i class="ti ti-download"></i> 내보내기</button>
-          <button class="ghost-btn" id="btn-import"><i class="ti ti-upload"></i> 가져오기</button>
+          <button class="ghost-btn" id="btn-export">⬇ 내보내기</button>
+          <button class="ghost-btn" id="btn-import">⬆ 가져오기</button>
           <input type="file" id="file-import" accept="application/json" style="display:none">
         </div>
       </div>
@@ -1251,7 +1250,7 @@ function renderHome() {
     </div>` : ''}
 
     <div class="section-block">
-      <div class="section-heading">최근 거래<button class="ghost-btn" onclick="openTxModal()"><i class="ti ti-plus"></i> 거래 추가</button></div>
+      <div class="section-heading">최근 거래<button class="ghost-btn" onclick="openTxModal()">+ 거래 추가</button></div>
       ${recent.length ? renderTxTable(recent, false) : `<div class="empty"><div class="big">아직 등록된 거래가 없어요</div>거래 추가 버튼으로 첫 내역을 남겨보세요.</div>`}
     </div>
   `;
@@ -1352,7 +1351,7 @@ function renderCalendar() {
       <div class="day-list-card">
         <div class="section-heading" style="border-bottom:none;margin-bottom:8px;padding-bottom:0;">
           ${escapeHtml(dayLabel)} 내역
-          <button class="ghost-btn" onclick="openTxModal(null, '${state.calSelected}')"><i class="ti ti-plus"></i> 이 날짜에 추가</button>
+          <button class="ghost-btn" onclick="openTxModal(null, '${state.calSelected}')">+ 이 날짜에 추가</button>
         </div>
         ${dayTx.length ? renderTxTable(dayTx, true) : `<div class="empty">이 날짜에 등록된 거래가 없어요.</div>`}
       </div>
@@ -1457,8 +1456,8 @@ function renderTransactions() {
         <input class="search-input" id="f-q" placeholder="대상/메모 검색" value="${escapeHtml(f.q)}" oninput="onFilterChange()">
       </div>
       <div class="btn-group">
-        <button class="ghost-btn" onclick="openBulkImportModal()"><i class="ti ti-file-spreadsheet"></i> 일괄등록</button>
-        <button class="primary-btn" onclick="openTxModal()"><i class="ti ti-plus"></i> 거래 추가</button>
+        <button class="ghost-btn" onclick="openBulkImportModal()">📑 일괄등록</button>
+        <button class="primary-btn" onclick="openTxModal()">+ 거래 추가</button>
       </div>
     </div>
     <div class="form-note">${monthLabel(mKey)} · ${list.length}건</div>
@@ -1526,7 +1525,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     <div class="field"><label class="field-lbl">메모</label><input type="text" id="tx-memo" placeholder="메모 (선택)" value="${escapeHtml(editing ? (editing.memo || '') : (fromRecurring ? fromRecurring.name : (duplicateFrom ? (duplicateFrom.memo || '') : '')))}"></div>
     <div class="field" id="tx-receipt-field"></div>
     <div class="field" id="tx-exclude-field"></div>
-    ${fromRecurring ? '' : `<div class="field"><button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="registerAsRecurringFromTxForm()"><i class="ti ti-repeat"></i> 정기거래로 등록</button></div>`}
+    ${fromRecurring ? '' : `<div class="field"><button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="registerAsRecurringFromTxForm()">🔁 정기거래로 등록</button></div>`}
     <div class="form-actions">
       <button class="ghost-btn" onclick="closeModal()">취소</button>
       <button class="primary-btn" onclick="submitTx(${editing ? `'${editing.id}'` : 'null'})">${submitLabel}</button>
@@ -1647,7 +1646,7 @@ function renderBudgetQuickRow() {
   const budget = DATA.budgets[catId];
   row.innerHTML = budget > 0
     ? `<div class="form-note">이 카테고리 ${label} ${won(budget)} 설정됨 <button class="ghost-btn" style="font-size:11px;padding:3px 7px;margin-left:4px;" onclick="startBudgetQuickEdit()">수정</button></div>`
-    : `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="startBudgetQuickEdit()"><i class="ti ti-plus"></i> ${label}편성 추가</button>`;
+    : `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="startBudgetQuickEdit()">+ ${label}편성 추가</button>`;
 }
 function startBudgetQuickEdit() {
   const row = document.getElementById('budget-quick-row');
@@ -1859,8 +1858,8 @@ function openBulkImportModal() {
     <h3>거래 일괄 등록</h3>
     <div class="form-note">양식을 내려받아 채운 뒤 업로드하면 여러 건을 한 번에 등록할 수 있어요.</div>
     <div class="form-actions" style="justify-content:flex-start;margin:10px 0 14px;">
-      <button class="ghost-btn" onclick="downloadBulkTemplate()"><i class="ti ti-download"></i> 양식 다운로드</button>
-      <button class="ghost-btn" onclick="document.getElementById('bulk-file-input').click()"><i class="ti ti-upload"></i> 엑셀 파일 선택</button>
+      <button class="ghost-btn" onclick="downloadBulkTemplate()">⬇ 양식 다운로드</button>
+      <button class="ghost-btn" onclick="document.getElementById('bulk-file-input').click()">⬆ 엑셀 파일 선택</button>
       <input type="file" id="bulk-file-input" accept=".xlsx,.xls,.csv" style="display:none" onchange="onBulkFileChange(this)">
     </div>
     <div id="bulk-preview"></div>
@@ -2300,10 +2299,10 @@ function renderAccountDetail(acc) {
     <div class="acct-detail-head">
       <div class="acct-detail-title">
         <span>${acc.icon || ACC_TYPE_ICON[acc.type] || '💰'} ${escapeHtml(acc.name)}</span>
-        <button class="icon-btn" onclick="openAccountModal('${acc.id}')" title="수정" aria-label="수정"><i class="ti ti-pencil"></i></button>
+        <button class="icon-btn" onclick="openAccountModal('${acc.id}')" title="수정" aria-label="수정">✏️</button>
         <span class="form-note" style="margin:0;">사용기간 ${usagePeriod}</span>
       </div>
-      <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="deselectAccountDetail()"><i class="ti ti-arrow-left"></i> 목록으로</button>
+      <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="deselectAccountDetail()">← 목록으로</button>
     </div>
     <div class="seg" style="margin-bottom:12px;">
       <button type="button" class="${period === 'month' ? 'active' : ''}" onclick="setAcctPeriod('month')">월간</button>
@@ -2318,7 +2317,7 @@ function renderAccountDetail(acc) {
       <div class="item"><div class="lbl">누적잔액</div><div class="val">${fmtCurrencySigned(cumulative, acc.currency || 'KRW')}</div></div>
     </div>
     <div class="section-block">
-      <div class="section-heading">${periodLabel} 내역 (${list.length}건)<button class="ghost-btn" onclick="addTxForAccount('${acc.id}')"><i class="ti ti-plus"></i> 내역 추가</button></div>
+      <div class="section-heading">${periodLabel} 내역 (${list.length}건)<button class="ghost-btn" onclick="addTxForAccount('${acc.id}')">+ 내역 추가</button></div>
       ${list.length ? renderAccountTxTable(list, acc) : `<div class="empty">해당 기간에는 거래가 없어요.</div>`}
     </div>
     <div class="form-actions" style="justify-content:flex-start;margin-top:14px;">
@@ -2352,7 +2351,7 @@ function renderAccounts() {
   document.getElementById('panel-accounts').innerHTML = `
     <div class="toolbar">
       <div class="hint">${DATA.accounts.length}개 자산 · 총 자산 ${won(totalAssets())}</div>
-      <button class="primary-btn" onclick="openAccountModal()"><i class="ti ti-plus"></i> 자산 추가</button>
+      <button class="primary-btn" onclick="openAccountModal()">+ 자산 추가</button>
     </div>
     <div class="form-note" style="display:flex;align-items:center;gap:6px;margin-bottom:16px;flex-wrap:wrap;">
       ${rateLine}
@@ -2479,7 +2478,7 @@ function renderRecurring() {
   document.getElementById('panel-recurring').innerHTML = `
     <div class="toolbar">
       <div class="hint">등록된 정기거래는 목록의 "적용" 버튼으로 원하는 날짜에 직접 등록해요.</div>
-      <button class="primary-btn" onclick="openRecurringModal()"><i class="ti ti-plus"></i> 정기거래 추가</button>
+      <button class="primary-btn" onclick="openRecurringModal()">+ 정기거래 추가</button>
     </div>
     ${DATA.recurring.length ? `<div class="overflow-x"><table>
       <thead><tr><th class="name-cell">이름</th><th class="num">금액</th><th style="width:86px;">주기</th><th class="actions-cell">관리</th></tr></thead>
@@ -2797,7 +2796,7 @@ function onCatDragEnd() {
   reorderCategory(id, newIndex);
 }
 function renderSettings() {
-  const dragHandle = (id) => `<button class="icon-btn cat-drag-handle" style="margin-left:0;" onpointerdown="startCatDrag(event, '${id}')" title="드래그해서 순서 변경" aria-label="드래그해서 순서 변경"><i class="ti ti-grip-vertical"></i></button>`;
+  const dragHandle = (id) => `<button class="icon-btn cat-drag-handle" style="margin-left:0;" onpointerdown="startCatDrag(event, '${id}')" title="드래그해서 순서 변경" aria-label="드래그해서 순서 변경">⠿</button>`;
   const parentGroupHtml = (p) => {
     const children = childCategories(p.id);
     return `<div class="cat-parent-group" data-cat-id="${p.id}">
@@ -2826,7 +2825,7 @@ function renderSettings() {
 
   document.getElementById('panel-settings').innerHTML = `
     <div class="section-block">
-      <div class="section-heading">카테고리 관리<button class="ghost-btn" onclick="openParentCategoryModal()"><i class="ti ti-plus"></i> 대분류 추가</button></div>
+      <div class="section-heading">카테고리 관리<button class="ghost-btn" onclick="openParentCategoryModal()">+ 대분류 추가</button></div>
       <div class="form-note">대분류 안에 소분류를 두는 2단계 구조예요. 실제 거래는 소분류에 기록돼요.</div>
       <div class="cat-manage-grid">
         <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">지출</h4>${expenseParents.map(parentGroupHtml).join('') || '<div class="form-note">대분류가 없어요.</div>'}</div>
@@ -2862,7 +2861,7 @@ function renderSettings() {
       <div class="danger-zone">
         <h4>전체 초기화</h4>
         <div class="form-note" style="margin-bottom:10px;">모든 거래·자산·카테고리·예산·정기거래가 삭제되고 기본값으로 돌아가요. 되돌릴 수 없어요.</div>
-        <button class="ghost-btn danger-btn" onclick="resetAllData()"><i class="ti ti-alert-triangle"></i> 전체 초기화</button>
+        <button class="ghost-btn danger-btn" onclick="resetAllData()">⚠️ 전체 초기화</button>
       </div>
     </div>
   `;
