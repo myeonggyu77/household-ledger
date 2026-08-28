@@ -39,7 +39,7 @@
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans); }
-  .app { max-width: 1200px; margin: 0 auto; display: flex; align-items: flex-start; }
+  .app { max-width: 1440px; margin: 0 auto; display: flex; align-items: flex-start; }
   .main-content { flex: 1; min-width: 0; padding: 28px 24px 60px; }
 
   .masthead { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; row-gap: 10px; margin-bottom: 22px; padding-bottom: 16px; border-bottom: 1px solid var(--ink); }
@@ -269,8 +269,11 @@
   }
 
   @media (min-width: 860px) {
-    .cal-layout { display: flex; gap: 24px; align-items: flex-start; }
-    .cal-main { flex: 0 0 460px; }
+    .cal-layout { display: flex; gap: 28px; align-items: flex-start; }
+    .cal-main { flex: 0 0 560px; }
+    .cal-main .cal-cell { min-height: 92px; padding: 8px; }
+    .cal-main .cal-cell .date-num { font-size: 13px; }
+    .cal-main .cal-cell .cal-amt { font-size: 11.5px; }
     .cal-layout .day-list-card { flex: 1; min-width: 0; margin-bottom: 0; }
     .stats-chart-layout { display: flex; gap: 28px; align-items: center; }
     .stats-chart-col { flex: 0 0 300px; }
