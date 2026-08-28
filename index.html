@@ -149,7 +149,14 @@
   .dp-cell.sel { background: var(--accent); color: #fff; font-weight: 600; }
   .dp-cell.empty { cursor: default; }
   .dp-foot { display: flex; justify-content: flex-end; margin-top: 6px; }
-  .date-field[readonly] { cursor: pointer; }
+  .date-field[readonly], .cat-field[readonly] { cursor: pointer; }
+  .cp-pop { position: fixed; z-index: 10000; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 8px; width: 280px; max-height: 320px; display: flex; flex-direction: column; }
+  .cp-search { flex: none; margin-bottom: 6px; }
+  .cp-list { overflow-y: auto; flex: 1; min-height: 0; }
+  .cp-group-label { font-size: 11px; font-weight: 600; color: var(--ink-faint); padding: 6px 8px 2px; }
+  .cp-item { padding: 7px 8px; font-size: 13px; border-radius: 4px; cursor: pointer; }
+  .cp-item:hover { background: var(--line-soft); }
+  .cp-item.sel { background: var(--accent-tint); font-weight: 600; }
 
   #auth-gate { position: fixed; inset: 0; background: var(--paper); z-index: 9500; display: flex; align-items: center; justify-content: center; padding: 20px; overflow-y: auto; }
   .auth-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; padding: 28px 24px; width: 100%; max-width: 360px; margin: auto; }
@@ -1005,6 +1012,93 @@ document.addEventListener('click', (e) => {
   if (target) openDatePicker(target);
 });
 
+/* ---------------- searchable category picker ---------------- */
+function syncCategoryDisplay() {
+  const sel = document.getElementById('tx-category');
+  const disp = document.getElementById('tx-category-display');
+  if (!sel || !disp) return;
+  if (!sel.value) { disp.value = ''; return; }
+  const cat = getCategory(sel.value);
+  const parent = cat.parentId ? getCategory(cat.parentId) : null;
+  disp.value = parent ? `${parent.icon} ${parent.name} · ${cat.name}` : `${cat.icon} ${cat.name}`;
+}
+let cpState = null;
+function openCategoryPicker() {
+  const input = document.getElementById('tx-category-display');
+  const sel = document.getElementById('tx-category');
+  if (!input || !sel) return;
+  closeCategoryPicker();
+  const pop = document.createElement('div');
+  pop.className = 'cp-pop';
+  document.body.appendChild(pop);
+  cpState = { input, sel, pop, query: '' };
+  pop.innerHTML = `
+    <input type="text" id="cp-search" class="cp-search" placeholder="카테고리 검색">
+    <div class="cp-list" id="cp-list"></div>
+  `;
+  renderCategoryPickerList();
+  positionCategoryPicker();
+  document.getElementById('cp-search').addEventListener('input', (e) => onCategorySearchInput(e.target.value));
+  document.getElementById('cp-search').focus();
+  setTimeout(() => document.addEventListener('mousedown', onCategoryPickerOutsideClick), 0);
+  window.addEventListener('resize', closeCategoryPicker);
+  window.addEventListener('scroll', closeCategoryPicker, true);
+}
+function positionCategoryPicker() {
+  if (!cpState) return;
+  const rect = cpState.input.getBoundingClientRect();
+  const top = Math.min(rect.bottom + 4, window.innerHeight - 330);
+  const left = Math.min(rect.left, window.innerWidth - 292);
+  cpState.pop.style.top = Math.max(8, top) + 'px';
+  cpState.pop.style.left = Math.max(8, left) + 'px';
+  cpState.pop.style.width = Math.min(Math.max(280, rect.width), window.innerWidth - 16) + 'px';
+}
+function renderCategoryPickerList() {
+  if (!cpState) return;
+  const listEl = document.getElementById('cp-list');
+  if (!listEl) return;
+  const type = state._txModal.type;
+  const q = cpState.query.trim().toLowerCase();
+  const groups = topCategories(type).map(p => {
+    const children = childCategories(p.id).filter(c => !q || c.name.toLowerCase().includes(q) || p.name.toLowerCase().includes(q));
+    if (!children.length) return '';
+    return `<div class="cp-group">
+      <div class="cp-group-label">${p.icon} ${escapeHtml(p.name)}</div>
+      ${children.map(c => `<div class="cp-item ${c.id === cpState.sel.value ? 'sel' : ''}" onclick="pickCategory('${c.id}')">${c.icon} ${escapeHtml(c.name)}</div>`).join('')}
+    </div>`;
+  }).join('');
+  listEl.innerHTML = groups || `<div class="empty" style="padding:10px 8px;">검색 결과가 없어요.</div>`;
+}
+function onCategorySearchInput(v) {
+  if (!cpState) return;
+  cpState.query = v;
+  renderCategoryPickerList();
+}
+function pickCategory(catId) {
+  if (!cpState) return;
+  cpState.sel.value = catId;
+  cpState.sel.dispatchEvent(new Event('change', { bubbles: true }));
+  syncCategoryDisplay();
+  closeCategoryPicker();
+}
+function onCategoryPickerOutsideClick(e) {
+  if (!cpState) return;
+  if (cpState.pop.contains(e.target) || e.target === cpState.input) return;
+  closeCategoryPicker();
+}
+function closeCategoryPicker() {
+  if (!cpState) return;
+  cpState.pop.remove();
+  document.removeEventListener('mousedown', onCategoryPickerOutsideClick);
+  window.removeEventListener('resize', closeCategoryPicker);
+  window.removeEventListener('scroll', closeCategoryPicker, true);
+  cpState = null;
+}
+document.addEventListener('click', (e) => {
+  const target = e.target.closest('input.cat-field[readonly]');
+  if (target) openCategoryPicker();
+});
+
 /* ---------------- swipe left/right to move the month/year nav (mobile) ---------------- */
 (function setupSwipeNav() {
   let sx = 0, sy = 0, st = 0, active = false;
@@ -1489,7 +1583,11 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
       if (!children.length) return '';
       return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}" ${presetCat === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
     }).join('');
-    catField.innerHTML = `<label class="field-lbl">카테고리</label><select id="tx-category" onchange="renderBudgetQuickRow()">${groups}</select><div id="budget-quick-row" style="margin-top:6px;"></div>`;
+    catField.innerHTML = `<label class="field-lbl">카테고리</label>
+      <select id="tx-category" onchange="renderBudgetQuickRow()" style="display:none;">${groups}</select>
+      <input type="text" class="cat-field" id="tx-category-display" readonly placeholder="카테고리 선택">
+      <div id="budget-quick-row" style="margin-top:6px;"></div>`;
+    syncCategoryDisplay();
     accField.innerHTML = `<label class="field-lbl">${type === 'income' ? '입금 자산' : '지출 자산'}</label><select id="tx-account" onchange="updateTxAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
     toAccField.innerHTML = '';
     excludeField.innerHTML = `<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);"><input type="checkbox" id="tx-exclude" style="width:15px;height:15px;" ${presetExclude ? 'checked' : ''}> 통계/예산 계산에서 제외 (예: 환급받은 금액)</label>`;
