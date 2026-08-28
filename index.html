@@ -158,6 +158,7 @@
   .cp-item { padding: 7px 8px; font-size: 13px; border-radius: 4px; cursor: pointer; }
   .cp-item:hover { background: var(--line-soft); }
   .cp-item.sel { background: var(--accent-tint); font-weight: 600; }
+  .cp-item.active { box-shadow: inset 0 0 0 1px var(--accent); }
 
   #auth-gate { position: fixed; inset: 0; background: var(--paper); z-index: 9500; display: flex; align-items: center; justify-content: center; padding: 20px; overflow-y: auto; }
   .auth-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; padding: 28px 24px; width: 100%; max-width: 360px; margin: auto; }
@@ -1040,7 +1041,7 @@ function openCategoryPicker() {
   const pop = document.createElement('div');
   pop.className = 'cp-pop';
   document.body.appendChild(pop);
-  cpState = { input, sel, pop, query: '' };
+  cpState = { input, sel, pop, query: '', items: [], activeIndex: 0 };
   pop.innerHTML = `
     <input type="text" id="cp-search" class="cp-search" placeholder="카테고리 검색">
     <div class="cp-list" id="cp-list"></div>
@@ -1048,6 +1049,7 @@ function openCategoryPicker() {
   renderCategoryPickerList();
   positionCategoryPicker();
   document.getElementById('cp-search').addEventListener('input', (e) => onCategorySearchInput(e.target.value));
+  document.getElementById('cp-search').addEventListener('keydown', onCategorySearchKeydown);
   document.getElementById('cp-search').focus();
   setTimeout(() => document.addEventListener('mousedown', onCategoryPickerOutsideClick), 0);
   window.addEventListener('resize', positionCategoryPicker);
@@ -1068,20 +1070,64 @@ function renderCategoryPickerList() {
   if (!listEl || !state._txModal) return;
   const type = state._txModal.type;
   const q = cpState.query.trim().toLowerCase();
+  const items = [];
   const groups = topCategories(type).map(p => {
     const children = childCategories(p.id).filter(c => !q || c.name.toLowerCase().includes(q) || p.name.toLowerCase().includes(q));
     if (!children.length) return '';
+    children.forEach(c => items.push(c.id));
     return `<div class="cp-group">
       <div class="cp-group-label">${p.icon} ${escapeHtml(p.name)}</div>
-      ${children.map(c => `<div class="cp-item ${c.id === cpState.sel.value ? 'sel' : ''}" onclick="pickCategory('${c.id}')">${c.icon} ${escapeHtml(c.name)}</div>`).join('')}
+      ${children.map(c => `<div class="cp-item ${c.id === cpState.sel.value ? 'sel' : ''}" data-cat-id="${c.id}" onclick="pickCategory('${c.id}')">${c.icon} ${escapeHtml(c.name)}</div>`).join('')}
     </div>`;
   }).join('');
   listEl.innerHTML = groups || `<div class="empty" style="padding:10px 8px;">검색 결과가 없어요.</div>`;
+  cpState.items = items;
+  cpState.activeIndex = items.length ? Math.min(cpState.activeIndex, items.length - 1) : -1;
+  highlightActiveCategoryItem();
+}
+function highlightActiveCategoryItem() {
+  if (!cpState) return;
+  const listEl = document.getElementById('cp-list');
+  if (!listEl) return;
+  listEl.querySelectorAll('.cp-item').forEach(el => el.classList.remove('active'));
+  if (cpState.activeIndex < 0) return;
+  const activeId = cpState.items[cpState.activeIndex];
+  const el = listEl.querySelector(`.cp-item[data-cat-id="${activeId}"]`);
+  if (el) el.scrollIntoView({ block: 'nearest' });
+  if (el) el.classList.add('active');
 }
 function onCategorySearchInput(v) {
   if (!cpState) return;
   cpState.query = v;
   renderCategoryPickerList();
+}
+function onCategorySearchKeydown(e) {
+  if (!cpState) return;
+  const items = cpState.items;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (!items.length) return;
+    cpState.activeIndex = (cpState.activeIndex + 1) % items.length;
+    highlightActiveCategoryItem();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (!items.length) return;
+    cpState.activeIndex = (cpState.activeIndex - 1 + items.length) % items.length;
+    highlightActiveCategoryItem();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (items[cpState.activeIndex]) pickCategory(items[cpState.activeIndex]);
+  } else if (e.key === 'Tab') {
+    if (items[cpState.activeIndex]) {
+      e.preventDefault();
+      pickCategory(items[cpState.activeIndex]);
+      const nextField = document.getElementById('tx-account');
+      if (nextField) nextField.focus();
+    }
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closeCategoryPicker();
+  }
 }
 function pickCategory(catId) {
   if (!cpState) return;
