@@ -1385,7 +1385,10 @@ function duplicateTx(id) {
   openTxModal(null, todayStr(), null, t);
 }
 function addTxForAccount(accountId) {
-  openTxModal(null, todayStr(), null, null, accountId);
+  const mKey = state.acctMonth || monthKey(new Date());
+  const [y, m] = mKey.split('-').map(Number);
+  const day = Math.min(new Date().getDate(), daysInMonth(y, m));
+  openTxModal(null, `${mKey}-${pad2(day)}`, null, null, accountId);
 }
 function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccountId) {
   const editing = txId ? DATA.transactions.find(t => t.id === txId) : null;
