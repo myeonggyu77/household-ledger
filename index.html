@@ -113,6 +113,8 @@
   tbody tr:hover { background: var(--accent-tint); }
   .actions-cell { text-align: right; white-space: normal; overflow: visible; width: 86px; }
   .actions-cell button { padding: 3px 5px !important; margin-left: 2px; font-size: 11px !important; }
+  .dcol { display: none; }
+  .dcol-balance { display: none; }
   .overflow-x { overflow-x: auto; overflow-y: auto; max-height: 66vh; border-radius: 4px; }
   .empty { text-align: center; padding: 40px 0; color: var(--ink-faint); font-size: 13px; }
   .empty .big { font-size: 14px; color: var(--ink-soft); margin-bottom: 4px; }
@@ -270,6 +272,9 @@
 
   @media (min-width: 860px) {
     .actions-cell { width: 190px; white-space: nowrap; }
+    .mcol { display: none; }
+    .dcol { display: table-cell; }
+    table.tx-table-balance .dcol-balance { display: table-cell; }
     .cal-layout { display: flex; gap: 28px; align-items: flex-start; }
     .cal-main { flex: 0 0 560px; }
     .cal-main .cal-cell { min-height: 92px; padding: 8px; }
@@ -1378,18 +1383,27 @@ function renderTxTable(list, hideDate) {
   return `<div class="overflow-x"><table>
     <thead><tr>
       ${hideDate ? '' : '<th style="width:64px;">날짜</th>'}
-      <th class="name-cell">내역</th><th class="num">금액</th><th class="actions-cell">관리</th>
+      <th class="name-cell mcol">내역</th>
+      <th class="dcol" style="width:64px;">구분</th>
+      <th class="dcol name-cell">계좌</th>
+      <th class="dcol name-cell">대상</th>
+      <th class="dcol name-cell">메모</th>
+      <th class="num">금액</th>
+      <th class="actions-cell">관리</th>
     </tr></thead>
     <tbody>
       ${list.map(t => {
         const acc = getAccount(t.accountId);
-        let mid;
+        const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
+        let mid, acctCell;
         if (t.type === 'transfer') {
           const toAcc = getAccount(t.toAccountId);
           mid = `${acc.icon} ${escapeHtml(acc.name)} → ${toAcc.icon} ${escapeHtml(toAcc.name)}`;
+          acctCell = mid;
         } else {
           const cat = getCategory(t.categoryId);
           mid = `${cat.icon} ${escapeHtml(cat.name)} <span style="color:var(--ink-faint)">· ${escapeHtml(acc.name)}</span>`;
+          acctCell = `${acc.icon} ${escapeHtml(acc.name)}`;
         }
         const sign = t.type === 'income' ? '+' : t.type === 'expense' ? '-' : '';
         const subParts = [];
@@ -1400,12 +1414,21 @@ function renderTxTable(list, hideDate) {
         const subLine = subParts.length || t.receipt
           ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}${t.receipt ? ' 🧾' : ''}</div>`
           : '';
+        const memoParts = [];
+        if (t.memo) memoParts.push(escapeHtml(t.memo));
+        if (t.vendor) memoParts.push(escapeHtml(t.vendor));
+        if (t.excludeFromStats) memoParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
+        const memoCell = memoParts.join(' · ') + (t.receipt ? ' 🧾' : '');
         return `<tr>
           ${hideDate ? '' : `<td>${t.date.slice(5)}</td>`}
-          <td>
-            <div class="name-cell"><span class="type-tag ${t.type}">${t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체'}</span> ${mid}</div>
+          <td class="mcol">
+            <div class="name-cell"><span class="type-tag ${t.type}">${typeLabel}</span> ${mid}</div>
             ${subLine}
           </td>
+          <td class="dcol"><span class="type-tag ${t.type}">${typeLabel}</span></td>
+          <td class="dcol name-cell">${acctCell}</td>
+          <td class="dcol name-cell">${escapeHtml(t.payee || '')}</td>
+          <td class="dcol name-cell">${memoCell}</td>
           <td class="num amt ${t.type}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</td>
           <td class="actions-cell">
             ${t.receipt ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
@@ -2183,27 +2206,40 @@ function accountRunningBalances(acc) {
 }
 function renderAccountTxTable(list, acc) {
   const runningMap = accountRunningBalances(acc);
-  return `<div class="overflow-x"><table>
+  return `<div class="overflow-x"><table class="tx-table-balance">
     <thead><tr>
       <th style="width:64px;">날짜</th>
-      <th class="name-cell">내역</th>
+      <th class="name-cell mcol">내역</th>
+      <th class="dcol" style="width:64px;">구분</th>
+      <th class="dcol name-cell">계좌</th>
+      <th class="dcol name-cell">대상</th>
+      <th class="dcol name-cell">메모</th>
       <th class="num">금액</th>
+      <th class="num dcol dcol-balance">잔액</th>
       <th class="actions-cell">관리</th>
     </tr></thead>
     <tbody>
       ${list.map(t => {
         const isLoanLink = t.linkedLoanAccountId === acc.id && t.accountId !== acc.id;
-        let mid;
+        const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
+        let mid, acctCell;
         if (t.type === 'transfer') {
           const outgoing = t.accountId === acc.id;
           const other = getAccount(outgoing ? t.toAccountId : t.accountId);
           mid = `${outgoing ? '→' : '←'} ${other.icon || ''} ${escapeHtml(other.name)}`;
+          acctCell = mid;
         } else {
           const cat = getCategory(t.categoryId);
           const parent = cat.parentId ? getCategory(cat.parentId) : cat;
           mid = cat.parentId
             ? `${parent.icon || ''} ${escapeHtml(parent.name)} <span style="color:var(--ink-faint)">· ${escapeHtml(cat.name)}</span>`
             : `${parent.icon || ''} ${escapeHtml(parent.name)}`;
+          if (isLoanLink) {
+            const payAcc = getAccount(t.accountId);
+            acctCell = `${payAcc.icon || ''} ${escapeHtml(payAcc.name)}`;
+          } else {
+            acctCell = `${acc.icon || ''} ${escapeHtml(acc.name)}`;
+          }
         }
         const subParts = [];
         if (isLoanLink) {
@@ -2217,20 +2253,31 @@ function renderAccountTxTable(list, acc) {
         const subLine = subParts.length || t.receipt
           ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}${t.receipt ? ' 🧾' : ''}</div>`
           : '';
+        const memoParts = [];
+        if (t.memo) memoParts.push(escapeHtml(t.memo));
+        if (t.vendor) memoParts.push(escapeHtml(t.vendor));
+        if (t.excludeFromStats) memoParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
+        const memoCell = memoParts.join(' · ') + (t.receipt ? ' 🧾' : '');
         const outgoing = !isLoanLink && (t.type === 'expense' || (t.type === 'transfer' && t.accountId === acc.id));
         const sign = isLoanLink ? '+' : (t.type === 'transfer' ? (outgoing ? '-' : '+') : (t.type === 'income' ? '+' : '-'));
         const amtCls = isLoanLink ? 'income' : (t.type === 'transfer' ? (outgoing ? 'expense' : 'income') : t.type);
         const bal = runningMap[t.id];
+        const balStr = bal != null ? bal.toLocaleString('ko-KR') : '';
         return `<tr>
           <td>${t.date.slice(5)}</td>
-          <td>
-            <div class="name-cell"><span class="type-tag ${t.type}">${t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체'}</span> ${mid}</div>
+          <td class="mcol">
+            <div class="name-cell"><span class="type-tag ${t.type}">${typeLabel}</span> ${mid}</div>
             ${subLine}
           </td>
+          <td class="dcol"><span class="type-tag ${t.type}">${typeLabel}</span></td>
+          <td class="dcol name-cell">${acctCell}</td>
+          <td class="dcol name-cell">${escapeHtml(t.payee || '')}</td>
+          <td class="dcol name-cell">${memoCell}</td>
           <td class="num">
             <div class="amt ${amtCls}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</div>
-            <div class="form-note" style="margin:2px 0 0;text-align:right;">${bal != null ? bal.toLocaleString('ko-KR') : ''}</div>
+            <div class="form-note mcol" style="margin:2px 0 0;text-align:right;">${balStr}</div>
           </td>
+          <td class="num dcol dcol-balance">${balStr}</td>
           <td class="actions-cell">
             ${t.receipt ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="duplicateTx('${t.id}')" title="이 거래를 복사해서 새로 등록">복사</button>
