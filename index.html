@@ -313,6 +313,7 @@
     .bar-row .bar-lbl { width: 96px; }
     .bar-row .bar-val { width: 92px; }
     .trend-bar-line .trend-num { width: 76px; }
+    input, select, textarea { font-size: 16px; }
   }
 </style>
 </head>
@@ -952,7 +953,7 @@ function openDatePicker(input) {
   renderDatePicker();
   positionDatePicker();
   setTimeout(() => document.addEventListener('mousedown', onDatePickerOutsideClick), 0);
-  window.addEventListener('resize', closeDatePicker);
+  window.addEventListener('resize', positionDatePicker);
   window.addEventListener('scroll', closeDatePicker, true);
 }
 function positionDatePicker() {
@@ -1011,7 +1012,7 @@ function closeDatePicker() {
   if (!dpState) return;
   dpState.pop.remove();
   document.removeEventListener('mousedown', onDatePickerOutsideClick);
-  window.removeEventListener('resize', closeDatePicker);
+  window.removeEventListener('resize', positionDatePicker);
   window.removeEventListener('scroll', closeDatePicker, true);
   dpState = null;
 }
@@ -1049,7 +1050,7 @@ function openCategoryPicker() {
   document.getElementById('cp-search').addEventListener('input', (e) => onCategorySearchInput(e.target.value));
   document.getElementById('cp-search').focus();
   setTimeout(() => document.addEventListener('mousedown', onCategoryPickerOutsideClick), 0);
-  window.addEventListener('resize', closeCategoryPicker);
+  window.addEventListener('resize', positionCategoryPicker);
   window.addEventListener('scroll', closeCategoryPicker, true);
 }
 function positionCategoryPicker() {
@@ -1064,7 +1065,7 @@ function positionCategoryPicker() {
 function renderCategoryPickerList() {
   if (!cpState) return;
   const listEl = document.getElementById('cp-list');
-  if (!listEl) return;
+  if (!listEl || !state._txModal) return;
   const type = state._txModal.type;
   const q = cpState.query.trim().toLowerCase();
   const groups = topCategories(type).map(p => {
@@ -1098,7 +1099,7 @@ function closeCategoryPicker() {
   if (!cpState) return;
   cpState.pop.remove();
   document.removeEventListener('mousedown', onCategoryPickerOutsideClick);
-  window.removeEventListener('resize', closeCategoryPicker);
+  window.removeEventListener('resize', positionCategoryPicker);
   window.removeEventListener('scroll', closeCategoryPicker, true);
   cpState = null;
 }
