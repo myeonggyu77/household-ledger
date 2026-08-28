@@ -1385,9 +1385,10 @@ function renderTxTable(list, hideDate) {
       ${hideDate ? '' : '<th style="width:64px;">날짜</th>'}
       <th class="name-cell mcol">내역</th>
       <th class="dcol" style="width:64px;">구분</th>
-      <th class="dcol name-cell">계좌</th>
-      <th class="dcol name-cell">대상</th>
-      <th class="dcol name-cell">메모</th>
+      <th class="dcol" style="width:130px;">계좌</th>
+      <th class="dcol">메모</th>
+      <th class="dcol" style="width:100px;">대상</th>
+      <th class="dcol" style="width:100px;">거래처</th>
       <th class="num">금액</th>
       <th class="actions-cell">관리</th>
     </tr></thead>
@@ -1416,7 +1417,6 @@ function renderTxTable(list, hideDate) {
           : '';
         const memoParts = [];
         if (t.memo) memoParts.push(escapeHtml(t.memo));
-        if (t.vendor) memoParts.push(escapeHtml(t.vendor));
         if (t.excludeFromStats) memoParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
         const memoCell = memoParts.join(' · ') + (t.receipt ? ' 🧾' : '');
         return `<tr>
@@ -1426,9 +1426,10 @@ function renderTxTable(list, hideDate) {
             ${subLine}
           </td>
           <td class="dcol"><span class="type-tag ${t.type}">${typeLabel}</span></td>
-          <td class="dcol name-cell">${acctCell}</td>
-          <td class="dcol name-cell">${escapeHtml(t.payee || '')}</td>
-          <td class="dcol name-cell">${memoCell}</td>
+          <td class="dcol" title="${acctCell.replace(/<[^>]*>/g, '')}">${acctCell}</td>
+          <td class="dcol" title="${escapeHtml(t.memo || '')}">${memoCell}</td>
+          <td class="dcol" title="${escapeHtml(t.payee || '')}">${escapeHtml(t.payee || '')}</td>
+          <td class="dcol" title="${escapeHtml(t.vendor || '')}">${escapeHtml(t.vendor || '')}</td>
           <td class="num amt ${t.type}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</td>
           <td class="actions-cell">
             ${t.receipt ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
@@ -2211,9 +2212,10 @@ function renderAccountTxTable(list, acc) {
       <th style="width:64px;">날짜</th>
       <th class="name-cell mcol">내역</th>
       <th class="dcol" style="width:64px;">구분</th>
-      <th class="dcol name-cell">계좌</th>
-      <th class="dcol name-cell">대상</th>
-      <th class="dcol name-cell">메모</th>
+      <th class="dcol" style="width:130px;">계좌</th>
+      <th class="dcol">메모</th>
+      <th class="dcol" style="width:100px;">대상</th>
+      <th class="dcol" style="width:100px;">거래처</th>
       <th class="num">금액</th>
       <th class="num dcol dcol-balance">잔액</th>
       <th class="actions-cell">관리</th>
@@ -2255,7 +2257,6 @@ function renderAccountTxTable(list, acc) {
           : '';
         const memoParts = [];
         if (t.memo) memoParts.push(escapeHtml(t.memo));
-        if (t.vendor) memoParts.push(escapeHtml(t.vendor));
         if (t.excludeFromStats) memoParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
         const memoCell = memoParts.join(' · ') + (t.receipt ? ' 🧾' : '');
         const outgoing = !isLoanLink && (t.type === 'expense' || (t.type === 'transfer' && t.accountId === acc.id));
@@ -2270,9 +2271,10 @@ function renderAccountTxTable(list, acc) {
             ${subLine}
           </td>
           <td class="dcol"><span class="type-tag ${t.type}">${typeLabel}</span></td>
-          <td class="dcol name-cell">${acctCell}</td>
-          <td class="dcol name-cell">${escapeHtml(t.payee || '')}</td>
-          <td class="dcol name-cell">${memoCell}</td>
+          <td class="dcol" title="${acctCell.replace(/<[^>]*>/g, '')}">${acctCell}</td>
+          <td class="dcol" title="${escapeHtml(t.memo || '')}">${memoCell}</td>
+          <td class="dcol" title="${escapeHtml(t.payee || '')}">${escapeHtml(t.payee || '')}</td>
+          <td class="dcol" title="${escapeHtml(t.vendor || '')}">${escapeHtml(t.vendor || '')}</td>
           <td class="num">
             <div class="amt ${amtCls}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</div>
             <div class="form-note mcol" style="margin:2px 0 0;text-align:right;">${balStr}</div>
