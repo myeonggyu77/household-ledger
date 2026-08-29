@@ -1779,13 +1779,13 @@ function renderTxTable(list, hideDate) {
         if (vendor) subParts.push(`<span style="font-weight:600;">${escapeHtml(vendor)}</span>`);
         if (t.memo) subParts.push(escapeHtml(t.memo));
         if (t.excludeFromStats) subParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
-        const subLine = subParts.length || t.receipt
-          ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}${t.receipt ? ' 🧾' : ''}</div>`
+        const subLine = subParts.length || t.hasReceipt
+          ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}${t.hasReceipt ? ' 🧾' : ''}</div>`
           : '';
         const memoParts = [];
         if (t.memo) memoParts.push(escapeHtml(t.memo));
         if (t.excludeFromStats) memoParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
-        const memoCell = memoParts.join(' · ') + (t.receipt ? ' 🧾' : '');
+        const memoCell = memoParts.join(' · ') + (t.hasReceipt ? ' 🧾' : '');
         return `<tr class="tx-row-clickable ${dayBoundary ? 'day-boundary' : ''}" onclick="onTxRowClick(event, '${t.id}')">
           ${hideDate ? '' : `<td>${t.date.slice(5)}</td>`}
           <td class="mcol">
@@ -1798,7 +1798,7 @@ function renderTxTable(list, hideDate) {
           <td class="dcol" title="${escapeHtml(vendor)}">${escapeHtml(vendor)}</td>
           <td class="num amt ${t.type}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</td>
           <td class="actions-cell tx-actions-cell">
-            ${t.receipt ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
+            ${t.hasReceipt ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="duplicateTx('${t.id}')" title="이 거래를 복사해서 새로 등록">복사</button>
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openTxModal('${t.id}')">수정</button>
             <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteTx('${t.id}')">삭제</button>
@@ -1955,7 +1955,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     </div>
     ${editing ? `<div class="panel-footer-actions">
       <button class="ghost-btn" onclick="duplicateTx('${editing.id}')" title="이 거래를 복사해서 새로 등록">복사</button>
-      ${editing.receipt ? `<button class="ghost-btn" onclick="openReceiptLightboxForTx('${editing.id}')">사진</button>` : ''}
+      ${editing.hasReceipt ? `<button class="ghost-btn" onclick="openReceiptLightboxForTx('${editing.id}')">사진</button>` : ''}
       <button class="ghost-btn danger-btn" onclick="if (deleteTx('${editing.id}')) closeTxPanel();">삭제</button>
     </div>` : ''}
   `;
@@ -1964,10 +1964,18 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     document.querySelectorAll('.tx-inline-panel').forEach(el => { if (el !== inlineSlot) { el.classList.remove('active'); el.innerHTML = ''; } });
     inlineSlot.innerHTML = `<div class="modal-card tx-inline-card">${formHtml}</div>`;
     inlineSlot.classList.add('active');
-    state._txModal = { type, editing, receipt: editing && editing.type === 'expense' ? (editing.receipt || null) : null, fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, renderMode: 'inline' };
+    state._txModal = { type, editing, receipt: null, fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, renderMode: 'inline' };
   } else {
     openModal(formHtml, { sidePanel: true });
-    state._txModal = { type, editing, receipt: editing && editing.type === 'expense' ? (editing.receipt || null) : null, fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, renderMode: 'overlay' };
+    state._txModal = { type, editing, receipt: null, fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, renderMode: 'overlay' };
+  }
+  if (editing && editing.type === 'expense' && editing.hasReceipt) {
+    getReceipt(editing.id).then(dataUrl => {
+      if (state._txModal && state._txModal.editing === editing) {
+        state._txModal.receipt = dataUrl;
+        renderReceiptPreview();
+      }
+    }).catch(() => {});
   }
   renderTxModalFields(
     editing ? editing.categoryId : (fromRecurring ? fromRecurring.categoryId : (duplicateFrom ? duplicateFrom.categoryId : null)),
@@ -2098,8 +2106,60 @@ function saveBudgetQuickAmount() {
 function onAmountInputDynamic(el) {
   formatCurrencyAmountInput(el, currentTxCurrency());
 }
+
+/* ---------------- receipt photo storage (IndexedDB, not localStorage) ----------------
+   localStorage is capped at ~5-10MB per origin, and receipt photos are the single
+   biggest thing this app stores. Photos live in IndexedDB (typically hundreds of MB+
+   available) keyed by transaction id; DATA.transactions only keeps a lightweight
+   hasReceipt boolean flag, so the localStorage/cloud-sync payload stays small. */
+const RECEIPT_DB_NAME = 'household-ledger-receipts';
+const RECEIPT_STORE = 'receipts';
+let receiptDBPromise = null;
+function openReceiptDB() {
+  if (receiptDBPromise) return receiptDBPromise;
+  receiptDBPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(RECEIPT_DB_NAME, 1);
+    req.onupgradeneeded = () => { req.result.createObjectStore(RECEIPT_STORE); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return receiptDBPromise;
+}
+function putReceipt(id, dataUrl) {
+  return openReceiptDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(RECEIPT_STORE, 'readwrite');
+    tx.objectStore(RECEIPT_STORE).put(dataUrl, id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  }));
+}
+function getReceipt(id) {
+  return openReceiptDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(RECEIPT_STORE, 'readonly');
+    const req = tx.objectStore(RECEIPT_STORE).get(id);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  }));
+}
+function deleteReceipt(id) {
+  return openReceiptDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(RECEIPT_STORE, 'readwrite');
+    tx.objectStore(RECEIPT_STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  }));
+}
+async function migrateReceiptsToIndexedDB() {
+  const toMigrate = DATA.transactions.filter(t => typeof t.receipt === 'string' && t.receipt.startsWith('data:'));
+  if (!toMigrate.length) return false;
+  for (const t of toMigrate) {
+    try { await putReceipt(t.id, t.receipt); t.hasReceipt = true; } catch (e) { console.error('receipt migration failed', t.id, e); }
+    delete t.receipt;
+  }
+  return true;
+}
 function compressImage(file, maxDim, quality) {
-  maxDim = maxDim || 1280; quality = quality || 0.72;
+  maxDim = maxDim || 1000; quality = quality || 0.6;
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -2146,13 +2206,16 @@ function renderReceiptPreview() {
       </div>`;
 }
 function removeReceipt() { state._txModal.receipt = null; renderReceiptPreview(); }
-function openReceiptLightboxForTx(id) {
+async function openReceiptLightboxForTx(id) {
   const t = DATA.transactions.find(x => x.id === id);
-  if (!t || !t.receipt) return;
+  if (!t || !t.hasReceipt) return;
+  let dataUrl = null;
+  try { dataUrl = await getReceipt(id); } catch (e) {}
+  if (!dataUrl) return showToast('이 기기에서는 영수증 사진을 찾을 수 없어요.', 'error');
   openModal(`
     <h3>영수증 사진</h3>
     <div style="overflow:auto;max-height:65vh;border-radius:6px;">
-      <img src="${t.receipt}" style="width:100%;display:block;" alt="영수증">
+      <img src="${dataUrl}" style="width:100%;display:block;" alt="영수증">
     </div>
     <div class="form-actions"><button class="ghost-btn" onclick="closeModal()">닫기</button></div>
   `);
@@ -2180,7 +2243,7 @@ function registerAsRecurringFromTxForm() {
   closeTxPanel();
   openRecurringModal(null, template);
 }
-function submitTx(editId) {
+async function submitTx(editId) {
   const type = state._txModal.type;
   const date = document.getElementById('tx-date').value;
   const amount = rawCurrencyAmount(document.getElementById('tx-amount'), currentTxCurrency());
@@ -2188,7 +2251,7 @@ function submitTx(editId) {
   if (!date) return showToast('날짜를 선택해주세요.', 'error');
   if (!amount || amount <= 0) return showToast('금액을 입력해주세요.', 'error');
 
-  let payload = { type, date, amount, memo, receipt: undefined, payee: undefined, vendor: undefined };
+  let payload = { type, date, amount, memo, hasReceipt: undefined, payee: undefined, vendor: undefined };
   if (type === 'transfer') {
     const accountId = document.getElementById('tx-account').value;
     const toAccountId = document.getElementById('tx-toaccount').value;
@@ -2203,7 +2266,7 @@ function submitTx(editId) {
     if (!accountId) return showToast('자산이 없어요. 자산 탭에서 먼저 추가해주세요.', 'error');
     payload.categoryId = categoryId; payload.accountId = accountId;
     payload.excludeFromStats = document.getElementById('tx-exclude').checked;
-    payload.receipt = type === 'expense' ? (state._txModal.receipt || null) : undefined;
+    payload.hasReceipt = type === 'expense' ? !!state._txModal.receipt : undefined;
     const loanEl = document.getElementById('tx-loan-account');
     const linkedLoanAccountId = type === 'expense' && loanEl ? (loanEl.value || null) : null;
     if (linkedLoanAccountId && (getAccount(linkedLoanAccountId).currency || 'KRW') !== (getAccount(accountId).currency || 'KRW')) {
@@ -2213,14 +2276,22 @@ function submitTx(editId) {
   }
   payload.vendor = document.getElementById('tx-vendor').value.trim() || null;
 
+  const txId = editId || uid();
   if (editId) {
     const idx = DATA.transactions.findIndex(t => t.id === editId);
     DATA.transactions[idx] = { ...DATA.transactions[idx], ...payload };
   } else {
-    payload.id = uid();
+    payload.id = txId;
     if (state._txModal.fromRecurringId) payload.fromRecurringId = state._txModal.fromRecurringId;
     DATA.transactions.push(payload);
   }
+
+  if (type === 'expense' && state._txModal.receipt) {
+    try { await putReceipt(txId, state._txModal.receipt); } catch (e) { console.error('receipt save failed', e); }
+  } else {
+    try { await deleteReceipt(txId); } catch (e) {}
+  }
+
   saveData();
   const wasFromRecurring = state._txModal.fromRecurringId;
   closeTxPanel();
@@ -2231,6 +2302,7 @@ function deleteTx(id) {
   if (!confirm('이 거래를 삭제할까요?')) return false;
   DATA.transactions = DATA.transactions.filter(t => t.id !== id);
   saveData();
+  deleteReceipt(id).catch(() => {});
   showToast('삭제했어요.', 'info');
   renderAll();
   return true;
@@ -2649,13 +2721,13 @@ function renderAccountTxTable(list, acc) {
         if (vendor) subParts.push(`<span style="font-weight:600;">${escapeHtml(vendor)}</span>`);
         if (t.memo) subParts.push(escapeHtml(t.memo));
         if (t.excludeFromStats) subParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
-        const subLine = subParts.length || t.receipt
-          ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}${t.receipt ? ' 🧾' : ''}</div>`
+        const subLine = subParts.length || t.hasReceipt
+          ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}${t.hasReceipt ? ' 🧾' : ''}</div>`
           : '';
         const memoParts = [];
         if (t.memo) memoParts.push(escapeHtml(t.memo));
         if (t.excludeFromStats) memoParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
-        const memoCell = memoParts.join(' · ') + (t.receipt ? ' 🧾' : '');
+        const memoCell = memoParts.join(' · ') + (t.hasReceipt ? ' 🧾' : '');
         const outgoing = !isLoanLink && (t.type === 'expense' || (t.type === 'transfer' && t.accountId === acc.id));
         const sign = isLoanLink ? '+' : (t.type === 'transfer' ? (outgoing ? '-' : '+') : (t.type === 'income' ? '+' : '-'));
         const amtCls = isLoanLink ? 'income' : (t.type === 'transfer' ? (outgoing ? 'expense' : 'income') : t.type);
@@ -2677,7 +2749,7 @@ function renderAccountTxTable(list, acc) {
           </td>
           <td class="num dcol dcol-balance">${balStr}</td>
           <td class="actions-cell tx-actions-cell">
-            ${t.receipt ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
+            ${t.hasReceipt ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="duplicateTx('${t.id}')" title="이 거래를 복사해서 새로 등록">복사</button>
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openTxModal('${t.id}')">수정</button>
             <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteTx('${t.id}')">삭제</button>
@@ -3552,8 +3624,14 @@ function resetAllData() {
 }
 
 /* ---------------- backup: export / import ---------------- */
-function exportBackup() {
-  const blob = new Blob([JSON.stringify(DATA, null, 2)], { type: 'application/json' });
+async function exportBackup() {
+  const receiptsById = {};
+  for (const t of DATA.transactions) {
+    if (!t.hasReceipt) continue;
+    try { const d = await getReceipt(t.id); if (d) receiptsById[t.id] = d; } catch (e) { console.error('receipt export failed', t.id, e); }
+  }
+  const exportData = { ...DATA, receiptsById };
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   const today = todayStr();
@@ -3567,7 +3645,7 @@ function onImportFileChange(e) {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     try {
       const parsed = JSON.parse(reader.result);
       if (!Array.isArray(parsed.categories) || !Array.isArray(parsed.accounts) || !Array.isArray(parsed.transactions)) throw new Error('invalid');
@@ -3575,6 +3653,12 @@ function onImportFileChange(e) {
       DATA = { version: 1, categorySchema: parsed.categorySchema, accounts: parsed.accounts, categories: parsed.categories, transactions: parsed.transactions, budgets: parsed.budgets || {}, recurring: parsed.recurring || [], settings: parsed.settings || { usdKrwRate: null, rateUpdatedAt: null } };
       DATA = migrateCategoriesToHierarchy(DATA);
       DATA = migrateAccountTypes(DATA);
+      if (parsed.receiptsById) {
+        for (const [txId, dataUrl] of Object.entries(parsed.receiptsById)) {
+          try { await putReceipt(txId, dataUrl); } catch (err) { console.error('receipt import failed', txId, err); }
+        }
+      }
+      await migrateReceiptsToIndexedDB();
       saveData();
       showToast('데이터를 가져왔어요.', 'success');
       renderAll();
@@ -3587,10 +3671,11 @@ function onImportFileChange(e) {
 }
 
 /* ---------------- init ---------------- */
-function startApp(email) {
+async function startApp(email) {
   currentUserEmail = email || null;
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('app-root').style.display = '';
+  try { if (await migrateReceiptsToIndexedDB()) saveData(); } catch (e) { console.error('receipt migration failed', e); }
   switchTab('home');
   notifyDueRecurringToday();
   renderAll();
