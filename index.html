@@ -1628,14 +1628,8 @@ function renderPanel() {
 
 /* ---------------- HOME ---------------- */
 function renderHome() {
-  const mKey = monthKey(new Date());
   const recent = [...DATA.transactions].sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id)).slice(0, 8);
   const dueToday = todaysRecurring();
-
-  const budgetAlerts = Object.entries(DATA.budgets)
-    .map(([catId, amt]) => ({ catId, amt, spent: (categoryTotals(mKey, 'expense').find(c => c.categoryId === catId) || { amount: 0 }).amount }))
-    .filter(b => b.amt > 0 && b.spent / b.amt >= 0.8)
-    .sort((a, b) => (b.spent / b.amt) - (a.spent / a.amt));
 
   document.getElementById('panel-home').innerHTML = `
     <div class="section-block">
@@ -1657,20 +1651,6 @@ function renderHome() {
         </div>`;
       }).join('') : `<div class="empty">오늘 예정된 정기거래가 없어요.</div>`}
     </div>
-
-    ${budgetAlerts.length ? `
-    <div class="section-block">
-      <div class="section-heading">예산 알림</div>
-      ${budgetAlerts.map(b => {
-        const cat = getCategory(b.catId);
-        const pct = Math.round(b.spent / b.amt * 100);
-        const cls = pct >= 100 ? 'over' : 'warn';
-        return `<div class="budget-item">
-          <div class="budget-head"><span class="left">${cat.icon} ${escapeHtml(cat.name)}</span><span class="budget-pct-tag ${cls}">${pct}%</span></div>
-          <div class="budget-track"><div class="budget-fill ${cls}" style="width:${Math.min(100, pct)}%"></div></div>
-        </div>`;
-      }).join('')}
-    </div>` : ''}
 
     <div class="section-block">
       <div class="section-heading">최근 거래<button class="ghost-btn" onclick="openTxModal()">+ 거래 추가</button></div>
