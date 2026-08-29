@@ -168,7 +168,7 @@
   }
   .dp-pop { position: fixed; z-index: 10000; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 10px; width: 250px; }
   .dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-  .dp-head .dp-label { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+  .dp-head .dp-label { font-family: var(--mono); font-size: 13px; font-weight: 600; cursor: pointer; }
   .dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
   .dp-dow { text-align: center; font-size: 10px; color: var(--ink-faint); padding: 2px 0; }
   .dp-cell { text-align: center; font-size: 12px; padding: 6px 0; border-radius: 4px; cursor: pointer; color: var(--ink); }
@@ -1033,7 +1033,7 @@ function renderDatePicker() {
   pop.innerHTML = `
     <div class="dp-head">
       <button type="button" class="icon-btn" onclick="dpNav(-1)" aria-label="이전 달">&lt;</button>
-      <div class="dp-label">${y}년 ${m}월</div>
+      <div class="dp-label" title="연/월을 선택하려면 클릭하세요" onclick="openMonthPicker(this, '${mKey}', 'dpJumpToMonth')">${y}년 ${m}월</div>
       <button type="button" class="icon-btn" onclick="dpNav(1)" aria-label="다음 달">&gt;</button>
     </div>
     <div class="dp-grid">
@@ -1056,6 +1056,12 @@ function dpNav(delta) {
   dpState.mKey = shiftMonth(dpState.mKey, delta);
   renderDatePicker();
 }
+function dpJumpToMonth(value) {
+  if (!dpState) return;
+  dpState.mKey = value;
+  renderDatePicker();
+  positionDatePicker();
+}
 function dpPick(date) {
   if (!dpState) return;
   const input = dpState.input;
@@ -1066,6 +1072,7 @@ function dpPick(date) {
 function onDatePickerOutsideClick(e) {
   if (!dpState) return;
   if (dpState.pop.contains(e.target) || e.target === dpState.input) return;
+  if (mpState && mpState.pop.contains(e.target)) return;
   closeDatePicker();
 }
 function closeDatePicker() {
