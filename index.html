@@ -151,7 +151,7 @@
   .dp-cell.sel { background: var(--accent); color: #fff; font-weight: 600; }
   .dp-cell.empty { cursor: default; }
   .dp-foot { display: flex; justify-content: flex-end; margin-top: 6px; }
-  .date-field[readonly], .cat-field[readonly] { cursor: pointer; }
+  .date-field[readonly] { cursor: pointer; }
   .cp-pop { position: fixed; z-index: 10000; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 8px; width: 280px; max-height: 320px; display: flex; flex-direction: column; }
   .cp-search { flex: none; margin-bottom: 6px; }
   .cp-list { overflow-y: auto; flex: 1; min-height: 0; }
@@ -1063,24 +1063,18 @@ function syncCategoryDisplay() {
   disp.value = parent ? `${parent.icon} ${parent.name} · ${cat.name}` : `${cat.icon} ${cat.name}`;
 }
 let cpState = null;
-function openCategoryPicker() {
-  const input = document.getElementById('tx-category-display');
+function openCategoryPicker(input) {
   const sel = document.getElementById('tx-category');
   if (!input || !sel) return;
+  if (cpState && cpState.input === input) return;
   closeCategoryPicker();
   const pop = document.createElement('div');
   pop.className = 'cp-pop';
   document.body.appendChild(pop);
   cpState = { input, sel, pop, query: '', items: [], activeIndex: 0 };
-  pop.innerHTML = `
-    <input type="text" id="cp-search" class="cp-search" placeholder="카테고리 검색">
-    <div class="cp-list" id="cp-list"></div>
-  `;
+  pop.innerHTML = `<div class="cp-list" id="cp-list"></div>`;
   renderCategoryPickerList();
   positionCategoryPicker();
-  document.getElementById('cp-search').addEventListener('input', (e) => onCategorySearchInput(e.target.value));
-  document.getElementById('cp-search').addEventListener('keydown', onCategorySearchKeydown);
-  document.getElementById('cp-search').focus();
   setTimeout(() => document.addEventListener('mousedown', onCategoryPickerOutsideClick), 0);
   window.addEventListener('resize', positionCategoryPicker);
   window.addEventListener('scroll', closeCategoryPicker, true);
@@ -1126,12 +1120,12 @@ function highlightActiveCategoryItem() {
   if (el) el.scrollIntoView({ block: 'nearest' });
   if (el) el.classList.add('active');
 }
-function onCategorySearchInput(v) {
-  if (!cpState) return;
-  cpState.query = v;
+function onCategoryInput(input) {
+  if (!cpState || cpState.input !== input) { openCategoryPicker(input); }
+  cpState.query = input.value;
   renderCategoryPickerList();
 }
-function onCategorySearchKeydown(e) {
+function onCategoryKeydown(e) {
   if (!cpState) return;
   const items = cpState.items;
   if (e.key === 'ArrowDown') {
@@ -1179,10 +1173,6 @@ function closeCategoryPicker() {
   window.removeEventListener('scroll', closeCategoryPicker, true);
   cpState = null;
 }
-document.addEventListener('click', (e) => {
-  const target = e.target.closest('input.cat-field[readonly]');
-  if (target) openCategoryPicker();
-});
 
 /* ---------------- custom month/year picker for the shared month-nav label ---------------- */
 let mpState = null;
@@ -1805,7 +1795,7 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     }).join('');
     catField.innerHTML = `<label class="field-lbl">카테고리</label>
       <select id="tx-category" onchange="renderBudgetQuickRow()" style="display:none;">${groups}</select>
-      <input type="text" class="cat-field" id="tx-category-display" readonly placeholder="카테고리 선택">
+      <input type="text" class="cat-field" id="tx-category-display" autocomplete="off" placeholder="카테고리 선택" onfocus="this.select(); openCategoryPicker(this)" oninput="onCategoryInput(this)" onkeydown="onCategoryKeydown(event)" onblur="setTimeout(closeCategoryPicker, 150)">
       <div id="budget-quick-row" style="margin-top:6px;"></div>`;
     syncCategoryDisplay();
     accField.innerHTML = `<label class="field-lbl">${type === 'income' ? '입금 자산' : '지출 자산'}</label><select id="tx-account" onchange="updateTxAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
