@@ -167,7 +167,7 @@
   @media (min-width: 860px) {
     .tx-inline-panel.active { flex: 2 1 360px; min-width: 300px; max-width: 480px; max-height: 100%; overflow-y: auto; margin-left: 16px; padding-left: 16px; border-left: 1px solid var(--line); }
   }
-  .rec-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .rec-cols { display: grid; grid-template-columns: 1fr; gap: 16px; }
   .rec-col { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
   .rec-col-head { padding: 10px 14px; font-weight: 600; font-size: 13px; border-bottom: 1px solid var(--line); flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
   .rec-col-head.income { background: var(--accent-soft); color: var(--accent); }
@@ -176,9 +176,6 @@
   .rec-col-head .count { font-weight: 400; opacity: .7; font-size: 11px; }
   .rec-col-body .overflow-x { border: none; max-height: none; overflow-y: visible; }
   .rec-col-body .empty { padding: 20px 14px; font-size: 12px; }
-  @media (max-width: 859px) {
-    .rec-cols { grid-template-columns: 1fr; }
-  }
   .dp-pop { position: fixed; z-index: 10000; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 10px; width: 250px; }
   .dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
   .dp-head .dp-label { font-family: var(--mono); font-size: 13px; font-weight: 600; cursor: pointer; }
@@ -337,7 +334,8 @@
     #panel-recurring .tx-split { flex: 1; min-height: 0; }
     #panel-recurring .tx-split-main { height: 100%; min-height: 0; display: flex; flex-direction: column; }
     #panel-recurring .tx-split-main > .toolbar { flex-shrink: 0; }
-    #panel-recurring .rec-cols { flex: 1; min-height: 0; }
+    #panel-recurring .rec-cols { flex: 1; min-height: 0; grid-template-rows: repeat(3, 1fr); }
+    #panel-recurring .rec-col { min-height: 0; }
     #panel-recurring .rec-col-body { flex: 1; min-height: 0; overflow-y: auto; }
     .dcol { display: table-cell; }
     table.tx-table-balance .dcol-balance { display: table-cell; }
