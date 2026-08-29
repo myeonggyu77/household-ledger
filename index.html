@@ -479,11 +479,20 @@ async function loadCloudData(userId) {
   if (error) { console.error('cloud load failed', error); return { ok: false }; }
   return { ok: true, data: data ? data.data : undefined };
 }
+async function buildCloudPayload() {
+  const receiptsById = {};
+  for (const t of DATA.transactions) {
+    if (!t.hasReceipt) continue;
+    try { const d = await getReceipt(t.id); if (d) receiptsById[t.id] = d; } catch (e) { console.error('receipt cloud-upload read failed', t.id, e); }
+  }
+  return Object.keys(receiptsById).length ? { ...DATA, receiptsById } : DATA;
+}
 function scheduleCloudSave() {
   if (!sb || !currentUserId) return;
   clearTimeout(cloudSaveTimer);
-  cloudSaveTimer = setTimeout(() => {
-    sb.from('user_data').upsert({ user_id: currentUserId, data: DATA, updated_at: new Date().toISOString() })
+  cloudSaveTimer = setTimeout(async () => {
+    const payload = await buildCloudPayload();
+    sb.from('user_data').upsert({ user_id: currentUserId, data: payload, updated_at: new Date().toISOString() })
       .then(({ error }) => { if (error) console.error('cloud save failed', error); });
   }, 800);
 }
@@ -493,7 +502,8 @@ async function onAuthed(userId) {
   try {
     const result = await loadCloudData(userId);
     if (result.ok && result.data === undefined) {
-      await sb.from('user_data').upsert({ user_id: userId, data: DATA, updated_at: new Date().toISOString() });
+      const payload = await buildCloudPayload();
+      await sb.from('user_data').upsert({ user_id: userId, data: payload, updated_at: new Date().toISOString() });
     } else if (result.ok && result.data && Array.isArray(result.data.categories) && result.data.categories.length) {
       let cloudData = result.data;
       cloudData.transactions = cloudData.transactions || [];
@@ -503,7 +513,14 @@ async function onAuthed(userId) {
       cloudData = migrateAccountTypes(cloudData);
       const beforeVersion = cloudData.categoryTreeVersion;
       cloudData = migrateToUpdatedCategoryTree(cloudData);
+      const receiptsById = cloudData.receiptsById;
+      delete cloudData.receiptsById;
       DATA = cloudData;
+      if (receiptsById) {
+        for (const [txId, dataUrl] of Object.entries(receiptsById)) {
+          try { await putReceipt(txId, dataUrl); } catch (e) { console.error('cloud receipt restore failed', txId, e); }
+        }
+      }
       try { localStorage.setItem(LS_KEY, JSON.stringify(DATA)); } catch (e) {}
       if (beforeVersion !== CATEGORY_TREE_VERSION) scheduleCloudSave();
     }
