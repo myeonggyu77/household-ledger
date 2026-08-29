@@ -1951,7 +1951,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     <div id="tx-toacc-field" class="field"></div>
     <div class="field" id="tx-loan-field"></div>
     <div class="field" id="tx-vendor-field"></div>
-    <div class="field"><label class="field-lbl">메모</label><input type="text" id="tx-memo" autocomplete="off" placeholder="메모 (선택)" value="${escapeHtml(editing ? (editing.memo || '') : (fromRecurring ? fromRecurring.name : (duplicateFrom ? (duplicateFrom.memo || '') : '')))}" onfocus="openMemoSuggest(this)" oninput="onMemoInput(this)" onkeydown="onMemoKeydown(event)" onblur="setTimeout(closeMemoSuggest, 150)"></div>
+    <div class="field"><label class="field-lbl">메모</label><textarea id="tx-memo" autocomplete="off" placeholder="메모 (선택)" rows="1" style="min-height:34px;padding:8px 9px;resize:vertical;" onfocus="openMemoSuggest(this)" oninput="onMemoInput(this)" onkeydown="onMemoKeydown(event)" onblur="setTimeout(closeMemoSuggest, 150)">${escapeHtml(editing ? (editing.memo || '') : (fromRecurring ? fromRecurring.name : (duplicateFrom ? (duplicateFrom.memo || '') : '')))}</textarea></div>
     <div class="field" id="tx-receipt-field"></div>
     <div class="field" id="tx-exclude-field"></div>
     ${fromRecurring ? '' : `<div class="field"><button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="registerAsRecurringFromTxForm()">🔁 정기거래로 등록</button></div>`}
@@ -2749,6 +2749,7 @@ function renderAccountTxTable(list, acc) {
       <th class="name-cell mcol">내역</th>
       <th class="dcol" style="width:64px;">구분</th>
       <th class="dcol" style="width:130px;">계좌</th>
+      <th class="dcol" style="width:130px;">카테고리</th>
       <th class="dcol">메모</th>
       <th class="dcol" style="width:130px;">대상/거래처</th>
       <th class="num">금액</th>
@@ -2761,18 +2762,20 @@ function renderAccountTxTable(list, acc) {
         const isLoanLink = t.linkedLoanAccountId === acc.id && t.accountId !== acc.id;
         const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
         const vendor = t.vendor || t.payee || '';
-        let mid, acctCell;
+        let mid, acctCell, catCell;
         if (t.type === 'transfer') {
           const outgoing = t.accountId === acc.id;
           const other = getAccount(outgoing ? t.toAccountId : t.accountId);
           mid = `${outgoing ? '→' : '←'} ${other.icon || ''} ${escapeHtml(other.name)}`;
           acctCell = mid;
+          catCell = '-';
         } else {
           const cat = getCategory(t.categoryId);
           const parent = cat.parentId ? getCategory(cat.parentId) : cat;
           mid = cat.parentId
             ? `${parent.icon || ''} ${escapeHtml(parent.name)} <span style="color:var(--ink-faint)">· ${escapeHtml(cat.name)}</span>`
             : `${parent.icon || ''} ${escapeHtml(parent.name)}`;
+          catCell = mid;
           if (isLoanLink) {
             const payAcc = getAccount(t.accountId);
             acctCell = `${payAcc.icon || ''} ${escapeHtml(payAcc.name)}`;
@@ -2808,6 +2811,7 @@ function renderAccountTxTable(list, acc) {
           </td>
           <td class="dcol"><span class="type-tag ${t.type}">${typeLabel}</span></td>
           <td class="dcol" title="${acctCell.replace(/<[^>]*>/g, '')}">${acctCell}</td>
+          <td class="dcol" title="${catCell.replace(/<[^>]*>/g, '')}">${catCell}</td>
           <td class="dcol" title="${escapeHtml(t.memo || '')}">${memoCell}</td>
           <td class="dcol" title="${escapeHtml(vendor)}">${escapeHtml(vendor)}</td>
           <td class="num">
@@ -3097,6 +3101,7 @@ function compareRecurringSortKey(a, b) {
   return 0;
 }
 function renderRecurring() {
+  state._recPanelMode = null;
   const groups = REC_TYPE_ORDER
     .map(type => ({ type, items: DATA.recurring.filter(r => r.type === type).sort(compareRecurringSortKey) }))
     .filter(g => g.items.length);
@@ -3106,6 +3111,7 @@ function renderRecurring() {
       <thead><tr>
         <th class="name-cell">메모</th>
         <th style="width:150px;">계좌</th>
+        <th style="width:130px;">카테고리</th>
         <th style="width:130px;">대상/거래처</th>
         <th class="num">금액</th>
         <th style="width:120px;">주기</th>
@@ -3117,12 +3123,21 @@ function renderRecurring() {
           const acctCell = r.type === 'transfer'
             ? `${acc.icon} ${escapeHtml(acc.name)} → ${getAccount(r.toAccountId).icon} ${escapeHtml(getAccount(r.toAccountId).name)}`
             : `${acc.icon} ${escapeHtml(acc.name)}`;
+          let catCell = '-';
+          if (r.type !== 'transfer') {
+            const cat = getCategory(r.categoryId);
+            const parent = cat.parentId ? getCategory(cat.parentId) : cat;
+            catCell = cat.parentId
+              ? `${parent.icon || ''} ${escapeHtml(parent.name)} <span style="color:var(--ink-faint)">· ${escapeHtml(cat.name)}</span>`
+              : `${parent.icon || ''} ${escapeHtml(parent.name)}`;
+          }
           const noteParts = [];
           if (r.type === 'expense' && r.noHolidayShift) noteParts.push('휴일무관');
           if (r.type === 'income' && r.payBeforeHoliday) noteParts.push('휴일 전 평일');
           return `<tr>
             <td class="name-cell">${escapeHtml(r.name)}${noteParts.length ? `<div style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${noteParts.join(' · ')}</div>` : ''}</td>
             <td title="${acctCell.replace(/<[^>]*>/g, '')}">${acctCell}</td>
+            <td title="${catCell.replace(/<[^>]*>/g, '')}">${catCell}</td>
             <td title="${escapeHtml(r.payee || '')}">${escapeHtml(r.payee || '')}</td>
             <td class="num">${fmtCurrency(r.amount, acc.currency || 'KRW')}</td>
             <td>${recurringScheduleLabel(r)}</td>
@@ -3137,25 +3152,55 @@ function renderRecurring() {
     </table></div>
   `).join('');
   document.getElementById('panel-recurring').innerHTML = `
-    <div class="toolbar">
-      <div class="hint">등록된 정기거래는 목록의 "적용" 버튼으로 원하는 날짜에 직접 등록해요.</div>
-      <button class="primary-btn" onclick="openRecurringModal()">+ 정기거래 추가</button>
+    <div class="tx-split">
+      <div class="tx-split-main">
+        <div class="toolbar">
+          <div class="hint">등록된 정기거래는 목록의 "적용" 버튼으로 원하는 날짜에 직접 등록해요.</div>
+          <button class="primary-btn" onclick="openRecurringModal()">+ 정기거래 추가</button>
+        </div>
+        ${DATA.recurring.length ? groupHtml : `<div class="empty"><div class="big">등록된 정기거래가 없어요</div>월세, 구독료, 급여 등을 등록해보세요.</div>`}
+      </div>
+      <div class="tx-inline-panel" id="tx-inline-slot-recurring"></div>
     </div>
-    ${DATA.recurring.length ? groupHtml : `<div class="empty"><div class="big">등록된 정기거래가 없어요</div>월세, 구독료, 급여 등을 등록해보세요.</div>`}
   `;
+}
+function recInlineSlot() {
+  if (!window.matchMedia('(min-width: 860px)').matches) return null;
+  return state.tab === 'recurring' ? document.getElementById('tx-inline-slot-recurring') : null;
+}
+function renderRecPanel(formHtml) {
+  const inlineSlot = recInlineSlot();
+  if (inlineSlot) {
+    document.querySelectorAll('.tx-inline-panel').forEach(el => { if (el !== inlineSlot) { el.classList.remove('active'); el.innerHTML = ''; } });
+    inlineSlot.innerHTML = `<div class="modal-card tx-inline-card">${formHtml}</div>`;
+    inlineSlot.classList.add('active');
+    return 'inline';
+  }
+  openModal(formHtml, { sidePanel: true });
+  return 'overlay';
+}
+function closeRecPanel() {
+  const mode = state._recPanelMode;
+  state._recPanelMode = null;
+  if (mode === 'inline') {
+    document.querySelectorAll('.tx-inline-panel').forEach(el => { el.classList.remove('active'); el.innerHTML = ''; });
+  } else {
+    closeModal();
+  }
 }
 function openRecurringApplyModal(id) {
   const r = DATA.recurring.find(x => x.id === id);
   if (!r) return;
-  openModal(`
+  const formHtml = `
     <h3>${escapeHtml(r.name)} 적용</h3>
     <div class="form-note">선택한 날짜로 거래를 등록해요.</div>
     <div class="field"><label class="field-lbl">날짜</label><input type="text" class="date-field" id="rec-apply-date" value="${todayStr()}" readonly></div>
     <div class="form-actions">
-      <button class="ghost-btn" onclick="closeModal()">취소</button>
+      <button class="ghost-btn" onclick="closeRecPanel()">취소</button>
       <button class="primary-btn" onclick="submitRecurringApply('${id}')">적용</button>
     </div>
-  `);
+  `;
+  state._recPanelMode = renderRecPanel(formHtml);
 }
 function submitRecurringApply(id) {
   const r = DATA.recurring.find(x => x.id === id);
@@ -3166,7 +3211,7 @@ function submitRecurringApply(id) {
     categoryId: r.categoryId, accountId: r.accountId, toAccountId: r.toAccountId, payee: r.payee || null,
   });
   saveData();
-  closeModal();
+  closeRecPanel();
   showToast(`${date} 날짜로 등록했어요.`, 'success');
   renderAll();
 }
@@ -3176,7 +3221,7 @@ function openRecurringModal(id, presetTemplate) {
   const type = seed ? seed.type : 'expense';
   const freq = seed ? (seed.frequency || 'monthly') : 'monthly';
   const labels = recFieldLabels(type);
-  openModal(`
+  const formHtml = `
     <h3>${editing ? '정기거래 수정' : '정기거래 추가'}</h3>
     <div class="seg" id="rec-type-seg">
       <button type="button" data-v="expense" class="${type === 'expense' ? 'active expense-active' : ''}" onclick="setRecType('expense')">지출</button>
@@ -3206,10 +3251,11 @@ function openRecurringModal(id, presetTemplate) {
     <div id="rec-toacc-field" class="field"></div>
     <div id="rec-payee-field" class="field"></div>
     <div class="form-actions">
-      <button class="ghost-btn" onclick="closeModal()">취소</button>
+      <button class="ghost-btn" onclick="closeRecPanel()">취소</button>
       <button class="primary-btn" onclick="submitRecurring(${editing ? `'${editing.id}'` : 'null'})">${editing ? '저장' : '추가'}</button>
     </div>
-  `);
+  `;
+  state._recPanelMode = renderRecPanel(formHtml);
   state._recModal = { type, freq };
   renderRecFreqDetail(freq, seed ? seed.day : 1, seed ? seed.weekday : null, seed ? seed.dailyMode : null, seed ? seed.month : null);
   renderRecModalFields(seed ? seed.categoryId : null, seed ? seed.accountId : null, seed ? seed.toAccountId : null, seed ? (seed.payee || '') : '');
@@ -3349,7 +3395,7 @@ function submitRecurring(editId) {
     DATA.recurring.push(payload);
   }
   saveData();
-  closeModal();
+  closeRecPanel();
   showToast(editId ? '정기거래를 수정했어요.' : '정기거래를 추가했어요.', 'success');
   renderAll();
 }
