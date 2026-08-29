@@ -47,16 +47,9 @@
     html, body { overflow: hidden; }
     .app { height: 100vh; }
     .main-content { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-    .main-content > .masthead, .main-content > .kpi-row { flex-shrink: 0; }
+    .main-content > .kpi-row { flex-shrink: 0; }
     .main-content > .panel.active { flex: 1; min-height: 0; overflow-y: auto; }
   }
-
-  .masthead { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; row-gap: 10px; margin-bottom: 22px; padding-bottom: 16px; border-bottom: 1px solid var(--ink); }
-  .masthead h1 { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; margin: 0; flex-shrink: 0; white-space: nowrap; }
-  .masthead .sub { font-size: 12px; color: var(--ink-faint); font-family: var(--mono); }
-  .masthead-right { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
-  .backup-actions { display: flex; gap: 6px; }
-  .backup-actions .ghost-btn { font-size: 12px; padding: 5px 10px; }
 
   .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); margin-bottom: 24px; }
   .kpi { background: var(--paper-raised); padding: 10px 12px; }
@@ -214,7 +207,8 @@
   .seg button.active.expense-active { background: var(--down); }
   .seg button.active.income-active { background: var(--accent); }
 
-  .month-nav { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  .month-nav { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+  .ghost-btn.acct-seg-active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
   .month-nav .m-label { font-family: var(--mono); font-size: 14px; font-weight: 600; min-width: 96px; text-align: center; position: relative; cursor: pointer; }
   .month-nav .m-label input { position: absolute; inset: 0; opacity: 0; cursor: pointer; border: none; padding: 0; }
 
@@ -399,19 +393,7 @@
     <button class="tab" data-tab="settings"><i>⚙️</i><span>설정</span></button>
   </nav>
   <div class="main-content">
-    <div class="masthead">
-      <div>
-        <h1>가계부</h1>
-        <div class="sub" id="masthead-sub">이 기기에만 저장돼요</div>
-      </div>
-      <div class="masthead-right">
-        <div class="backup-actions">
-          <button class="ghost-btn" id="btn-export">⬇ 내보내기</button>
-          <button class="ghost-btn" id="btn-import">⬆ 가져오기</button>
-          <input type="file" id="file-import" accept="application/json" style="display:none">
-        </div>
-      </div>
-    </div>
+    <input type="file" id="file-import" accept="application/json" style="display:none" onchange="onImportFileChange(event)">
 
     <div class="kpi-row" id="kpi-row"></div>
 
@@ -1555,6 +1537,7 @@ function monthNavHtml(onPrev, onNext, mKey, opts) {
     <div class="m-label" title="달을 선택하려면 클릭하세요" onclick="openMonthPicker(this, '${mKey}', '${onPick}')">${monthLabel(mKey)}</div>
     <button class="icon-btn" onclick="${onNext}" aria-label="다음 달">&gt;</button>
     <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="${onToday}">오늘</button>
+    ${opts.extraButtons || ''}
   </div>`;
 }
 function navMonth(delta) {
@@ -2645,13 +2628,14 @@ function setAcctPeriod(p) {
   state.acctPeriod = p;
   renderAccounts();
 }
-function acctYearNavHtml(mKey) {
+function acctYearNavHtml(mKey, extraButtons) {
   const year = mKey.slice(0, 4);
   return `<div class="month-nav">
     <button class="icon-btn" onclick="navAcctPeriod(-1)" aria-label="이전 해">&lt;</button>
     <div class="m-label" title="연도를 선택하려면 클릭하세요" onclick="openMonthPicker(this, '${mKey}', 'navAcctToMonth')">${year}년</div>
     <button class="icon-btn" onclick="navAcctPeriod(1)" aria-label="다음 해">&gt;</button>
     <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="jumpAcctToday()">올해</button>
+    ${extraButtons || ''}
   </div>`;
 }
 function renderAccountDetail(acc) {
@@ -2666,7 +2650,10 @@ function renderAccountDetail(acc) {
     : period === 'year' ? accountBalance(acc, (Number(mKey.slice(0, 4)) + 1) + '-01-01')
     : accountBalance(acc, shiftMonth(mKey, 1) + '-01');
   const periodLabel = period === 'all' ? '전체 기간' : period === 'year' ? `${mKey.slice(0, 4)}년` : monthLabel(mKey);
-  const periodNav = period === 'all' ? '' : period === 'year' ? acctYearNavHtml(mKey) : monthNavHtml('navAcctPeriod(-1)', 'navAcctPeriod(1)', mKey, { onToday: 'jumpAcctToday()', onPick: 'navAcctToMonth' });
+  const periodSegHtml = acctPeriodSegHtml(period);
+  const periodNav = period === 'all' ? `<div class="month-nav">${periodSegHtml}</div>`
+    : period === 'year' ? acctYearNavHtml(mKey, periodSegHtml)
+    : monthNavHtml('navAcctPeriod(-1)', 'navAcctPeriod(1)', mKey, { onToday: 'jumpAcctToday()', onPick: 'navAcctToMonth', extraButtons: periodSegHtml });
   const list = txInPeriod(period, mKey)
     .filter(t => t.accountId === acc.id || t.toAccountId === acc.id || t.linkedLoanAccountId === acc.id)
     .sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
@@ -2682,11 +2669,6 @@ function renderAccountDetail(acc) {
             </div>
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="deselectAccountDetail()">← 목록으로</button>
           </div>
-          <div class="seg" style="margin-bottom:12px;">
-            <button type="button" class="${period === 'month' ? 'active' : ''}" onclick="setAcctPeriod('month')">월간</button>
-            <button type="button" class="${period === 'year' ? 'active' : ''}" onclick="setAcctPeriod('year')">년간</button>
-            <button type="button" class="${period === 'all' ? 'active' : ''}" onclick="setAcctPeriod('all')">전체</button>
-          </div>
           ${periodNav}
           <div class="acct-summary-row">
             <div class="item"><div class="lbl">입금</div><div class="val income">${won(flow.inflow)}</div></div>
@@ -2699,12 +2681,16 @@ function renderAccountDetail(acc) {
           <div class="section-heading">${periodLabel} 내역 (${list.length}건)<button class="ghost-btn" onclick="addTxForAccount('${acc.id}')">+ 내역 추가</button></div>
           ${list.length ? renderAccountTxTable(list, acc) : `<div class="empty">해당 기간에는 거래가 없어요.</div>`}
         </div>
-        <div class="form-actions" style="justify-content:flex-start;margin-top:14px;">
-          <button class="ghost-btn danger-btn" onclick="deleteAccount('${acc.id}')">이 자산 삭제</button>
-        </div>
       </div>
       <div class="tx-inline-panel" id="tx-inline-slot-accounts"></div>
     </div>
+  `;
+}
+function acctPeriodSegHtml(period) {
+  return `
+    <button type="button" class="ghost-btn ${period === 'month' ? 'acct-seg-active' : ''}" style="font-size:12px;padding:5px 10px;" onclick="setAcctPeriod('month')">월간</button>
+    <button type="button" class="ghost-btn ${period === 'year' ? 'acct-seg-active' : ''}" style="font-size:12px;padding:5px 10px;" onclick="setAcctPeriod('year')">년간</button>
+    <button type="button" class="ghost-btn ${period === 'all' ? 'acct-seg-active' : ''}" style="font-size:12px;padding:5px 10px;" onclick="setAcctPeriod('all')">전체</button>
   `;
 }
 function renderAccounts() {
@@ -2732,12 +2718,19 @@ function renderAccounts() {
     : `환율 정보 없음 (기본값 1 USD = ${won(DEFAULT_USD_KRW_RATE)} 사용 중)`;
   document.getElementById('panel-accounts').innerHTML = `
     <div class="toolbar">
-      <div class="hint">${DATA.accounts.length}개 자산 · 총 자산 ${won(totalAssets())}</div>
-      <button class="primary-btn" onclick="openAccountModal()">+ 자산 추가</button>
-    </div>
-    <div class="form-note" style="display:flex;align-items:center;gap:6px;margin-bottom:16px;flex-wrap:wrap;">
-      ${rateLine}
-      <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="fetchExchangeRate(false)">환율 새로고침</button>
+      <div class="hint" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span>${DATA.accounts.length}개 자산 · 총 자산 ${won(totalAssets())}</span>
+        <span style="display:flex;align-items:center;gap:6px;">
+          ${rateLine}
+          <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="fetchExchangeRate(false)">환율 새로고침</button>
+        </span>
+      </div>
+      <div class="btn-group">
+        <button class="ghost-btn" onclick="exportBackup()">⬇ 내보내기</button>
+        <button class="ghost-btn" onclick="triggerImportFile()">⬆ 가져오기</button>
+        ${selected ? `<button class="ghost-btn danger-btn" onclick="deleteAccount('${selected.id}')">이 자산 삭제</button>` : ''}
+        <button class="primary-btn" onclick="openAccountModal()">+ 자산 추가</button>
+      </div>
     </div>
     <div class="acct-master-detail">
       <div class="acct-list-pane ${selected ? 'has-selection' : ''}">
@@ -3468,7 +3461,7 @@ function resetAllData() {
 }
 
 /* ---------------- backup: export / import ---------------- */
-document.getElementById('btn-export').addEventListener('click', () => {
+function exportBackup() {
   const blob = new Blob([JSON.stringify(DATA, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -3477,9 +3470,9 @@ document.getElementById('btn-export').addEventListener('click', () => {
   document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
   showToast('백업 파일을 내려받았어요.', 'success');
-});
-document.getElementById('btn-import').addEventListener('click', () => document.getElementById('file-import').click());
-document.getElementById('file-import').addEventListener('change', (e) => {
+}
+function triggerImportFile() { document.getElementById('file-import').click(); }
+function onImportFileChange(e) {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
@@ -3500,15 +3493,13 @@ document.getElementById('file-import').addEventListener('change', (e) => {
   };
   reader.readAsText(file);
   e.target.value = '';
-});
+}
 
 /* ---------------- init ---------------- */
 function startApp(email) {
   currentUserEmail = email || null;
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('app-root').style.display = '';
-  const sub = document.getElementById('masthead-sub');
-  if (sub) sub.textContent = email ? `${email} 계정에 동기화됨` : '이 기기에만 저장돼요';
   switchTab('home');
   notifyDueRecurringToday();
   renderAll();
