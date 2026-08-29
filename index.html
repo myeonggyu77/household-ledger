@@ -1674,10 +1674,10 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     } else {
       receiptField.innerHTML = '';
     }
-    if (type === 'expense') {
+    if (type === 'expense' || type === 'income') {
       const vendorOptions = Array.from(new Set(DATA.transactions.filter(t => t.vendor).map(t => t.vendor)));
       vendorField.innerHTML = `<label class="field-lbl">거래처</label>
-        <input type="text" id="tx-vendor" list="tx-vendor-list" placeholder="예: 스타벅스 강남점" value="${escapeHtml(presetVendor || '')}">
+        <input type="text" id="tx-vendor" list="tx-vendor-list" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : '예: 스타벅스 강남점'}" value="${escapeHtml(presetVendor || '')}">
         <datalist id="tx-vendor-list">${vendorOptions.map(v => `<option value="${escapeHtml(v)}">`).join('')}</datalist>`;
     } else {
       vendorField.innerHTML = '';
@@ -1855,7 +1855,7 @@ function submitTx(editId) {
     payload.categoryId = categoryId; payload.accountId = accountId;
     payload.excludeFromStats = document.getElementById('tx-exclude').checked;
     payload.receipt = type === 'expense' ? (state._txModal.receipt || null) : undefined;
-    payload.vendor = type === 'expense' ? (document.getElementById('tx-vendor').value.trim() || null) : undefined;
+    payload.vendor = document.getElementById('tx-vendor').value.trim() || null;
     const loanEl = document.getElementById('tx-loan-account');
     const linkedLoanAccountId = type === 'expense' && loanEl ? (loanEl.value || null) : null;
     if (linkedLoanAccountId && (getAccount(linkedLoanAccountId).currency || 'KRW') !== (getAccount(accountId).currency || 'KRW')) {
