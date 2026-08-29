@@ -167,6 +167,18 @@
   @media (min-width: 860px) {
     .tx-inline-panel.active { flex: 2 1 360px; min-width: 300px; max-width: 480px; max-height: 100%; overflow-y: auto; margin-left: 16px; padding-left: 16px; border-left: 1px solid var(--line); }
   }
+  .rec-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .rec-col { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .rec-col-head { padding: 10px 14px; font-weight: 600; font-size: 13px; border-bottom: 1px solid var(--line); flex-shrink: 0; display: flex; align-items: center; gap: 6px; }
+  .rec-col-head.income { background: var(--accent-soft); color: var(--accent); }
+  .rec-col-head.expense { background: var(--down-soft); color: var(--down); }
+  .rec-col-head.transfer { background: var(--line-soft); color: var(--ink-soft); }
+  .rec-col-head .count { font-weight: 400; opacity: .7; font-size: 11px; }
+  .rec-col-body .overflow-x { border: none; max-height: none; overflow-y: visible; }
+  .rec-col-body .empty { padding: 20px 14px; font-size: 12px; }
+  @media (max-width: 859px) {
+    .rec-cols { grid-template-columns: 1fr; }
+  }
   .dp-pop { position: fixed; z-index: 10000; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 10px; width: 250px; }
   .dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
   .dp-head .dp-label { font-family: var(--mono); font-size: 13px; font-weight: 600; cursor: pointer; }
@@ -321,6 +333,12 @@
     #panel-accounts .acct-detail-pane .tx-split-main .section-block { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
     #panel-accounts .acct-detail-pane .tx-split-main .section-block .overflow-x { flex: 1; min-height: 0; max-height: none; }
     #panel-accounts .acct-detail-pane .tx-split-main .form-actions { flex-shrink: 0; padding-top: 14px; }
+    #panel-recurring.active { display: flex; flex-direction: column; }
+    #panel-recurring .tx-split { flex: 1; min-height: 0; }
+    #panel-recurring .tx-split-main { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+    #panel-recurring .tx-split-main > .toolbar { flex-shrink: 0; }
+    #panel-recurring .rec-cols { flex: 1; min-height: 0; }
+    #panel-recurring .rec-col-body { flex: 1; min-height: 0; overflow-y: auto; }
     .dcol { display: table-cell; }
     table.tx-table-balance .dcol-balance { display: table-cell; }
     .cal-layout { display: flex; gap: 20px; align-items: flex-start; }
@@ -508,10 +526,15 @@ async function onAuthed(userId) {
       cloudData = migrateAccountTypes(cloudData);
       const beforeVersion = cloudData.categoryTreeVersion;
       cloudData = migrateToUpdatedCategoryTree(cloudData);
+      const catCountBefore = cloudData.categories.length;
+      const stockMigratedBefore = !!(cloudData.settings && cloudData.settings.stockTransferCategoryMigrated);
+      cloudData = migrateAddTransferCategories(cloudData);
+      cloudData = migrateStockTransferCategory(cloudData);
+      const categoriesChanged = cloudData.categories.length !== catCountBefore || (!stockMigratedBefore && cloudData.settings.stockTransferCategoryMigrated);
       delete cloudData.receiptsById;
       DATA = cloudData;
       try { localStorage.setItem(LS_KEY, JSON.stringify(DATA)); } catch (e) {}
-      if (beforeVersion !== CATEGORY_TREE_VERSION) scheduleCloudSave();
+      if (beforeVersion !== CATEGORY_TREE_VERSION || categoriesChanged) scheduleCloudSave();
     }
   } catch (e) {
     console.error('cloud sync on login failed', e);
@@ -580,6 +603,11 @@ const CATEGORY_TREE = {
     { name: '주식소득', icon: '📈', children: [['아빠배당소득','👨'], ['엄마배당소득','👩'], ['주식매매소득','💹']] },
     { name: '기타', icon: '📦', children: [['기타','📦']] },
   ],
+  transfer: [
+    { name: '저축/투자', icon: '💰', children: [['주식투자','📈'], ['적금/예금','🏦']] },
+    { name: '카드/대출 상환', icon: '💳', children: [['카드대금','💳'], ['대출상환','🏦']] },
+    { name: '기타', icon: '📦', children: [['기타 이체','🔁']] },
+  ],
 };
 
 /* ---------------- 한국 공휴일(음력 포함) 자동 계산 ----------------
@@ -643,8 +671,8 @@ function krHolidaySetForYear(y) {
 
 function defaultData() {
   const categories = [];
-  const colorCounter = { expense: 0, income: 0 };
-  ['expense', 'income'].forEach((type) => {
+  const colorCounter = { expense: 0, income: 0, transfer: 0 };
+  ['expense', 'income', 'transfer'].forEach((type) => {
     CATEGORY_TREE[type].forEach((group) => {
       const parentId = uid();
       categories.push({ id: parentId, type, name: group.name, icon: group.icon, parentId: null });
@@ -742,6 +770,34 @@ function migrateToUpdatedCategoryTree(d) {
   return d;
 }
 
+/* 이체(transfer)에도 카테고리를 붙일 수 있도록, 이체용 카테고리가 아직 없는 기존 데이터에
+   한 번만 추가해요. 기존 지출/수입 카테고리는 전혀 건드리지 않아요. */
+function migrateAddTransferCategories(d) {
+  if ((d.categories || []).some((c) => c.type === 'transfer')) return d;
+  const colorCounter = { transfer: 0 };
+  (CATEGORY_TREE.transfer || []).forEach((group) => {
+    const parentId = uid();
+    d.categories.push({ id: parentId, type: 'transfer', name: group.name, icon: group.icon, parentId: null });
+    group.children.forEach(([name, icon]) => {
+      d.categories.push({ id: uid(), type: 'transfer', name, icon, parentId, colorIdx: colorCounter.transfer++ % 8 });
+    });
+  });
+  return d;
+}
+
+/* 일회성 데이터 보정: 메모가 "주식모으기 이체"인 이체 거래/정기거래의 카테고리를 "주식투자"로 맞춰요. */
+function migrateStockTransferCategory(d) {
+  d.settings = d.settings || {};
+  if (d.settings.stockTransferCategoryMigrated) return d;
+  const stockCat = (d.categories || []).find((c) => c.type === 'transfer' && c.name === '주식투자');
+  if (stockCat) {
+    (d.transactions || []).forEach((t) => { if (t.type === 'transfer' && t.memo === '주식모으기 이체') t.categoryId = stockCat.id; });
+    (d.recurring || []).forEach((r) => { if (r.type === 'transfer' && r.name === '주식모으기 이체') r.categoryId = stockCat.id; });
+  }
+  d.settings.stockTransferCategoryMigrated = true;
+  return d;
+}
+
 function loadData() {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -756,6 +812,8 @@ function loadData() {
     d = migrateCategoriesToHierarchy(d);
     d = migrateAccountTypes(d);
     d = migrateToUpdatedCategoryTree(d);
+    d = migrateAddTransferCategories(d);
+    d = migrateStockTransferCategory(d);
     return d;
   } catch (e) { console.error(e); return defaultData(); }
 }
@@ -1752,13 +1810,14 @@ function abbrevWon(n) {
 }
 
 /* ---------------- TRANSACTIONS ---------------- */
-function renderTxTable(list, hideDate) {
+function renderTxTable(list, hideDate, showCategoryCol) {
   return `<div class="overflow-x"><table>
     <thead><tr>
       ${hideDate ? '' : '<th style="width:64px;">날짜</th>'}
       <th class="name-cell mcol">내역</th>
       <th class="dcol" style="width:64px;">구분</th>
       <th class="dcol" style="width:130px;">계좌</th>
+      ${showCategoryCol ? '<th class="dcol" style="width:130px;">카테고리</th>' : ''}
       <th class="dcol">메모</th>
       <th class="dcol" style="width:130px;">대상/거래처</th>
       <th class="num">금액</th>
@@ -1770,15 +1829,28 @@ function renderTxTable(list, hideDate) {
         const acc = getAccount(t.accountId);
         const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
         const vendor = t.vendor || t.payee || '';
-        let mid, acctCell;
+        let mid, acctCell, catCell;
         if (t.type === 'transfer') {
           const toAcc = getAccount(t.toAccountId);
           mid = `${acc.icon} ${escapeHtml(acc.name)} → ${toAcc.icon} ${escapeHtml(toAcc.name)}`;
           acctCell = mid;
+          if (t.categoryId) {
+            const cat = getCategory(t.categoryId);
+            const parent = cat.parentId ? getCategory(cat.parentId) : cat;
+            catCell = cat.parentId
+              ? `${parent.icon || ''} ${escapeHtml(parent.name)} <span style="color:var(--ink-faint)">· ${escapeHtml(cat.name)}</span>`
+              : `${parent.icon || ''} ${escapeHtml(parent.name)}`;
+          } else {
+            catCell = '-';
+          }
         } else {
           const cat = getCategory(t.categoryId);
+          const parent = cat.parentId ? getCategory(cat.parentId) : cat;
           mid = `${cat.icon} ${escapeHtml(cat.name)} <span style="color:var(--ink-faint)">· ${escapeHtml(acc.name)}</span>`;
           acctCell = `${acc.icon} ${escapeHtml(acc.name)}`;
+          catCell = cat.parentId
+            ? `${parent.icon || ''} ${escapeHtml(parent.name)} <span style="color:var(--ink-faint)">· ${escapeHtml(cat.name)}</span>`
+            : `${parent.icon || ''} ${escapeHtml(parent.name)}`;
         }
         const sign = t.type === 'income' ? '+' : t.type === 'expense' ? '-' : '';
         const subParts = [];
@@ -1800,6 +1872,7 @@ function renderTxTable(list, hideDate) {
           </td>
           <td class="dcol"><span class="type-tag ${t.type}">${typeLabel}</span></td>
           <td class="dcol" title="${acctCell.replace(/<[^>]*>/g, '')}">${acctCell}</td>
+          ${showCategoryCol ? `<td class="dcol" title="${catCell.replace(/<[^>]*>/g, '')}">${catCell}</td>` : ''}
           <td class="dcol" title="${escapeHtml(t.memo || '')}">${memoCell}</td>
           <td class="dcol" title="${escapeHtml(vendor)}">${escapeHtml(vendor)}</td>
           <td class="num amt ${t.type}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</td>
@@ -1863,7 +1936,7 @@ function renderTransactions() {
           </div>
         </div>
         <div class="form-note">${monthLabel(mKey)} · ${list.length}건</div>
-        ${list.length ? renderTxTable(list, false) : `<div class="empty"><div class="big">조건에 맞는 거래가 없어요</div>필터를 바꾸거나 새 거래를 추가해보세요.</div>`}
+        ${list.length ? renderTxTable(list, false, true) : `<div class="empty"><div class="big">조건에 맞는 거래가 없어요</div>필터를 바꾸거나 새 거래를 추가해보세요.</div>`}
       </div>
       <div class="tx-inline-panel" id="tx-inline-slot-transactions"></div>
     </div>
@@ -2018,7 +2091,15 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
   const loanField = document.getElementById('tx-loan-field');
   const acctOption = (a, presetId) => `<option value="${a.id}" ${presetId === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}${a.currency === 'USD' ? ' (USD)' : ''}</option>`;
   if (type === 'transfer') {
-    catField.innerHTML = '';
+    const transferGroups = topCategories('transfer').map(p => {
+      const children = childCategories(p.id);
+      if (!children.length) return '';
+      return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}" ${presetCat === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
+    }).join('');
+    catField.innerHTML = `<label class="field-lbl">카테고리</label>
+      <select id="tx-category" style="display:none;">${transferGroups}</select>
+      <input type="text" class="cat-field" id="tx-category-display" autocomplete="off" placeholder="카테고리 선택" onfocus="this.select(); openCategoryPicker(this)" oninput="onCategoryInput(this)" onkeydown="onCategoryKeydown(event)" onblur="setTimeout(closeCategoryPicker, 150)">`;
+    syncCategoryDisplay();
     accField.innerHTML = `<label class="field-lbl">출금 자산</label><select id="tx-account" onchange="updateTxAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
     toAccField.innerHTML = `<label class="field-lbl">입금 자산</label><select id="tx-toaccount">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
     excludeField.innerHTML = '';
@@ -2320,12 +2401,14 @@ async function submitTx(editId) {
 
   let payload = { type, date, amount, memo, hasReceipt: undefined, payee: undefined, vendor: undefined };
   if (type === 'transfer') {
+    const categoryId = document.getElementById('tx-category').value;
     const accountId = document.getElementById('tx-account').value;
     const toAccountId = document.getElementById('tx-toaccount').value;
+    if (!categoryId) return showToast('카테고리가 없어요. 설정에서 먼저 추가해주세요.', 'error');
     if (!accountId || !toAccountId) return showToast('자산을 선택해주세요.', 'error');
     if (accountId === toAccountId) return showToast('출금 자산과 입금 자산이 같을 수 없어요.', 'error');
     if ((getAccount(accountId).currency || 'KRW') !== (getAccount(toAccountId).currency || 'KRW')) return showToast('통화가 다른 자산 간 이체는 아직 지원하지 않아요.', 'error');
-    payload.accountId = accountId; payload.toAccountId = toAccountId;
+    payload.categoryId = categoryId; payload.accountId = accountId; payload.toAccountId = toAccountId;
   } else {
     const categoryId = document.getElementById('tx-category').value;
     const accountId = document.getElementById('tx-account').value;
@@ -3103,53 +3186,55 @@ function compareRecurringSortKey(a, b) {
 function renderRecurring() {
   state._recPanelMode = null;
   const groups = REC_TYPE_ORDER
-    .map(type => ({ type, items: DATA.recurring.filter(r => r.type === type).sort(compareRecurringSortKey) }))
-    .filter(g => g.items.length);
-  const groupHtml = groups.map(g => `
-    <div class="rec-group-head ${g.type}">${REC_TYPE_LABEL[g.type]} <span class="count">${g.items.length}건</span></div>
-    <div class="overflow-x"><table>
-      <thead><tr>
-        <th class="name-cell">메모</th>
-        <th style="width:150px;">계좌</th>
-        <th style="width:130px;">카테고리</th>
-        <th style="width:130px;">대상/거래처</th>
-        <th class="num">금액</th>
-        <th style="width:120px;">주기</th>
-        <th class="actions-cell">관리</th>
-      </tr></thead>
-      <tbody>
-        ${g.items.map(r => {
-          const acc = getAccount(r.accountId);
-          const acctCell = r.type === 'transfer'
-            ? `${acc.icon} ${escapeHtml(acc.name)} → ${getAccount(r.toAccountId).icon} ${escapeHtml(getAccount(r.toAccountId).name)}`
-            : `${acc.icon} ${escapeHtml(acc.name)}`;
-          let catCell = '-';
-          if (r.type !== 'transfer') {
-            const cat = getCategory(r.categoryId);
-            const parent = cat.parentId ? getCategory(cat.parentId) : cat;
-            catCell = cat.parentId
-              ? `${parent.icon || ''} ${escapeHtml(parent.name)} <span style="color:var(--ink-faint)">· ${escapeHtml(cat.name)}</span>`
-              : `${parent.icon || ''} ${escapeHtml(parent.name)}`;
-          }
-          const noteParts = [];
-          if (r.type === 'expense' && r.noHolidayShift) noteParts.push('휴일무관');
-          if (r.type === 'income' && r.payBeforeHoliday) noteParts.push('휴일 전 평일');
-          return `<tr>
-            <td class="name-cell">${escapeHtml(r.name)}${noteParts.length ? `<div style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${noteParts.join(' · ')}</div>` : ''}</td>
-            <td title="${acctCell.replace(/<[^>]*>/g, '')}">${acctCell}</td>
-            <td title="${catCell.replace(/<[^>]*>/g, '')}">${catCell}</td>
-            <td title="${escapeHtml(r.payee || '')}">${escapeHtml(r.payee || '')}</td>
-            <td class="num">${fmtCurrency(r.amount, acc.currency || 'KRW')}</td>
-            <td>${recurringScheduleLabel(r)}</td>
-            <td class="actions-cell">
-              <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringApplyModal('${r.id}')">적용</button>
-              <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringModal('${r.id}')">수정</button>
-              <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteRecurring('${r.id}')">삭제</button>
-            </td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table></div>
+    .map(type => ({ type, items: DATA.recurring.filter(r => r.type === type).sort(compareRecurringSortKey) }));
+  const colHtml = groups.map(g => `
+    <div class="rec-col">
+      <div class="rec-col-head ${g.type}">${REC_TYPE_LABEL[g.type]} <span class="count">${g.items.length}건</span></div>
+      <div class="rec-col-body">
+        ${g.items.length ? `<div class="overflow-x"><table>
+          <thead><tr>
+            <th class="name-cell">메모</th>
+            <th style="width:150px;">계좌</th>
+            <th style="width:130px;">카테고리</th>
+            <th style="width:130px;">대상/거래처</th>
+            <th class="num">금액</th>
+            <th style="width:120px;">주기</th>
+            <th class="actions-cell">관리</th>
+          </tr></thead>
+          <tbody>
+            ${g.items.map(r => {
+              const acc = getAccount(r.accountId);
+              const acctCell = r.type === 'transfer'
+                ? `${acc.icon} ${escapeHtml(acc.name)} → ${getAccount(r.toAccountId).icon} ${escapeHtml(getAccount(r.toAccountId).name)}`
+                : `${acc.icon} ${escapeHtml(acc.name)}`;
+              const cat = getCategory(r.categoryId);
+              const parent = cat.parentId ? getCategory(cat.parentId) : cat;
+              const catCell = r.categoryId
+                ? (cat.parentId
+                  ? `${parent.icon || ''} ${escapeHtml(parent.name)} <span style="color:var(--ink-faint)">· ${escapeHtml(cat.name)}</span>`
+                  : `${parent.icon || ''} ${escapeHtml(parent.name)}`)
+                : '-';
+              const noteParts = [];
+              if (r.type === 'expense' && r.noHolidayShift) noteParts.push('휴일무관');
+              if (r.type === 'income' && r.payBeforeHoliday) noteParts.push('휴일 전 평일');
+              return `<tr>
+                <td class="name-cell">${escapeHtml(r.name)}${noteParts.length ? `<div style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${noteParts.join(' · ')}</div>` : ''}</td>
+                <td title="${acctCell.replace(/<[^>]*>/g, '')}">${acctCell}</td>
+                <td title="${catCell.replace(/<[^>]*>/g, '')}">${catCell}</td>
+                <td title="${escapeHtml(r.payee || '')}">${escapeHtml(r.payee || '')}</td>
+                <td class="num">${fmtCurrency(r.amount, acc.currency || 'KRW')}</td>
+                <td>${recurringScheduleLabel(r)}</td>
+                <td class="actions-cell">
+                  <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringApplyModal('${r.id}')">적용</button>
+                  <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringModal('${r.id}')">수정</button>
+                  <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteRecurring('${r.id}')">삭제</button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table></div>` : `<div class="empty">등록된 ${REC_TYPE_LABEL[g.type]}이 없어요.</div>`}
+      </div>
+    </div>
   `).join('');
   document.getElementById('panel-recurring').innerHTML = `
     <div class="tx-split">
@@ -3158,7 +3243,7 @@ function renderRecurring() {
           <div class="hint">등록된 정기거래는 목록의 "적용" 버튼으로 원하는 날짜에 직접 등록해요.</div>
           <button class="primary-btn" onclick="openRecurringModal()">+ 정기거래 추가</button>
         </div>
-        ${DATA.recurring.length ? groupHtml : `<div class="empty"><div class="big">등록된 정기거래가 없어요</div>월세, 구독료, 급여 등을 등록해보세요.</div>`}
+        <div class="rec-cols">${colHtml}</div>
       </div>
       <div class="tx-inline-panel" id="tx-inline-slot-recurring"></div>
     </div>
