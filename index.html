@@ -40,7 +40,7 @@
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans); }
-  .app { max-width: 1440px; margin: 0 auto; display: flex; align-items: flex-start; }
+  .app { max-width: 1440px; margin: 0; display: flex; align-items: flex-start; }
   .main-content { flex: 1; min-width: 0; padding: 28px 24px 60px; }
 
   .masthead { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; row-gap: 10px; margin-bottom: 22px; padding-bottom: 16px; border-bottom: 1px solid var(--ink); }
@@ -151,6 +151,13 @@
   @media (min-width: 860px) {
     .tx-actions-cell { display: none; }
     .tx-row-clickable { cursor: pointer; }
+  }
+  .tx-split { display: flex; align-items: flex-start; }
+  .tx-split-main { flex: 1; min-width: 0; }
+  .tx-inline-panel { width: 0; flex-shrink: 0; overflow: hidden; }
+  .tx-inline-panel .tx-inline-card { max-width: none; max-height: none; height: auto; width: 360px; border: none; box-shadow: none; padding: 0; margin: 0; background: transparent; overflow: visible; }
+  @media (min-width: 860px) {
+    .tx-inline-panel.active { width: 360px; margin-left: 24px; padding-left: 24px; border-left: 1px solid var(--line); }
   }
   .dp-pop { position: fixed; z-index: 10000; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 10px; width: 250px; }
   .dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
@@ -1677,32 +1684,37 @@ function renderTransactions() {
   }).join('');
 
   document.getElementById('panel-transactions').innerHTML = `
-    ${monthNavHtml('navMonth(-1)', 'navMonth(1)', mKey)}
-    <div class="toolbar">
-      <div class="btn-group">
-        <select id="f-type" style="width:100px;" onchange="onFilterChange()">
-          <option value="all" ${f.type === 'all' ? 'selected' : ''}>전체</option>
-          <option value="expense" ${f.type === 'expense' ? 'selected' : ''}>지출</option>
-          <option value="income" ${f.type === 'income' ? 'selected' : ''}>수입</option>
-          <option value="transfer" ${f.type === 'transfer' ? 'selected' : ''}>이체</option>
-        </select>
-        <select id="f-category" style="width:150px;" onchange="onFilterChange()">
-          <option value="">전체 카테고리</option>${catOptions}
-        </select>
-        <select id="f-account" style="width:130px;" onchange="onFilterChange()">
-          <option value="">전체 자산</option>${DATA.accounts.map(a => `<option value="${a.id}" ${f.accountId === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}
-        </select>
+    <div class="tx-split">
+      <div class="tx-split-main">
+        ${monthNavHtml('navMonth(-1)', 'navMonth(1)', mKey)}
+        <div class="toolbar">
+          <div class="btn-group">
+            <select id="f-type" style="width:100px;" onchange="onFilterChange()">
+              <option value="all" ${f.type === 'all' ? 'selected' : ''}>전체</option>
+              <option value="expense" ${f.type === 'expense' ? 'selected' : ''}>지출</option>
+              <option value="income" ${f.type === 'income' ? 'selected' : ''}>수입</option>
+              <option value="transfer" ${f.type === 'transfer' ? 'selected' : ''}>이체</option>
+            </select>
+            <select id="f-category" style="width:150px;" onchange="onFilterChange()">
+              <option value="">전체 카테고리</option>${catOptions}
+            </select>
+            <select id="f-account" style="width:130px;" onchange="onFilterChange()">
+              <option value="">전체 자산</option>${DATA.accounts.map(a => `<option value="${a.id}" ${f.accountId === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="search-wrap">
+            <input class="search-input" id="f-q" placeholder="대상/거래처/메모 검색" value="${escapeHtml(f.q)}" oninput="onFilterChange()">
+          </div>
+          <div class="btn-group">
+            <button class="ghost-btn" onclick="openBulkImportModal()">📑 일괄등록</button>
+            <button class="primary-btn" onclick="openTxModal(null, dateInMonth('${mKey}'))">+ 거래 추가</button>
+          </div>
+        </div>
+        <div class="form-note">${monthLabel(mKey)} · ${list.length}건</div>
+        ${list.length ? renderTxTable(list, false) : `<div class="empty"><div class="big">조건에 맞는 거래가 없어요</div>필터를 바꾸거나 새 거래를 추가해보세요.</div>`}
       </div>
-      <div class="search-wrap">
-        <input class="search-input" id="f-q" placeholder="대상/거래처/메모 검색" value="${escapeHtml(f.q)}" oninput="onFilterChange()">
-      </div>
-      <div class="btn-group">
-        <button class="ghost-btn" onclick="openBulkImportModal()">📑 일괄등록</button>
-        <button class="primary-btn" onclick="openTxModal(null, dateInMonth('${mKey}'))">+ 거래 추가</button>
-      </div>
+      <div class="tx-inline-panel" id="tx-inline-slot-transactions"></div>
     </div>
-    <div class="form-note">${monthLabel(mKey)} · ${list.length}건</div>
-    ${list.length ? renderTxTable(list, false) : `<div class="empty"><div class="big">조건에 맞는 거래가 없어요</div>필터를 바꾸거나 새 거래를 추가해보세요.</div>`}
   `;
 }
 function onFilterChange() {
@@ -1722,6 +1734,22 @@ function onTxRowClick(e, id) {
   if (!window.matchMedia('(min-width: 860px)').matches) return;
   if (e.target.closest('button, a, input, select, textarea')) return;
   openTxModal(id);
+}
+function txInlineSlot() {
+  if (!window.matchMedia('(min-width: 860px)').matches) return null;
+  const id = state.tab === 'transactions' ? 'tx-inline-slot-transactions'
+    : (state.tab === 'accounts' && state.acctSelectedId) ? 'tx-inline-slot-accounts'
+    : null;
+  return id ? document.getElementById(id) : null;
+}
+function closeTxPanel() {
+  const mode = state._txModal && state._txModal.renderMode;
+  state._txModal = null;
+  if (mode === 'inline') {
+    document.querySelectorAll('.tx-inline-panel').forEach(el => { el.classList.remove('active'); el.innerHTML = ''; });
+  } else {
+    closeModal();
+  }
 }
 function dateInMonth(mKey) {
   const [y, m] = mKey.split('-').map(Number);
@@ -1748,7 +1776,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
         : ''));
   const modalTitle = editing ? '거래 수정' : (fromRecurring ? `${escapeHtml(fromRecurring.name)} 적용` : (duplicateFrom ? '거래 복사' : '거래 추가'));
   const submitLabel = editing ? '저장' : (fromRecurring ? '적용' : '추가');
-  openModal(`
+  const formHtml = `
     <h3>${modalTitle}</h3>
     ${fromRecurring ? `<div class="form-note" style="margin-bottom:10px;">등록 전 마지막으로 내용을 확인하고 필요하면 수정하세요.</div>` : ''}
     ${duplicateFrom ? `<div class="form-note" style="margin-bottom:10px;">기존 거래 내용을 그대로 불러왔어요. 날짜·금액 등을 확인하고 등록하세요.</div>` : ''}
@@ -1775,16 +1803,25 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     <div class="field" id="tx-exclude-field"></div>
     ${fromRecurring ? '' : `<div class="field"><button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="registerAsRecurringFromTxForm()">🔁 정기거래로 등록</button></div>`}
     <div class="form-actions">
-      <button class="ghost-btn" onclick="closeModal()">취소</button>
+      <button class="ghost-btn" onclick="closeTxPanel()">취소</button>
       <button class="primary-btn" onclick="submitTx(${editing ? `'${editing.id}'` : 'null'})">${submitLabel}</button>
     </div>
     ${editing ? `<div class="panel-footer-actions">
       <button class="ghost-btn" onclick="duplicateTx('${editing.id}')" title="이 거래를 복사해서 새로 등록">복사</button>
       ${editing.receipt ? `<button class="ghost-btn" onclick="openReceiptLightboxForTx('${editing.id}')">사진</button>` : ''}
-      <button class="ghost-btn danger-btn" onclick="if (deleteTx('${editing.id}')) closeModal();">삭제</button>
+      <button class="ghost-btn danger-btn" onclick="if (deleteTx('${editing.id}')) closeTxPanel();">삭제</button>
     </div>` : ''}
-  `, { sidePanel: true });
-  state._txModal = { type, editing, receipt: editing && editing.type === 'expense' ? (editing.receipt || null) : null, fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null };
+  `;
+  const inlineSlot = txInlineSlot();
+  if (inlineSlot) {
+    document.querySelectorAll('.tx-inline-panel').forEach(el => { if (el !== inlineSlot) { el.classList.remove('active'); el.innerHTML = ''; } });
+    inlineSlot.innerHTML = `<div class="modal-card tx-inline-card">${formHtml}</div>`;
+    inlineSlot.classList.add('active');
+    state._txModal = { type, editing, receipt: editing && editing.type === 'expense' ? (editing.receipt || null) : null, fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, renderMode: 'inline' };
+  } else {
+    openModal(formHtml, { sidePanel: true });
+    state._txModal = { type, editing, receipt: editing && editing.type === 'expense' ? (editing.receipt || null) : null, fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, renderMode: 'overlay' };
+  }
   renderTxModalFields(
     editing ? editing.categoryId : (fromRecurring ? fromRecurring.categoryId : (duplicateFrom ? duplicateFrom.categoryId : null)),
     editing ? editing.accountId : (fromRecurring ? fromRecurring.accountId : (duplicateFrom ? duplicateFrom.accountId : (presetAccountId || null))),
@@ -1993,7 +2030,7 @@ function registerAsRecurringFromTxForm() {
     template.accountId = document.getElementById('tx-account').value;
     if (!template.categoryId || !template.accountId) return showToast('카테고리와 자산을 선택해주세요.', 'error');
   }
-  closeModal();
+  closeTxPanel();
   openRecurringModal(null, template);
 }
 function submitTx(editId) {
@@ -2038,8 +2075,9 @@ function submitTx(editId) {
     DATA.transactions.push(payload);
   }
   saveData();
-  closeModal();
-  showToast(editId ? '거래를 수정했어요.' : (state._txModal.fromRecurringId ? '정기거래를 적용했어요.' : '거래를 추가했어요.'), 'success');
+  const wasFromRecurring = state._txModal.fromRecurringId;
+  closeTxPanel();
+  showToast(editId ? '거래를 수정했어요.' : (wasFromRecurring ? '정기거래를 적용했어요.' : '거래를 추가했어요.'), 'success');
   renderAll();
 }
 function deleteTx(id) {
@@ -2560,32 +2598,37 @@ function renderAccountDetail(acc) {
     .filter(t => t.accountId === acc.id || t.toAccountId === acc.id || t.linkedLoanAccountId === acc.id)
     .sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
   return `
-    <div class="acct-detail-head">
-      <div class="acct-detail-title">
-        <span>${acc.icon || ACC_TYPE_ICON[acc.type] || '💰'} ${escapeHtml(acc.name)}</span>
-        <button class="icon-btn" onclick="openAccountModal('${acc.id}')" title="수정" aria-label="수정">✏️</button>
-        <span class="form-note" style="margin:0;">사용기간 ${usagePeriod}</span>
+    <div class="tx-split">
+      <div class="tx-split-main">
+        <div class="acct-detail-head">
+          <div class="acct-detail-title">
+            <span>${acc.icon || ACC_TYPE_ICON[acc.type] || '💰'} ${escapeHtml(acc.name)}</span>
+            <button class="icon-btn" onclick="openAccountModal('${acc.id}')" title="수정" aria-label="수정">✏️</button>
+            <span class="form-note" style="margin:0;">사용기간 ${usagePeriod}</span>
+          </div>
+          <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="deselectAccountDetail()">← 목록으로</button>
+        </div>
+        <div class="seg" style="margin-bottom:12px;">
+          <button type="button" class="${period === 'month' ? 'active' : ''}" onclick="setAcctPeriod('month')">월간</button>
+          <button type="button" class="${period === 'year' ? 'active' : ''}" onclick="setAcctPeriod('year')">년간</button>
+          <button type="button" class="${period === 'all' ? 'active' : ''}" onclick="setAcctPeriod('all')">전체</button>
+        </div>
+        ${periodNav}
+        <div class="acct-summary-row">
+          <div class="item"><div class="lbl">입금</div><div class="val income">${won(flow.inflow)}</div></div>
+          <div class="item"><div class="lbl">출금</div><div class="val expense">${won(flow.outflow)}</div></div>
+          <div class="item"><div class="lbl">합계</div><div class="val ${flow.net >= 0 ? 'income' : 'expense'}">${wonSigned(flow.net)}</div></div>
+          <div class="item"><div class="lbl">누적잔액</div><div class="val">${fmtCurrencySigned(cumulative, acc.currency || 'KRW')}</div></div>
+        </div>
+        <div class="section-block">
+          <div class="section-heading">${periodLabel} 내역 (${list.length}건)<button class="ghost-btn" onclick="addTxForAccount('${acc.id}')">+ 내역 추가</button></div>
+          ${list.length ? renderAccountTxTable(list, acc) : `<div class="empty">해당 기간에는 거래가 없어요.</div>`}
+        </div>
+        <div class="form-actions" style="justify-content:flex-start;margin-top:14px;">
+          <button class="ghost-btn danger-btn" onclick="deleteAccount('${acc.id}')">이 자산 삭제</button>
+        </div>
       </div>
-      <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="deselectAccountDetail()">← 목록으로</button>
-    </div>
-    <div class="seg" style="margin-bottom:12px;">
-      <button type="button" class="${period === 'month' ? 'active' : ''}" onclick="setAcctPeriod('month')">월간</button>
-      <button type="button" class="${period === 'year' ? 'active' : ''}" onclick="setAcctPeriod('year')">년간</button>
-      <button type="button" class="${period === 'all' ? 'active' : ''}" onclick="setAcctPeriod('all')">전체</button>
-    </div>
-    ${periodNav}
-    <div class="acct-summary-row">
-      <div class="item"><div class="lbl">입금</div><div class="val income">${won(flow.inflow)}</div></div>
-      <div class="item"><div class="lbl">출금</div><div class="val expense">${won(flow.outflow)}</div></div>
-      <div class="item"><div class="lbl">합계</div><div class="val ${flow.net >= 0 ? 'income' : 'expense'}">${wonSigned(flow.net)}</div></div>
-      <div class="item"><div class="lbl">누적잔액</div><div class="val">${fmtCurrencySigned(cumulative, acc.currency || 'KRW')}</div></div>
-    </div>
-    <div class="section-block">
-      <div class="section-heading">${periodLabel} 내역 (${list.length}건)<button class="ghost-btn" onclick="addTxForAccount('${acc.id}')">+ 내역 추가</button></div>
-      ${list.length ? renderAccountTxTable(list, acc) : `<div class="empty">해당 기간에는 거래가 없어요.</div>`}
-    </div>
-    <div class="form-actions" style="justify-content:flex-start;margin-top:14px;">
-      <button class="ghost-btn danger-btn" onclick="deleteAccount('${acc.id}')">이 자산 삭제</button>
+      <div class="tx-inline-panel" id="tx-inline-slot-accounts"></div>
     </div>
   `;
 }
