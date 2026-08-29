@@ -29,6 +29,7 @@
     --accent: #0f6e56;
     --accent-soft: #e1f0ea;
     --accent-tint: #f2f8f5;
+    --accent-line: #9dc9bb;
     --down: #a32d2d;
     --down-soft: #fcebeb;
     --mono: 'JetBrains Mono', 'SF Mono', ui-monospace, Consolas, monospace;
@@ -106,7 +107,7 @@
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .overflow-x table { table-layout: fixed; min-width: 480px; }
   tbody td { white-space: nowrap; padding: 10px 8px; border-bottom: 1px solid var(--line-soft); overflow: hidden; text-overflow: ellipsis; }
-  tbody tr.day-boundary td { border-bottom: 2px solid var(--ink-faint); }
+  tbody tr.day-boundary td { border-bottom: 2px solid var(--accent-line); }
   .name-cell { line-height: 1.35; white-space: normal; overflow: visible; text-overflow: clip; word-break: keep-all; overflow-wrap: break-word; }
   thead th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-faint); font-weight: 500; padding: 8px; border-bottom: 1px solid var(--ink); position: sticky; top: 0; background: var(--paper); z-index: 4; box-shadow: 0 1px 0 var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   th.num, td.num { text-align: right; font-family: var(--mono); width: 128px; }
