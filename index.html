@@ -96,7 +96,6 @@
   input, select { height: 34px; }
   textarea { padding: 9px; min-height: 70px; resize: vertical; line-height: 1.6; }
   input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
-  input[type="month"] { -webkit-appearance: none; appearance: none; }
   .form-note { font-size: 12px; color: var(--ink-faint); margin-bottom: 8px; }
   .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
   .field-lbl { font-size: 10px; color: var(--ink-faint); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.03em; display: block; }
@@ -159,6 +158,13 @@
   .cp-item:hover { background: var(--line-soft); }
   .cp-item.sel { background: var(--accent-tint); font-weight: 600; }
   .cp-item.active { box-shadow: inset 0 0 0 1px var(--accent); }
+  .mp-pop { position: fixed; z-index: 10000; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 10px; width: 216px; }
+  .mp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .mp-head .mp-year { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+  .mp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+  .mp-cell { text-align: center; font-size: 12px; padding: 9px 0; border-radius: 4px; cursor: pointer; color: var(--ink); }
+  .mp-cell:hover { background: var(--line-soft); }
+  .mp-cell.sel { background: var(--accent); color: #fff; font-weight: 600; }
 
   #auth-gate { position: fixed; inset: 0; background: var(--paper); z-index: 9500; display: flex; align-items: center; justify-content: center; padding: 20px; overflow-y: auto; }
   .auth-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; padding: 28px 24px; width: 100%; max-width: 360px; margin: auto; }
@@ -1176,6 +1182,124 @@ document.addEventListener('click', (e) => {
   if (target) openCategoryPicker();
 });
 
+/* ---------------- custom month/year picker for the shared month-nav label ---------------- */
+let mpState = null;
+function openMonthPicker(el, mKey, onPickName) {
+  if (mpState && mpState.el === el) { closeMonthPicker(); return; }
+  closeMonthPicker();
+  const pop = document.createElement('div');
+  pop.className = 'mp-pop';
+  document.body.appendChild(pop);
+  mpState = { el, pop, onPickName, year: Number(mKey.slice(0, 4)), month: Number(mKey.slice(5, 7)) };
+  renderMonthPicker();
+  positionMonthPicker();
+  setTimeout(() => document.addEventListener('mousedown', onMonthPickerOutsideClick), 0);
+  window.addEventListener('resize', positionMonthPicker);
+  window.addEventListener('scroll', closeMonthPicker, true);
+}
+function positionMonthPicker() {
+  if (!mpState) return;
+  const rect = mpState.el.getBoundingClientRect();
+  const top = Math.min(rect.bottom + 4, window.innerHeight - 260);
+  const left = Math.min(rect.left, window.innerWidth - 232);
+  mpState.pop.style.top = Math.max(8, top) + 'px';
+  mpState.pop.style.left = Math.max(8, left) + 'px';
+}
+function renderMonthPicker() {
+  if (!mpState) return;
+  const months = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
+  mpState.pop.innerHTML = `
+    <div class="mp-head">
+      <button type="button" class="icon-btn" onclick="navMonthPickerYear(-1)" aria-label="이전 해">&lt;</button>
+      <div class="mp-year">${mpState.year}년</div>
+      <button type="button" class="icon-btn" onclick="navMonthPickerYear(1)" aria-label="다음 해">&gt;</button>
+    </div>
+    <div class="mp-grid">
+      ${months.map((label, i) => `<div class="mp-cell ${i + 1 === mpState.month ? 'sel' : ''}" onclick="pickMonthYear(${i + 1})">${label}</div>`).join('')}
+    </div>
+  `;
+}
+function navMonthPickerYear(delta) {
+  if (!mpState) return;
+  mpState.year += delta;
+  renderMonthPicker();
+}
+function pickMonthYear(m) {
+  if (!mpState) return;
+  const value = `${mpState.year}-${pad2(m)}`;
+  const onPickName = mpState.onPickName;
+  closeMonthPicker();
+  window[onPickName](value);
+}
+function onMonthPickerOutsideClick(e) {
+  if (!mpState) return;
+  if (mpState.pop.contains(e.target) || e.target === mpState.el) return;
+  closeMonthPicker();
+}
+function closeMonthPicker() {
+  if (!mpState) return;
+  mpState.pop.remove();
+  document.removeEventListener('mousedown', onMonthPickerOutsideClick);
+  window.removeEventListener('resize', positionMonthPicker);
+  window.removeEventListener('scroll', closeMonthPicker, true);
+  mpState = null;
+}
+
+/* ---------------- custom 대상/거래처 suggestion list (no native <datalist>, which iOS Safari doesn't render) ---------------- */
+let vsState = null;
+function openVendorSuggest(input) {
+  if (vsState && vsState.input === input) return;
+  closeVendorSuggest();
+  const pop = document.createElement('div');
+  pop.className = 'cp-pop';
+  document.body.appendChild(pop);
+  vsState = { input, pop };
+  renderVendorSuggest();
+  positionVendorSuggest();
+  setTimeout(() => document.addEventListener('mousedown', onVendorSuggestOutsideClick), 0);
+  window.addEventListener('resize', positionVendorSuggest);
+  window.addEventListener('scroll', closeVendorSuggest, true);
+}
+function onVendorInput(input) {
+  if (!vsState || vsState.input !== input) { openVendorSuggest(input); return; }
+  renderVendorSuggest();
+}
+function positionVendorSuggest() {
+  if (!vsState) return;
+  const rect = vsState.input.getBoundingClientRect();
+  const top = Math.min(rect.bottom + 4, window.innerHeight - 220);
+  const left = Math.min(rect.left, window.innerWidth - Math.max(220, rect.width) - 8);
+  vsState.pop.style.top = Math.max(8, top) + 'px';
+  vsState.pop.style.left = Math.max(8, left) + 'px';
+  vsState.pop.style.width = Math.min(Math.max(220, rect.width), window.innerWidth - 16) + 'px';
+}
+function renderVendorSuggest() {
+  if (!vsState) return;
+  const q = vsState.input.value.trim().toLowerCase();
+  const all = Array.from(new Set(DATA.transactions.flatMap(t => [t.vendor, t.payee]).filter(Boolean)));
+  const matches = all.filter(v => !q || v.toLowerCase().includes(q)).slice(0, 8);
+  if (!matches.length) { closeVendorSuggest(); return; }
+  vsState.pop.innerHTML = `<div class="cp-list">${matches.map(v => `<div class="cp-item" onclick="pickVendorSuggest(this.textContent)">${escapeHtml(v)}</div>`).join('')}</div>`;
+}
+function pickVendorSuggest(v) {
+  if (!vsState) return;
+  vsState.input.value = v;
+  closeVendorSuggest();
+}
+function onVendorSuggestOutsideClick(e) {
+  if (!vsState) return;
+  if (vsState.pop.contains(e.target) || e.target === vsState.input) return;
+  closeVendorSuggest();
+}
+function closeVendorSuggest() {
+  if (!vsState) return;
+  vsState.pop.remove();
+  document.removeEventListener('mousedown', onVendorSuggestOutsideClick);
+  window.removeEventListener('resize', positionVendorSuggest);
+  window.removeEventListener('scroll', closeVendorSuggest, true);
+  vsState = null;
+}
+
 /* ---------------- swipe left/right to move the month/year nav (mobile) ---------------- */
 (function setupSwipeNav() {
   let sx = 0, sy = 0, st = 0, active = false;
@@ -1341,7 +1465,7 @@ function monthNavHtml(onPrev, onNext, mKey, opts) {
   const onPick = opts.onPick || 'navToMonth';
   return `<div class="month-nav">
     <button class="icon-btn" onclick="${onPrev}" aria-label="이전 달">&lt;</button>
-    <div class="m-label" title="달을 선택하려면 클릭하세요">${monthLabel(mKey)}<input type="month" value="${mKey}" aria-label="달 선택" onchange="${onPick}(this.value)"></div>
+    <div class="m-label" title="달을 선택하려면 클릭하세요" onclick="openMonthPicker(this, '${mKey}', '${onPick}')">${monthLabel(mKey)}</div>
     <button class="icon-btn" onclick="${onNext}" aria-label="다음 달">&gt;</button>
     <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="${onToday}">오늘</button>
   </div>`;
@@ -1552,7 +1676,7 @@ function renderTransactions() {
       </div>
       <div class="btn-group">
         <button class="ghost-btn" onclick="openBulkImportModal()">📑 일괄등록</button>
-        <button class="primary-btn" onclick="openTxModal()">+ 거래 추가</button>
+        <button class="primary-btn" onclick="openTxModal(null, dateInMonth('${mKey}'))">+ 거래 추가</button>
       </div>
     </div>
     <div class="form-note">${monthLabel(mKey)} · ${list.length}건</div>
@@ -1572,11 +1696,14 @@ function duplicateTx(id) {
   if (!t) return;
   openTxModal(null, todayStr(), null, t);
 }
-function addTxForAccount(accountId) {
-  const mKey = state.acctMonth || monthKey(new Date());
+function dateInMonth(mKey) {
   const [y, m] = mKey.split('-').map(Number);
   const day = Math.min(new Date().getDate(), daysInMonth(y, m));
-  openTxModal(null, `${mKey}-${pad2(day)}`, null, null, accountId);
+  return `${mKey}-${pad2(day)}`;
+}
+function addTxForAccount(accountId) {
+  const mKey = state.acctMonth || monthKey(new Date());
+  openTxModal(null, dateInMonth(mKey), null, null, accountId);
 }
 function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccountId) {
   const editing = txId ? DATA.transactions.find(t => t.id === txId) : null;
@@ -1703,10 +1830,8 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     }
     renderBudgetQuickRow();
   }
-  const vendorOptions = Array.from(new Set(DATA.transactions.flatMap(t => [t.vendor, t.payee]).filter(Boolean)));
   vendorField.innerHTML = `<label class="field-lbl">대상/거래처</label>
-    <input type="text" id="tx-vendor" list="tx-vendor-list" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 정기적금 이체' : '예: 스타벅스 강남점'}" value="${escapeHtml(presetVendor || '')}">
-    <datalist id="tx-vendor-list">${vendorOptions.map(v => `<option value="${escapeHtml(v)}">`).join('')}</datalist>`;
+    <input type="text" id="tx-vendor" autocomplete="off" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 정기적금 이체' : '예: 스타벅스 강남점'}" value="${escapeHtml(presetVendor || '')}" onfocus="openVendorSuggest(this)" oninput="onVendorInput(this)" onblur="setTimeout(closeVendorSuggest, 150)">`;
   updateTxAmountCurrencyBadge();
 }
 function currentTxCurrency() {
