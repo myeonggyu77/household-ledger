@@ -110,15 +110,15 @@
   .field-lbl { font-size: 10px; color: var(--ink-faint); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.03em; display: block; }
   .field { margin-bottom: 12px; }
   .receipt-thumb-wrap { display: flex; align-items: flex-start; gap: 8px; }
-  .receipt-thumb { width: 96px; height: 96px; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); }
+  .receipt-thumb { width: 82px; height: 82px; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); }
 
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .overflow-x table { table-layout: fixed; min-width: 480px; }
-  tbody td { white-space: nowrap; padding: 10px 8px; border-bottom: 1px solid var(--line-soft); overflow: hidden; text-overflow: ellipsis; }
+  .overflow-x table { table-layout: auto; min-width: 480px; }
+  tbody td { white-space: nowrap; padding: 10px 8px; border-bottom: 1px solid var(--line-soft); }
   tbody tr.day-boundary td { border-bottom: 2px solid var(--accent-line); }
   .name-cell { line-height: 1.35; white-space: normal; overflow: visible; text-overflow: clip; word-break: keep-all; overflow-wrap: break-word; }
-  thead th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-faint); font-weight: 500; padding: 8px; border-bottom: 1px solid var(--ink); position: sticky; top: 0; background: var(--paper); z-index: 4; box-shadow: 0 1px 0 var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  th.num, td.num { text-align: right; font-family: var(--mono); width: 128px; }
+  thead th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-faint); font-weight: 500; padding: 8px; border-bottom: 1px solid var(--ink); position: sticky; top: 0; background: var(--paper); z-index: 4; box-shadow: 0 1px 0 var(--ink); white-space: nowrap; }
+  th.num, td.num { text-align: right; font-family: var(--mono); min-width: 128px; }
   tbody tr:hover { background: var(--accent-tint); }
   .actions-cell { text-align: right; white-space: normal; overflow: visible; width: 86px; }
   .actions-cell button { padding: 3px 5px !important; margin-left: 2px; font-size: 11px !important; }
@@ -165,7 +165,7 @@
   .tx-inline-panel { width: 0; flex: 0 0 0; min-width: 0; overflow: hidden; }
   .tx-inline-panel .tx-inline-card { max-width: none; max-height: none; height: auto; width: 100%; border: none; box-shadow: none; padding: 0; margin: 0; background: transparent; overflow: visible; }
   @media (min-width: 860px) {
-    .tx-inline-panel.active { flex: 2 1 360px; min-width: 300px; max-width: 480px; max-height: 100%; overflow-y: auto; margin-left: 24px; padding-left: 24px; border-left: 1px solid var(--line); }
+    .tx-inline-panel.active { flex: 2 1 360px; min-width: 300px; max-width: 480px; max-height: 100%; overflow-y: auto; margin-left: 16px; padding-left: 16px; border-left: 1px solid var(--line); }
   }
   .dp-pop { position: fixed; z-index: 10000; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 10px; width: 250px; }
   .dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
@@ -278,7 +278,7 @@
   .budget-pct-tag.over { color: var(--status-crit); background: var(--down-soft); }
   .budget-edit-input { width: 110px; height: 28px; font-size: 12px; display: inline-block; }
 
-  .acct-master-detail { display: flex; gap: 24px; align-items: flex-start; }
+  .acct-master-detail { display: flex; gap: 16px; align-items: flex-start; }
   .acct-list-pane { width: 260px; flex-shrink: 0; }
   .acct-detail-pane { flex: 1; min-width: 0; }
   .acct-list-group { margin-bottom: 10px; border: 1px solid var(--line); border-radius: 5px; overflow: hidden; }
@@ -323,7 +323,7 @@
     #panel-accounts .acct-detail-pane .tx-split-main .form-actions { flex-shrink: 0; padding-top: 14px; }
     .dcol { display: table-cell; }
     table.tx-table-balance .dcol-balance { display: table-cell; }
-    .cal-layout { display: flex; gap: 28px; align-items: flex-start; }
+    .cal-layout { display: flex; gap: 20px; align-items: flex-start; }
     .cal-main { flex: 0 0 560px; }
     .cal-main .cal-cell { min-height: 92px; padding: 8px; }
     .cal-main .cal-cell .date-num { font-size: 13px; }
@@ -971,7 +971,7 @@ function showToast(message, type = 'info', duration = 3800) {
 
 /* ---------------- modal ---------------- */
 function openModal(innerHtml, opts) {
-  const sidePanel = !!(opts && opts.sidePanel);
+  const sidePanel = !opts || opts.sidePanel !== false;
   const root = document.getElementById('modal-root');
   root.innerHTML = `<div class="modal-overlay${sidePanel ? ' side-panel' : ''}" id="modal-overlay"><div class="modal-card">${innerHtml}</div></div>`;
   const overlay = document.getElementById('modal-overlay');
@@ -1366,6 +1366,96 @@ function closeVendorSuggest() {
   window.removeEventListener('resize', positionVendorSuggest);
   window.removeEventListener('scroll', closeVendorSuggest, true);
   vsState = null;
+}
+
+/* ---------------- custom 메모 suggestion list (remembers past memo text) ---------------- */
+let msState = null;
+function openMemoSuggest(input) {
+  if (msState && msState.input === input) return;
+  closeMemoSuggest();
+  const pop = document.createElement('div');
+  pop.className = 'cp-pop';
+  document.body.appendChild(pop);
+  msState = { input, pop, items: [], activeIndex: 0 };
+  renderMemoSuggest();
+  positionMemoSuggest();
+  setTimeout(() => document.addEventListener('mousedown', onMemoSuggestOutsideClick), 0);
+  window.addEventListener('resize', positionMemoSuggest);
+  window.addEventListener('scroll', closeMemoSuggest, true);
+}
+function onMemoInput(input) {
+  if (!msState || msState.input !== input) { openMemoSuggest(input); return; }
+  renderMemoSuggest();
+}
+function positionMemoSuggest() {
+  if (!msState) return;
+  const rect = msState.input.getBoundingClientRect();
+  const top = Math.min(rect.bottom + 4, window.innerHeight - 220);
+  const left = Math.min(rect.left, window.innerWidth - Math.max(220, rect.width) - 8);
+  msState.pop.style.top = Math.max(8, top) + 'px';
+  msState.pop.style.left = Math.max(8, left) + 'px';
+  msState.pop.style.width = Math.min(Math.max(220, rect.width), window.innerWidth - 16) + 'px';
+}
+function renderMemoSuggest() {
+  if (!msState) return;
+  const q = msState.input.value.trim().toLowerCase();
+  const all = Array.from(new Set(DATA.transactions.map(t => t.memo).filter(Boolean)));
+  const matches = all.filter(v => !q || v.toLowerCase().includes(q)).slice(0, 8);
+  if (!matches.length) { closeMemoSuggest(); return; }
+  msState.items = matches;
+  msState.activeIndex = Math.min(msState.activeIndex, matches.length - 1);
+  msState.pop.innerHTML = `<div class="cp-list">${matches.map((v, i) => `<div class="cp-item ${i === msState.activeIndex ? 'active' : ''}" data-idx="${i}" onclick="pickMemoSuggest('${i}')">${escapeHtml(v)}</div>`).join('')}</div>`;
+}
+function highlightActiveMemoItem() {
+  if (!msState) return;
+  const listEl = msState.pop.querySelector('.cp-list');
+  if (!listEl) return;
+  listEl.querySelectorAll('.cp-item').forEach(el => el.classList.remove('active'));
+  if (msState.activeIndex < 0) return;
+  const el = listEl.querySelector(`.cp-item[data-idx="${msState.activeIndex}"]`);
+  if (el) { el.classList.add('active'); el.scrollIntoView({ block: 'nearest' }); }
+}
+function onMemoKeydown(e) {
+  if (!msState) return;
+  const items = msState.items;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (!items.length) return;
+    msState.activeIndex = (msState.activeIndex + 1) % items.length;
+    highlightActiveMemoItem();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (!items.length) return;
+    msState.activeIndex = (msState.activeIndex - 1 + items.length) % items.length;
+    highlightActiveMemoItem();
+  } else if (e.key === 'Enter') {
+    if (items[msState.activeIndex] != null) { e.preventDefault(); pickMemoSuggest(msState.activeIndex); }
+  } else if (e.key === 'Tab') {
+    if (items[msState.activeIndex] != null) pickMemoSuggest(msState.activeIndex);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closeMemoSuggest();
+  }
+}
+function pickMemoSuggest(idx) {
+  if (!msState) return;
+  const v = msState.items[idx];
+  if (v == null) return;
+  msState.input.value = v;
+  closeMemoSuggest();
+}
+function onMemoSuggestOutsideClick(e) {
+  if (!msState) return;
+  if (msState.pop.contains(e.target) || e.target === msState.input) return;
+  closeMemoSuggest();
+}
+function closeMemoSuggest() {
+  if (!msState) return;
+  msState.pop.remove();
+  document.removeEventListener('mousedown', onMemoSuggestOutsideClick);
+  window.removeEventListener('resize', positionMemoSuggest);
+  window.removeEventListener('scroll', closeMemoSuggest, true);
+  msState = null;
 }
 
 /* ---------------- swipe left/right to move the month/year nav (mobile) ---------------- */
@@ -1784,7 +1874,8 @@ function onFilterChange() {
 function duplicateTx(id) {
   const t = DATA.transactions.find(x => x.id === id);
   if (!t) return;
-  openTxModal(null, todayStr(), null, t);
+  const mKey = state.tab === 'accounts' ? state.acctMonth : state.tab === 'transactions' ? state.month : monthKey(new Date());
+  openTxModal(null, dateInMonth(mKey), null, t);
 }
 function onTxRowClick(e, id) {
   if (!window.matchMedia('(min-width: 860px)').matches) return;
@@ -1848,13 +1939,13 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
         <button type="button" class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="document.getElementById('tx-date').value='${duplicateFrom.date}'">해당일 (${duplicateFrom.date.slice(5)})</button>
       </div>` : ''}
     </div>
-    <div class="field"><label class="field-lbl">금액 <span id="tx-amount-currency" style="color:var(--ink-faint);font-weight:400;text-transform:none;"></span></label><input type="text" inputmode="decimal" id="tx-amount" placeholder="0" oninput="onAmountInputDynamic(this)" value="${editingAmountStr}"></div>
+    <div class="field"><label class="field-lbl">금액 <span id="tx-amount-currency" style="color:var(--ink-faint);font-weight:400;text-transform:none;"></span></label><input type="text" inputmode="decimal" id="tx-amount" placeholder="0" autocomplete="off" oninput="onAmountInputDynamic(this)" value="${editingAmountStr}"></div>
     <div id="tx-cat-field" class="field"></div>
     <div id="tx-acc-field" class="field"></div>
     <div id="tx-toacc-field" class="field"></div>
     <div class="field" id="tx-loan-field"></div>
     <div class="field" id="tx-vendor-field"></div>
-    <div class="field"><label class="field-lbl">메모</label><input type="text" id="tx-memo" placeholder="메모 (선택)" value="${escapeHtml(editing ? (editing.memo || '') : (fromRecurring ? fromRecurring.name : (duplicateFrom ? (duplicateFrom.memo || '') : '')))}"></div>
+    <div class="field"><label class="field-lbl">메모</label><input type="text" id="tx-memo" autocomplete="off" placeholder="메모 (선택)" value="${escapeHtml(editing ? (editing.memo || '') : (fromRecurring ? fromRecurring.name : (duplicateFrom ? (duplicateFrom.memo || '') : '')))}" onfocus="openMemoSuggest(this)" oninput="onMemoInput(this)" onkeydown="onMemoKeydown(event)" onblur="setTimeout(closeMemoSuggest, 150)"></div>
     <div class="field" id="tx-receipt-field"></div>
     <div class="field" id="tx-exclude-field"></div>
     ${fromRecurring ? '' : `<div class="field"><button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="registerAsRecurringFromTxForm()">🔁 정기거래로 등록</button></div>`}
