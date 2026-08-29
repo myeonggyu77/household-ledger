@@ -1456,8 +1456,7 @@ function renderTxTable(list, hideDate) {
       <th class="dcol" style="width:64px;">구분</th>
       <th class="dcol" style="width:130px;">계좌</th>
       <th class="dcol">메모</th>
-      <th class="dcol" style="width:100px;">대상</th>
-      <th class="dcol" style="width:100px;">거래처</th>
+      <th class="dcol" style="width:130px;">대상/거래처</th>
       <th class="num">금액</th>
       <th class="actions-cell">관리</th>
     </tr></thead>
@@ -1465,6 +1464,7 @@ function renderTxTable(list, hideDate) {
       ${list.map(t => {
         const acc = getAccount(t.accountId);
         const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
+        const vendor = t.vendor || t.payee || '';
         let mid, acctCell;
         if (t.type === 'transfer') {
           const toAcc = getAccount(t.toAccountId);
@@ -1477,8 +1477,7 @@ function renderTxTable(list, hideDate) {
         }
         const sign = t.type === 'income' ? '+' : t.type === 'expense' ? '-' : '';
         const subParts = [];
-        if (t.payee) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.payee)}</span>`);
-        if (t.vendor) subParts.push(escapeHtml(t.vendor));
+        if (vendor) subParts.push(`<span style="font-weight:600;">${escapeHtml(vendor)}</span>`);
         if (t.memo) subParts.push(escapeHtml(t.memo));
         if (t.excludeFromStats) subParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
         const subLine = subParts.length || t.receipt
@@ -1497,8 +1496,7 @@ function renderTxTable(list, hideDate) {
           <td class="dcol"><span class="type-tag ${t.type}">${typeLabel}</span></td>
           <td class="dcol" title="${acctCell.replace(/<[^>]*>/g, '')}">${acctCell}</td>
           <td class="dcol" title="${escapeHtml(t.memo || '')}">${memoCell}</td>
-          <td class="dcol" title="${escapeHtml(t.payee || '')}">${escapeHtml(t.payee || '')}</td>
-          <td class="dcol" title="${escapeHtml(t.vendor || '')}">${escapeHtml(t.vendor || '')}</td>
+          <td class="dcol" title="${escapeHtml(vendor)}">${escapeHtml(vendor)}</td>
           <td class="num amt ${t.type}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</td>
           <td class="actions-cell">
             ${t.receipt ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
@@ -1519,7 +1517,7 @@ function renderTransactions() {
   if (f.type !== 'all') list = list.filter(t => t.type === f.type);
   if (f.categoryId) list = list.filter(t => t.categoryId === f.categoryId);
   if (f.accountId) list = list.filter(t => t.accountId === f.accountId || t.toAccountId === f.accountId);
-  if (f.q) { const q = f.q.toLowerCase(); list = list.filter(t => (t.memo || '').toLowerCase().includes(q) || (t.payee || '').toLowerCase().includes(q)); }
+  if (f.q) { const q = f.q.toLowerCase(); list = list.filter(t => (t.memo || '').toLowerCase().includes(q) || (t.payee || '').toLowerCase().includes(q) || (t.vendor || '').toLowerCase().includes(q)); }
   list = list.sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
 
   const catTypesForFilter = f.type === 'all' ? ['expense', 'income'] : (f.type === 'transfer' ? [] : [f.type]);
@@ -1550,7 +1548,7 @@ function renderTransactions() {
         </select>
       </div>
       <div class="search-wrap">
-        <input class="search-input" id="f-q" placeholder="대상/메모 검색" value="${escapeHtml(f.q)}" oninput="onFilterChange()">
+        <input class="search-input" id="f-q" placeholder="대상/거래처/메모 검색" value="${escapeHtml(f.q)}" oninput="onFilterChange()">
       </div>
       <div class="btn-group">
         <button class="ghost-btn" onclick="openBulkImportModal()">📑 일괄등록</button>
@@ -1617,7 +1615,6 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     <div id="tx-acc-field" class="field"></div>
     <div id="tx-toacc-field" class="field"></div>
     <div class="field" id="tx-loan-field"></div>
-    <div class="field" id="tx-payee-field"></div>
     <div class="field" id="tx-vendor-field"></div>
     <div class="field"><label class="field-lbl">메모</label><input type="text" id="tx-memo" placeholder="메모 (선택)" value="${escapeHtml(editing ? (editing.memo || '') : (fromRecurring ? fromRecurring.name : (duplicateFrom ? (duplicateFrom.memo || '') : '')))}"></div>
     <div class="field" id="tx-receipt-field"></div>
@@ -1634,8 +1631,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     editing ? editing.accountId : (fromRecurring ? fromRecurring.accountId : (duplicateFrom ? duplicateFrom.accountId : (presetAccountId || null))),
     editing ? editing.toAccountId : (fromRecurring ? fromRecurring.toAccountId : (duplicateFrom ? duplicateFrom.toAccountId : null)),
     editing ? !!editing.excludeFromStats : (duplicateFrom ? !!duplicateFrom.excludeFromStats : false),
-    editing ? (editing.payee || '') : (fromRecurring ? (fromRecurring.payee || '') : (duplicateFrom ? (duplicateFrom.payee || '') : '')),
-    editing ? (editing.vendor || '') : (duplicateFrom ? (duplicateFrom.vendor || '') : ''),
+    editing ? (editing.vendor || editing.payee || '') : (fromRecurring ? (fromRecurring.payee || '') : (duplicateFrom ? (duplicateFrom.vendor || duplicateFrom.payee || '') : '')),
     editing ? (editing.linkedLoanAccountId || '') : (duplicateFrom ? (duplicateFrom.linkedLoanAccountId || '') : '')
   );
 }
@@ -1654,14 +1650,13 @@ function setTxType(t) {
   });
   renderTxModalFields(null, state._txModal.presetAccountId);
 }
-function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, presetPayee, presetVendor, presetLoanAccountId) {
+function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, presetVendor, presetLoanAccountId) {
   const type = state._txModal.type;
   const catField = document.getElementById('tx-cat-field');
   const accField = document.getElementById('tx-acc-field');
   const toAccField = document.getElementById('tx-toacc-field');
   const excludeField = document.getElementById('tx-exclude-field');
   const receiptField = document.getElementById('tx-receipt-field');
-  const payeeField = document.getElementById('tx-payee-field');
   const vendorField = document.getElementById('tx-vendor-field');
   const loanField = document.getElementById('tx-loan-field');
   const acctOption = (a, presetId) => `<option value="${a.id}" ${presetId === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}${a.currency === 'USD' ? ' (USD)' : ''}</option>`;
@@ -1671,7 +1666,6 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     toAccField.innerHTML = `<label class="field-lbl">입금 자산</label><select id="tx-toaccount">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
     excludeField.innerHTML = '';
     receiptField.innerHTML = '';
-    vendorField.innerHTML = '';
     loanField.innerHTML = '';
   } else {
     const groups = topCategories(type).map(p => {
@@ -1696,14 +1690,6 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     } else {
       receiptField.innerHTML = '';
     }
-    if (type === 'expense' || type === 'income') {
-      const vendorOptions = Array.from(new Set(DATA.transactions.filter(t => t.vendor).map(t => t.vendor)));
-      vendorField.innerHTML = `<label class="field-lbl">거래처</label>
-        <input type="text" id="tx-vendor" list="tx-vendor-list" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : '예: 스타벅스 강남점'}" value="${escapeHtml(presetVendor || '')}">
-        <datalist id="tx-vendor-list">${vendorOptions.map(v => `<option value="${escapeHtml(v)}">`).join('')}</datalist>`;
-    } else {
-      vendorField.innerHTML = '';
-    }
     const liabilityAccounts = DATA.accounts.filter(a => LIABILITY_TYPES.includes(a.type));
     if (type === 'expense' && liabilityAccounts.length) {
       loanField.innerHTML = `<label class="field-lbl">대출/할부 상환 계좌 (선택)</label>
@@ -1717,10 +1703,10 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     }
     renderBudgetQuickRow();
   }
-  const payeeOptions = Array.from(new Set(DATA.transactions.filter(t => t.payee).map(t => t.payee)));
-  payeeField.innerHTML = `<label class="field-lbl">대상</label>
-    <input type="text" id="tx-payee" list="tx-payee-list" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 정기적금 이체' : '예: 스타벅스, 이마트'}" value="${escapeHtml(presetPayee || '')}">
-    <datalist id="tx-payee-list">${payeeOptions.map(p => `<option value="${escapeHtml(p)}">`).join('')}</datalist>`;
+  const vendorOptions = Array.from(new Set(DATA.transactions.flatMap(t => [t.vendor, t.payee]).filter(Boolean)));
+  vendorField.innerHTML = `<label class="field-lbl">대상/거래처</label>
+    <input type="text" id="tx-vendor" list="tx-vendor-list" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 정기적금 이체' : '예: 스타벅스 강남점'}" value="${escapeHtml(presetVendor || '')}">
+    <datalist id="tx-vendor-list">${vendorOptions.map(v => `<option value="${escapeHtml(v)}">`).join('')}</datalist>`;
   updateTxAmountCurrencyBadge();
 }
 function currentTxCurrency() {
@@ -1837,10 +1823,10 @@ function registerAsRecurringFromTxForm() {
   const dateVal = document.getElementById('tx-date').value;
   const day = dateVal ? Number(dateVal.slice(8, 10)) || 1 : 1;
   const memo = document.getElementById('tx-memo').value.trim();
-  const payeeEl = document.getElementById('tx-payee');
-  const payee = payeeEl ? payeeEl.value.trim() : '';
+  const vendorEl = document.getElementById('tx-vendor');
+  const vendor = vendorEl ? vendorEl.value.trim() : '';
   const typeLabel = type === 'income' ? '수입' : type === 'expense' ? '지출' : '이체';
-  const template = { type, amount, day, frequency: 'monthly', name: memo || payee || typeLabel, payee: payee || null };
+  const template = { type, amount, day, frequency: 'monthly', name: memo || vendor || typeLabel, payee: vendor || null };
   if (type === 'transfer') {
     template.accountId = document.getElementById('tx-account').value;
     template.toAccountId = document.getElementById('tx-toaccount').value;
@@ -1877,7 +1863,6 @@ function submitTx(editId) {
     payload.categoryId = categoryId; payload.accountId = accountId;
     payload.excludeFromStats = document.getElementById('tx-exclude').checked;
     payload.receipt = type === 'expense' ? (state._txModal.receipt || null) : undefined;
-    payload.vendor = document.getElementById('tx-vendor').value.trim() || null;
     const loanEl = document.getElementById('tx-loan-account');
     const linkedLoanAccountId = type === 'expense' && loanEl ? (loanEl.value || null) : null;
     if (linkedLoanAccountId && (getAccount(linkedLoanAccountId).currency || 'KRW') !== (getAccount(accountId).currency || 'KRW')) {
@@ -1885,7 +1870,7 @@ function submitTx(editId) {
     }
     payload.linkedLoanAccountId = type === 'expense' ? linkedLoanAccountId : undefined;
   }
-  payload.payee = document.getElementById('tx-payee').value.trim() || null;
+  payload.vendor = document.getElementById('tx-vendor').value.trim() || null;
 
   if (editId) {
     const idx = DATA.transactions.findIndex(t => t.id === editId);
@@ -2283,8 +2268,7 @@ function renderAccountTxTable(list, acc) {
       <th class="dcol" style="width:64px;">구분</th>
       <th class="dcol" style="width:130px;">계좌</th>
       <th class="dcol">메모</th>
-      <th class="dcol" style="width:100px;">대상</th>
-      <th class="dcol" style="width:100px;">거래처</th>
+      <th class="dcol" style="width:130px;">대상/거래처</th>
       <th class="num">금액</th>
       <th class="num dcol dcol-balance">잔액</th>
       <th class="actions-cell">관리</th>
@@ -2293,6 +2277,7 @@ function renderAccountTxTable(list, acc) {
       ${list.map(t => {
         const isLoanLink = t.linkedLoanAccountId === acc.id && t.accountId !== acc.id;
         const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
+        const vendor = t.vendor || t.payee || '';
         let mid, acctCell;
         if (t.type === 'transfer') {
           const outgoing = t.accountId === acc.id;
@@ -2317,8 +2302,7 @@ function renderAccountTxTable(list, acc) {
           const payAcc = getAccount(t.accountId);
           subParts.push(`<span style="font-weight:600;">${payAcc.icon || ''} ${escapeHtml(payAcc.name)}에서 상환</span>`);
         }
-        if (t.payee) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.payee)}</span>`);
-        if (t.vendor) subParts.push(escapeHtml(t.vendor));
+        if (vendor) subParts.push(`<span style="font-weight:600;">${escapeHtml(vendor)}</span>`);
         if (t.memo) subParts.push(escapeHtml(t.memo));
         if (t.excludeFromStats) subParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
         const subLine = subParts.length || t.receipt
@@ -2342,8 +2326,7 @@ function renderAccountTxTable(list, acc) {
           <td class="dcol"><span class="type-tag ${t.type}">${typeLabel}</span></td>
           <td class="dcol" title="${acctCell.replace(/<[^>]*>/g, '')}">${acctCell}</td>
           <td class="dcol" title="${escapeHtml(t.memo || '')}">${memoCell}</td>
-          <td class="dcol" title="${escapeHtml(t.payee || '')}">${escapeHtml(t.payee || '')}</td>
-          <td class="dcol" title="${escapeHtml(t.vendor || '')}">${escapeHtml(t.vendor || '')}</td>
+          <td class="dcol" title="${escapeHtml(vendor)}">${escapeHtml(vendor)}</td>
           <td class="num">
             <div class="amt ${amtCls}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</div>
             <div class="form-note mcol" style="margin:2px 0 0;text-align:right;">${balStr}</div>
