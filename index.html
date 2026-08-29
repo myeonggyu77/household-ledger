@@ -40,7 +40,7 @@
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--sans); }
-  .app { max-width: 1440px; margin: 0; display: flex; align-items: flex-start; }
+  .app { max-width: none; margin: 0; display: flex; align-items: flex-start; }
   .main-content { flex: 1; min-width: 0; padding: 28px 24px 60px; }
 
   .masthead { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; row-gap: 10px; margin-bottom: 22px; padding-bottom: 16px; border-bottom: 1px solid var(--ink); }
@@ -92,6 +92,13 @@
   .form-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 4px; padding: 16px; margin-bottom: 16px; }
   .form-card h3 { font-size: 13px; font-weight: 600; margin: 0 0 12px; }
   .section-heading { font-size: 14px; font-weight: 600; color: var(--ink); margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
+  .rec-group-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; padding: 9px 12px; margin-top: 20px; border-radius: 5px 5px 0 0; }
+  .rec-group-head:first-of-type { margin-top: 0; }
+  .rec-group-head .count { font-weight: 400; color: inherit; opacity: .7; font-size: 11px; }
+  .rec-group-head.income { background: var(--accent-soft); color: var(--accent); }
+  .rec-group-head.expense { background: var(--down-soft); color: var(--down); }
+  .rec-group-head.transfer { background: var(--line-soft); color: var(--ink-soft); }
+  .rec-group-head + .overflow-x table { border-top: none; }
   .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 10px; }
   input, select, textarea { font-family: var(--sans); font-size: 13px; border: 1px solid var(--line); border-radius: 3px; padding: 0 9px; background: var(--paper); color: var(--ink); width: 100%; }
   input, select { height: 34px; }
@@ -152,12 +159,12 @@
     .tx-actions-cell { display: none; }
     .tx-row-clickable { cursor: pointer; }
   }
-  .tx-split { display: flex; align-items: flex-start; }
-  .tx-split-main { flex: 1; min-width: 0; }
-  .tx-inline-panel { width: 0; flex-shrink: 0; overflow: hidden; }
-  .tx-inline-panel .tx-inline-card { max-width: none; max-height: none; height: auto; width: 360px; border: none; box-shadow: none; padding: 0; margin: 0; background: transparent; overflow: visible; }
+  .tx-split { display: flex; align-items: flex-start; width: 100%; }
+  .tx-split-main { flex: 3 1 420px; min-width: 0; }
+  .tx-inline-panel { width: 0; flex: 0 0 0; min-width: 0; overflow: hidden; }
+  .tx-inline-panel .tx-inline-card { max-width: none; max-height: none; height: auto; width: 100%; border: none; box-shadow: none; padding: 0; margin: 0; background: transparent; overflow: visible; }
   @media (min-width: 860px) {
-    .tx-inline-panel.active { width: 360px; margin-left: 24px; padding-left: 24px; border-left: 1px solid var(--line); }
+    .tx-inline-panel.active { flex: 2 1 360px; min-width: 300px; max-width: 480px; overflow: visible; margin-left: 24px; padding-left: 24px; border-left: 1px solid var(--line); }
   }
   .dp-pop { position: fixed; z-index: 10000; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 10px; width: 250px; }
   .dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
@@ -1267,7 +1274,7 @@ function openVendorSuggest(input) {
   const pop = document.createElement('div');
   pop.className = 'cp-pop';
   document.body.appendChild(pop);
-  vsState = { input, pop };
+  vsState = { input, pop, items: [], activeIndex: 0 };
   renderVendorSuggest();
   positionVendorSuggest();
   setTimeout(() => document.addEventListener('mousedown', onVendorSuggestOutsideClick), 0);
@@ -1293,10 +1300,50 @@ function renderVendorSuggest() {
   const all = Array.from(new Set(DATA.transactions.flatMap(t => [t.vendor, t.payee]).filter(Boolean)));
   const matches = all.filter(v => !q || v.toLowerCase().includes(q)).slice(0, 8);
   if (!matches.length) { closeVendorSuggest(); return; }
-  vsState.pop.innerHTML = `<div class="cp-list">${matches.map(v => `<div class="cp-item" onclick="pickVendorSuggest(this.textContent)">${escapeHtml(v)}</div>`).join('')}</div>`;
+  vsState.items = matches;
+  vsState.activeIndex = Math.min(vsState.activeIndex, matches.length - 1);
+  vsState.pop.innerHTML = `<div class="cp-list">${matches.map((v, i) => `<div class="cp-item ${i === vsState.activeIndex ? 'active' : ''}" data-idx="${i}" onclick="pickVendorSuggest('${i}')">${escapeHtml(v)}</div>`).join('')}</div>`;
 }
-function pickVendorSuggest(v) {
+function highlightActiveVendorItem() {
   if (!vsState) return;
+  const listEl = vsState.pop.querySelector('.cp-list');
+  if (!listEl) return;
+  listEl.querySelectorAll('.cp-item').forEach(el => el.classList.remove('active'));
+  if (vsState.activeIndex < 0) return;
+  const el = listEl.querySelector(`.cp-item[data-idx="${vsState.activeIndex}"]`);
+  if (el) { el.classList.add('active'); el.scrollIntoView({ block: 'nearest' }); }
+}
+function onVendorKeydown(e) {
+  if (!vsState) return;
+  const items = vsState.items;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (!items.length) return;
+    vsState.activeIndex = (vsState.activeIndex + 1) % items.length;
+    highlightActiveVendorItem();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (!items.length) return;
+    vsState.activeIndex = (vsState.activeIndex - 1 + items.length) % items.length;
+    highlightActiveVendorItem();
+  } else if (e.key === 'Enter') {
+    if (items[vsState.activeIndex] != null) { e.preventDefault(); pickVendorSuggest(vsState.activeIndex); }
+  } else if (e.key === 'Tab') {
+    if (items[vsState.activeIndex] != null) {
+      e.preventDefault();
+      pickVendorSuggest(vsState.activeIndex);
+      const nextField = document.getElementById('tx-memo');
+      if (nextField) nextField.focus();
+    }
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closeVendorSuggest();
+  }
+}
+function pickVendorSuggest(idx) {
+  if (!vsState) return;
+  const v = vsState.items[idx];
+  if (v == null) return;
   vsState.input.value = v;
   closeVendorSuggest();
 }
@@ -1382,6 +1429,7 @@ function rawCurrencyAmount(el, currency, allowNegative) {
 
 /* ---------------- tabs / render root ---------------- */
 function switchTab(tab) {
+  if (state._txModal && state._txModal.renderMode === 'inline') closeTxPanel();
   state.tab = tab;
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + tab));
@@ -1900,7 +1948,7 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     renderBudgetQuickRow();
   }
   vendorField.innerHTML = `<label class="field-lbl">대상/거래처</label>
-    <input type="text" id="tx-vendor" autocomplete="off" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 정기적금 이체' : '예: 스타벅스 강남점'}" value="${escapeHtml(presetVendor || '')}" onfocus="openVendorSuggest(this)" oninput="onVendorInput(this)" onblur="setTimeout(closeVendorSuggest, 150)">`;
+    <input type="text" id="tx-vendor" autocomplete="off" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 정기적금 이체' : '예: 스타벅스 강남점'}" value="${escapeHtml(presetVendor || '')}" onfocus="openVendorSuggest(this)" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="setTimeout(closeVendorSuggest, 150)">`;
   updateTxAmountCurrencyBadge();
 }
 function currentTxCurrency() {
@@ -2576,7 +2624,7 @@ function acctYearNavHtml(mKey) {
   const year = mKey.slice(0, 4);
   return `<div class="month-nav">
     <button class="icon-btn" onclick="navAcctPeriod(-1)" aria-label="이전 해">&lt;</button>
-    <div class="m-label">${year}년</div>
+    <div class="m-label" title="연도를 선택하려면 클릭하세요" onclick="openMonthPicker(this, '${mKey}', 'navAcctToMonth')">${year}년</div>
     <button class="icon-btn" onclick="navAcctPeriod(1)" aria-label="다음 해">&gt;</button>
     <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="jumpAcctToday()">올해</button>
   </div>`;
@@ -2781,25 +2829,51 @@ function recurringScheduleLabel(r) {
   if (freq === 'yearly') return r.day === 'last' ? `매년 ${r.month}월 말일` : `매년 ${r.month}월 ${r.day}일`;
   return r.day === 'last' ? '매월 말일' : `매월 ${r.day}일`;
 }
+const REC_TYPE_ORDER = ['income', 'expense', 'transfer'];
+const REC_TYPE_LABEL = { income: '수입', expense: '지출', transfer: '이체' };
+const REC_FREQ_ORDER = { daily: 0, weekly: 1, monthly: 2, yearly: 3 };
+function recurringDayNum(d) { return d === 'last' ? 32 : (Number(d) || 1); }
+function recurringSortKey(r) {
+  const freq = r.frequency || 'monthly';
+  const freqRank = REC_FREQ_ORDER[freq] ?? 2;
+  if (freq === 'weekly') return [freqRank, r.weekday != null ? r.weekday : 1, 0];
+  if (freq === 'yearly') return [freqRank, r.month || 1, recurringDayNum(r.day)];
+  if (freq === 'monthly') return [freqRank, recurringDayNum(r.day), 0];
+  return [freqRank, 0, 0];
+}
+function compareRecurringSortKey(a, b) {
+  const ka = recurringSortKey(a), kb = recurringSortKey(b);
+  for (let i = 0; i < ka.length; i++) { if (ka[i] !== kb[i]) return ka[i] - kb[i]; }
+  return 0;
+}
 function renderRecurring() {
-  document.getElementById('panel-recurring').innerHTML = `
-    <div class="toolbar">
-      <div class="hint">등록된 정기거래는 목록의 "적용" 버튼으로 원하는 날짜에 직접 등록해요.</div>
-      <button class="primary-btn" onclick="openRecurringModal()">+ 정기거래 추가</button>
-    </div>
-    ${DATA.recurring.length ? `<div class="overflow-x"><table>
-      <thead><tr><th class="name-cell">이름</th><th class="num">금액</th><th style="width:86px;">주기</th><th class="actions-cell">관리</th></tr></thead>
+  const groups = REC_TYPE_ORDER
+    .map(type => ({ type, items: DATA.recurring.filter(r => r.type === type).sort(compareRecurringSortKey) }))
+    .filter(g => g.items.length);
+  const groupHtml = groups.map(g => `
+    <div class="rec-group-head ${g.type}">${REC_TYPE_LABEL[g.type]} <span class="count">${g.items.length}건</span></div>
+    <div class="overflow-x"><table>
+      <thead><tr>
+        <th class="name-cell">메모</th>
+        <th style="width:150px;">계좌</th>
+        <th style="width:130px;">대상/거래처</th>
+        <th class="num">금액</th>
+        <th style="width:120px;">주기</th>
+        <th class="actions-cell">관리</th>
+      </tr></thead>
       <tbody>
-        ${DATA.recurring.map(r => {
+        ${g.items.map(r => {
           const acc = getAccount(r.accountId);
-          const mid = r.type === 'transfer' ? `${acc.icon} ${escapeHtml(acc.name)} → ${getAccount(r.toAccountId).icon} ${escapeHtml(getAccount(r.toAccountId).name)}` : `${getCategory(r.categoryId).icon} ${escapeHtml(getCategory(r.categoryId).name)} · ${escapeHtml(acc.name)}`;
-          const subParts = [mid];
-          if (r.payee) subParts.push(escapeHtml(r.payee));
+          const acctCell = r.type === 'transfer'
+            ? `${acc.icon} ${escapeHtml(acc.name)} → ${getAccount(r.toAccountId).icon} ${escapeHtml(getAccount(r.toAccountId).name)}`
+            : `${acc.icon} ${escapeHtml(acc.name)}`;
+          const noteParts = [];
+          if (r.type === 'expense' && r.noHolidayShift) noteParts.push('휴일무관');
+          if (r.type === 'income' && r.payBeforeHoliday) noteParts.push('휴일 전 평일');
           return `<tr>
-            <td>
-              <div class="name-cell"><span class="type-tag ${r.type}">${r.type === 'income' ? '수입' : r.type === 'expense' ? '지출' : '이체'}</span> ${escapeHtml(r.name)}${r.type === 'expense' && r.noHolidayShift ? ` <span class="form-note" style="display:inline;margin:0;">(휴일무관)</span>` : ''}${r.type === 'income' && r.payBeforeHoliday ? ` <span class="form-note" style="display:inline;margin:0;">(휴일 전 평일)</span>` : ''}</div>
-              <div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}</div>
-            </td>
+            <td class="name-cell">${escapeHtml(r.name)}${noteParts.length ? `<div style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${noteParts.join(' · ')}</div>` : ''}</td>
+            <td title="${acctCell.replace(/<[^>]*>/g, '')}">${acctCell}</td>
+            <td title="${escapeHtml(r.payee || '')}">${escapeHtml(r.payee || '')}</td>
             <td class="num">${fmtCurrency(r.amount, acc.currency || 'KRW')}</td>
             <td>${recurringScheduleLabel(r)}</td>
             <td class="actions-cell">
@@ -2810,7 +2884,14 @@ function renderRecurring() {
           </tr>`;
         }).join('')}
       </tbody>
-    </table></div>` : `<div class="empty"><div class="big">등록된 정기거래가 없어요</div>월세, 구독료, 급여 등을 등록해보세요.</div>`}
+    </table></div>
+  `).join('');
+  document.getElementById('panel-recurring').innerHTML = `
+    <div class="toolbar">
+      <div class="hint">등록된 정기거래는 목록의 "적용" 버튼으로 원하는 날짜에 직접 등록해요.</div>
+      <button class="primary-btn" onclick="openRecurringModal()">+ 정기거래 추가</button>
+    </div>
+    ${DATA.recurring.length ? groupHtml : `<div class="empty"><div class="big">등록된 정기거래가 없어요</div>월세, 구독료, 급여 등을 등록해보세요.</div>`}
   `;
 }
 function openRecurringApplyModal(id) {
