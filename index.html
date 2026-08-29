@@ -828,6 +828,8 @@ let state = {
   month: monthKey(new Date()),
   calSelected: ymd(new Date()),
   txFilter: { type: 'all', categoryId: '', accountId: '', q: '' },
+  txMonth: monthKey(new Date()),
+  txPeriod: 'month',
   statsType: 'expense',
   statsPeriod: 'month',
   statsGroupBy: 'leaf',
@@ -1866,14 +1868,69 @@ function renderTxTable(list, hideDate, showCategoryCol) {
   </table></div>`;
 }
 
+function txSearchText(t) {
+  const acc = getAccount(t.accountId);
+  const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
+  const parts = [t.memo || '', t.vendor || t.payee || '', acc ? acc.name : '', typeLabel, t.date];
+  if (t.type === 'transfer') {
+    const toAcc = getAccount(t.toAccountId);
+    if (toAcc) parts.push(toAcc.name);
+  } else {
+    const cat = getCategory(t.categoryId);
+    parts.push(cat.name);
+    if (cat.parentId) parts.push(getCategory(cat.parentId).name);
+  }
+  parts.push(String(t.amount));
+  return parts.join(' ').toLowerCase();
+}
+function navTxPeriod(delta) {
+  if (state.txPeriod === 'year') {
+    const [y, m] = state.txMonth.split('-');
+    state.txMonth = (Number(y) + delta) + '-' + m;
+  } else {
+    state.txMonth = shiftMonth(state.txMonth, delta);
+  }
+  renderTransactions();
+}
+function jumpTxToday() {
+  state.txMonth = monthKey(new Date());
+  state.txPeriod = 'month';
+  renderTransactions();
+}
+function navTxToMonth(value) {
+  if (!value) return;
+  state.txMonth = value;
+  renderTransactions();
+}
+function setTxPeriod(p) {
+  state.txPeriod = p;
+  renderTransactions();
+}
+function txPeriodSegHtml(period) {
+  return `
+    <button type="button" class="ghost-btn ${period === 'year' ? 'acct-seg-active' : ''}" style="font-size:12px;padding:5px 10px;" onclick="setTxPeriod('year')">올해</button>
+    <button type="button" class="ghost-btn ${period === 'all' ? 'acct-seg-active' : ''}" style="font-size:12px;padding:5px 10px;" onclick="setTxPeriod('all')">전체</button>
+  `;
+}
+function txYearNavHtml(mKey, extraButtons) {
+  const year = mKey.slice(0, 4);
+  return `<div class="month-nav">
+    <button class="icon-btn" onclick="navTxPeriod(-1)" aria-label="이전 해">&lt;</button>
+    <div class="m-label" title="연도를 선택하려면 클릭하세요" onclick="openMonthPicker(this, '${mKey}', 'navTxToMonth')">${year}년</div>
+    <button class="icon-btn" onclick="navTxPeriod(1)" aria-label="다음 해">&gt;</button>
+    <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="jumpTxToday()">오늘</button>
+    ${extraButtons || ''}
+  </div>`;
+}
 function renderTransactions() {
-  const mKey = state.month;
+  const mKey = state.txMonth;
+  const period = state.txPeriod || 'month';
   const f = state.txFilter;
-  let list = txInMonth(mKey);
+  let list = txInPeriod(period, mKey);
   if (f.type !== 'all') list = list.filter(t => t.type === f.type);
   if (f.categoryId) list = list.filter(t => t.categoryId === f.categoryId);
   if (f.accountId) list = list.filter(t => t.accountId === f.accountId || t.toAccountId === f.accountId);
-  if (f.q) { const q = f.q.toLowerCase(); list = list.filter(t => (t.memo || '').toLowerCase().includes(q) || (t.payee || '').toLowerCase().includes(q) || (t.vendor || '').toLowerCase().includes(q)); }
+  if (f.q) { const q = f.q.toLowerCase(); list = list.filter(t => txSearchText(t).includes(q)); }
   list = list.sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
 
   const catTypesForFilter = f.type === 'all' ? ['expense', 'income'] : (f.type === 'transfer' ? [] : [f.type]);
@@ -1886,10 +1943,17 @@ function renderTransactions() {
     return groups;
   }).join('');
 
+  const periodSegHtml = txPeriodSegHtml(period);
+  const periodNav = period === 'all'
+    ? `<div class="month-nav"><button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="jumpTxToday()">오늘</button>${periodSegHtml}</div>`
+    : period === 'year' ? txYearNavHtml(mKey, periodSegHtml)
+    : monthNavHtml('navTxPeriod(-1)', 'navTxPeriod(1)', mKey, { onToday: 'jumpTxToday()', onPick: 'navTxToMonth', extraButtons: periodSegHtml });
+  const periodLabel = period === 'all' ? '전체 기간' : period === 'year' ? `${mKey.slice(0, 4)}년` : monthLabel(mKey);
+
   document.getElementById('panel-transactions').innerHTML = `
     <div class="tx-split">
       <div class="tx-split-main">
-        ${monthNavHtml('navMonth(-1)', 'navMonth(1)', mKey)}
+        ${periodNav}
         <div class="toolbar">
           <div class="btn-group">
             <select id="f-type" style="width:100px;" onchange="onFilterChange()">
@@ -1905,15 +1969,16 @@ function renderTransactions() {
               <option value="">전체 자산</option>${DATA.accounts.map(a => `<option value="${a.id}" ${f.accountId === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}</option>`).join('')}
             </select>
           </div>
-          <div class="search-wrap">
-            <input class="search-input" id="f-q" placeholder="대상/거래처/메모 검색" value="${escapeHtml(f.q)}" oninput="onFilterChange()">
+          <div class="search-wrap" style="max-width:320px;display:flex;gap:6px;">
+            <input class="search-input" id="f-q" placeholder="전체 내용 검색" value="${escapeHtml(f.q)}" onkeydown="onTxSearchKeydown(event)" style="flex:1;min-width:0;">
+            <button class="ghost-btn" onclick="runTxSearch()" style="flex-shrink:0;">검색</button>
           </div>
           <div class="btn-group">
             <button class="ghost-btn" onclick="openBulkImportModal()">📑 일괄등록</button>
             <button class="primary-btn" onclick="openTxModal(null, dateInMonth('${mKey}'))">+ 거래 추가</button>
           </div>
         </div>
-        <div class="form-note">${monthLabel(mKey)} · ${list.length}건</div>
+        <div class="form-note">${periodLabel} · ${list.length}건</div>
         ${list.length ? renderTxTable(list, false, true) : `<div class="empty"><div class="big">조건에 맞는 거래가 없어요</div>필터를 바꾸거나 새 거래를 추가해보세요.</div>`}
       </div>
       <div class="tx-inline-panel" id="tx-inline-slot-transactions"></div>
@@ -1924,6 +1989,12 @@ function onFilterChange() {
   state.txFilter.type = document.getElementById('f-type').value;
   state.txFilter.categoryId = document.getElementById('f-category').value;
   state.txFilter.accountId = document.getElementById('f-account').value;
+  renderTransactions();
+}
+function onTxSearchKeydown(e) {
+  if (e.key === 'Enter') { e.preventDefault(); runTxSearch(); }
+}
+function runTxSearch() {
   state.txFilter.q = document.getElementById('f-q').value;
   renderTransactions();
 }
@@ -1931,7 +2002,7 @@ function onFilterChange() {
 function duplicateTx(id) {
   const t = DATA.transactions.find(x => x.id === id);
   if (!t) return;
-  const mKey = state.tab === 'accounts' ? state.acctMonth : state.tab === 'transactions' ? state.month : monthKey(new Date());
+  const mKey = state.tab === 'accounts' ? state.acctMonth : state.tab === 'transactions' ? state.txMonth : monthKey(new Date());
   openTxModal(null, dateInMonth(mKey), null, t);
 }
 function onTxRowClick(e, id) {
