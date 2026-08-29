@@ -140,6 +140,18 @@
   .modal-overlay { position: fixed; inset: 0; background: rgba(26,36,32,0.45); z-index: 8000; display: flex; align-items: center; justify-content: center; padding: 20px; overflow-y: auto; }
   .modal-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; padding: 20px; width: 100%; max-width: 440px; max-height: 88vh; overflow-y: auto; margin: auto; }
   .modal-card h3 { margin: 0 0 14px; font-size: 15px; font-weight: 600; }
+  .panel-footer-actions { display: none; }
+  @media (min-width: 860px) {
+    .modal-overlay.side-panel { background: rgba(26,36,32,0.06); justify-content: flex-end; align-items: stretch; padding: 0; }
+    .modal-overlay.side-panel .modal-card { margin: 0; width: 400px; max-width: 92vw; height: 100vh; max-height: 100vh; border-radius: 0; box-shadow: -8px 0 24px rgba(0,0,0,.14); animation: side-panel-in .16s ease-out; }
+    .panel-footer-actions { display: flex; gap: 8px; justify-content: flex-start; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+  }
+  @keyframes side-panel-in { from { transform: translateX(28px); opacity: .4; } to { transform: translateX(0); opacity: 1; } }
+  .tx-row-clickable { cursor: default; }
+  @media (min-width: 860px) {
+    .tx-actions-cell { display: none; }
+    .tx-row-clickable { cursor: pointer; }
+  }
   .dp-pop { position: fixed; z-index: 10000; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 10px; width: 250px; }
   .dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
   .dp-head .dp-label { font-family: var(--mono); font-size: 13px; font-weight: 600; }
@@ -944,9 +956,10 @@ function showToast(message, type = 'info', duration = 3800) {
 }
 
 /* ---------------- modal ---------------- */
-function openModal(innerHtml) {
+function openModal(innerHtml, opts) {
+  const sidePanel = !!(opts && opts.sidePanel);
   const root = document.getElementById('modal-root');
-  root.innerHTML = `<div class="modal-overlay" id="modal-overlay"><div class="modal-card">${innerHtml}</div></div>`;
+  root.innerHTML = `<div class="modal-overlay${sidePanel ? ' side-panel' : ''}" id="modal-overlay"><div class="modal-card">${innerHtml}</div></div>`;
   const overlay = document.getElementById('modal-overlay');
   overlay.addEventListener('mousedown', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
   overlay.addEventListener('keydown', trapModalTab);
@@ -1590,7 +1603,7 @@ function renderTxTable(list, hideDate) {
       <th class="dcol">메모</th>
       <th class="dcol" style="width:130px;">대상/거래처</th>
       <th class="num">금액</th>
-      <th class="actions-cell">관리</th>
+      <th class="actions-cell tx-actions-cell">관리</th>
     </tr></thead>
     <tbody>
       ${list.map((t, i) => {
@@ -1620,7 +1633,7 @@ function renderTxTable(list, hideDate) {
         if (t.memo) memoParts.push(escapeHtml(t.memo));
         if (t.excludeFromStats) memoParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
         const memoCell = memoParts.join(' · ') + (t.receipt ? ' 🧾' : '');
-        return `<tr class="${dayBoundary ? 'day-boundary' : ''}">
+        return `<tr class="tx-row-clickable ${dayBoundary ? 'day-boundary' : ''}" onclick="onTxRowClick(event, '${t.id}')">
           ${hideDate ? '' : `<td>${t.date.slice(5)}</td>`}
           <td class="mcol">
             <div class="name-cell"><span class="type-tag ${t.type}">${typeLabel}</span> ${mid}</div>
@@ -1631,7 +1644,7 @@ function renderTxTable(list, hideDate) {
           <td class="dcol" title="${escapeHtml(t.memo || '')}">${memoCell}</td>
           <td class="dcol" title="${escapeHtml(vendor)}">${escapeHtml(vendor)}</td>
           <td class="num amt ${t.type}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</td>
-          <td class="actions-cell">
+          <td class="actions-cell tx-actions-cell">
             ${t.receipt ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="duplicateTx('${t.id}')" title="이 거래를 복사해서 새로 등록">복사</button>
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openTxModal('${t.id}')">수정</button>
@@ -1705,6 +1718,11 @@ function duplicateTx(id) {
   if (!t) return;
   openTxModal(null, todayStr(), null, t);
 }
+function onTxRowClick(e, id) {
+  if (!window.matchMedia('(min-width: 860px)').matches) return;
+  if (e.target.closest('button, a, input, select, textarea')) return;
+  openTxModal(id);
+}
 function dateInMonth(mKey) {
   const [y, m] = mKey.split('-').map(Number);
   const day = Math.min(new Date().getDate(), daysInMonth(y, m));
@@ -1760,7 +1778,12 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
       <button class="ghost-btn" onclick="closeModal()">취소</button>
       <button class="primary-btn" onclick="submitTx(${editing ? `'${editing.id}'` : 'null'})">${submitLabel}</button>
     </div>
-  `);
+    ${editing ? `<div class="panel-footer-actions">
+      <button class="ghost-btn" onclick="duplicateTx('${editing.id}')" title="이 거래를 복사해서 새로 등록">복사</button>
+      ${editing.receipt ? `<button class="ghost-btn" onclick="openReceiptLightboxForTx('${editing.id}')">사진</button>` : ''}
+      <button class="ghost-btn danger-btn" onclick="if (deleteTx('${editing.id}')) closeModal();">삭제</button>
+    </div>` : ''}
+  `, { sidePanel: true });
   state._txModal = { type, editing, receipt: editing && editing.type === 'expense' ? (editing.receipt || null) : null, fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null };
   renderTxModalFields(
     editing ? editing.categoryId : (fromRecurring ? fromRecurring.categoryId : (duplicateFrom ? duplicateFrom.categoryId : null)),
@@ -2020,11 +2043,12 @@ function submitTx(editId) {
   renderAll();
 }
 function deleteTx(id) {
-  if (!confirm('이 거래를 삭제할까요?')) return;
+  if (!confirm('이 거래를 삭제할까요?')) return false;
   DATA.transactions = DATA.transactions.filter(t => t.id !== id);
   saveData();
   showToast('삭제했어요.', 'info');
   renderAll();
+  return true;
 }
 
 /* ---------------- BULK IMPORT (엑셀) ---------------- */
@@ -2405,7 +2429,7 @@ function renderAccountTxTable(list, acc) {
       <th class="dcol" style="width:130px;">대상/거래처</th>
       <th class="num">금액</th>
       <th class="num dcol dcol-balance">잔액</th>
-      <th class="actions-cell">관리</th>
+      <th class="actions-cell tx-actions-cell">관리</th>
     </tr></thead>
     <tbody>
       ${list.map((t, i) => {
@@ -2452,7 +2476,7 @@ function renderAccountTxTable(list, acc) {
         const amtCls = isLoanLink ? 'income' : (t.type === 'transfer' ? (outgoing ? 'expense' : 'income') : t.type);
         const bal = runningMap[t.id];
         const balStr = bal != null ? bal.toLocaleString('ko-KR') : '';
-        return `<tr class="${dayBoundary ? 'day-boundary' : ''}">
+        return `<tr class="tx-row-clickable ${dayBoundary ? 'day-boundary' : ''}" onclick="onTxRowClick(event, '${t.id}')">
           <td>${t.date.slice(5)}</td>
           <td class="mcol">
             <div class="name-cell"><span class="type-tag ${t.type}">${typeLabel}</span> ${mid}</div>
@@ -2467,7 +2491,7 @@ function renderAccountTxTable(list, acc) {
             <div class="form-note mcol" style="margin:2px 0 0;text-align:right;">${balStr}</div>
           </td>
           <td class="num dcol dcol-balance">${balStr}</td>
-          <td class="actions-cell">
+          <td class="actions-cell tx-actions-cell">
             ${t.receipt ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="duplicateTx('${t.id}')" title="이 거래를 복사해서 새로 등록">복사</button>
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openTxModal('${t.id}')">수정</button>
