@@ -149,7 +149,7 @@
   .dp-cell:hover { background: var(--line-soft); }
   .dp-cell.today { box-shadow: inset 0 0 0 1px var(--accent); }
   .dp-cell.sel { background: var(--accent); color: #fff; font-weight: 600; }
-  .dp-cell.empty { cursor: default; }
+  .dp-cell.adjacent { color: var(--ink-faint); opacity: .55; }
   .dp-foot { display: flex; justify-content: flex-end; margin-top: 6px; }
   .date-field[readonly] { cursor: pointer; }
   .cp-pop { position: fixed; z-index: 10000; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 8px; width: 280px; max-height: 320px; display: flex; flex-direction: column; }
@@ -187,10 +187,11 @@
   .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); margin-bottom: 20px; }
   .cal-dow { background: var(--paper); text-align: center; font-size: 11px; color: var(--ink-faint); padding: 6px 0; text-transform: uppercase; }
   .cal-cell { background: var(--paper-raised); min-height: 74px; padding: 6px; cursor: pointer; }
-  .cal-cell.empty-cell { background: var(--paper); cursor: default; }
+  .cal-cell.adjacent { background: var(--paper); }
+  .cal-cell.adjacent .date-num { color: var(--ink-faint); }
   .cal-cell.today { box-shadow: inset 0 0 0 2px var(--accent); }
   .cal-cell.selected { background: var(--accent-tint); }
-  .cal-cell:hover:not(.empty-cell) { background: var(--line-soft); }
+  .cal-cell:hover { background: var(--line-soft); }
   .cal-cell .date-num { font-size: 12px; color: var(--ink-soft); font-weight: 600; }
   .cal-cell .cal-amt { font-family: var(--mono); font-size: 10.5px; line-height: 1.5; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; }
   .cal-amt.inc { color: var(--accent); }
@@ -1010,10 +1011,11 @@ function renderDatePicker() {
     </div>
     <div class="dp-grid">
       ${dows.map(d => `<div class="dp-dow">${d}</div>`).join('')}
-      ${cells.map(date => {
-        if (!date) return `<div class="dp-cell empty"></div>`;
+      ${cells.map(cell => {
+        const { date, inMonth } = cell;
         const d = Number(date.slice(-2));
         const cls = ['dp-cell'];
+        if (!inMonth) cls.push('adjacent');
         if (date === today) cls.push('today');
         if (date === input.value) cls.push('sel');
         return `<div class="${cls.join(' ')}" onclick="dpPick('${date}')">${d}</div>`;
@@ -1497,10 +1499,20 @@ function buildCalendarCells(mKey) {
   const firstDay = new Date(y, m - 1, 1);
   const startOffset = firstDay.getDay();
   const total = daysInMonth(y, m);
+  const prevKey = shiftMonth(mKey, -1);
+  const [py, pm] = prevKey.split('-').map(Number);
+  const prevTotal = daysInMonth(py, pm);
+  const nextKey = shiftMonth(mKey, 1);
   const cells = [];
-  for (let i = 0; i < startOffset; i++) cells.push(null);
-  for (let d = 1; d <= total; d++) cells.push(`${mKey}-${pad2(d)}`);
-  while (cells.length % 7 !== 0) cells.push(null);
+  for (let i = startOffset; i > 0; i--) {
+    cells.push({ date: `${prevKey}-${pad2(prevTotal - i + 1)}`, inMonth: false });
+  }
+  for (let d = 1; d <= total; d++) cells.push({ date: `${mKey}-${pad2(d)}`, inMonth: true });
+  let nextDay = 1;
+  while (cells.length % 7 !== 0) {
+    cells.push({ date: `${nextKey}-${pad2(nextDay)}`, inMonth: false });
+    nextDay++;
+  }
   return cells;
 }
 function renderCalendar() {
@@ -1509,20 +1521,22 @@ function renderCalendar() {
   const dows = ['일', '월', '화', '수', '목', '금', '토'];
   const today = todayStr();
 
+  const cellDates = new Set(cells.map(c => c.date));
   const dayTotals = {};
-  txInMonth(mKey).forEach(t => {
-    if (t.type === 'transfer') return;
+  DATA.transactions.forEach(t => {
+    if (t.type === 'transfer' || !cellDates.has(t.date)) return;
     if (!dayTotals[t.date]) dayTotals[t.date] = { income: 0, expense: 0 };
     dayTotals[t.date][t.type] += txAmountKRW(t);
   });
 
   const gridHtml = `<div class="cal-grid">
     ${dows.map(d => `<div class="cal-dow">${d}</div>`).join('')}
-    ${cells.map(date => {
-      if (!date) return `<div class="cal-cell empty-cell"></div>`;
+    ${cells.map(cell => {
+      const { date, inMonth } = cell;
       const d = Number(date.slice(-2));
       const totals = dayTotals[date];
       const cls = ['cal-cell'];
+      if (!inMonth) cls.push('adjacent');
       if (date === today) cls.push('today');
       if (date === state.calSelected) cls.push('selected');
       return `<div class="${cls.join(' ')}" onclick="selectCalDate('${date}')">
@@ -1553,6 +1567,8 @@ function renderCalendar() {
   `;
 }
 function selectCalDate(date) {
+  const dm = date.slice(0, 7);
+  if (dm !== state.month) state.month = dm;
   state.calSelected = date;
   renderCalendar();
   openTxModal(null, date);
