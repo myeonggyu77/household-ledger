@@ -480,12 +480,7 @@ async function loadCloudData(userId) {
   return { ok: true, data: data ? data.data : undefined };
 }
 async function buildCloudPayload() {
-  const receiptsById = {};
-  for (const t of DATA.transactions) {
-    if (!t.hasReceipt) continue;
-    try { const d = await getReceipt(t.id); if (d) receiptsById[t.id] = d; } catch (e) { console.error('receipt cloud-upload read failed', t.id, e); }
-  }
-  return Object.keys(receiptsById).length ? { ...DATA, receiptsById } : DATA;
+  return DATA;
 }
 function scheduleCloudSave() {
   if (!sb || !currentUserId) return;
@@ -513,14 +508,8 @@ async function onAuthed(userId) {
       cloudData = migrateAccountTypes(cloudData);
       const beforeVersion = cloudData.categoryTreeVersion;
       cloudData = migrateToUpdatedCategoryTree(cloudData);
-      const receiptsById = cloudData.receiptsById;
       delete cloudData.receiptsById;
       DATA = cloudData;
-      if (receiptsById) {
-        for (const [txId, dataUrl] of Object.entries(receiptsById)) {
-          try { await putReceipt(txId, dataUrl); } catch (e) { console.error('cloud receipt restore failed', txId, e); }
-        }
-      }
       try { localStorage.setItem(LS_KEY, JSON.stringify(DATA)); } catch (e) {}
       if (beforeVersion !== CATEGORY_TREE_VERSION) scheduleCloudSave();
     }
@@ -2124,13 +2113,17 @@ function onAmountInputDynamic(el) {
   formatCurrencyAmountInput(el, currentTxCurrency());
 }
 
-/* ---------------- receipt photo storage (IndexedDB, not localStorage) ----------------
+/* ---------------- receipt photo storage (IndexedDB locally, Supabase Storage in the cloud) ----------------
    localStorage is capped at ~5-10MB per origin, and receipt photos are the single
-   biggest thing this app stores. Photos live in IndexedDB (typically hundreds of MB+
-   available) keyed by transaction id; DATA.transactions only keeps a lightweight
-   hasReceipt boolean flag, so the localStorage/cloud-sync payload stays small. */
+   biggest thing this app stores. Photos live in IndexedDB locally (typically hundreds
+   of MB+ available) keyed by transaction id; DATA.transactions only keeps a lightweight
+   hasReceipt boolean flag, so the localStorage payload stays small. Each photo is also
+   uploaded once, at save time, to the "receipts" Supabase Storage bucket (path
+   "<user id>/<tx id>.jpg") so it survives across devices without being re-uploaded on
+   every unrelated save the way embedding it in the synced jsonb blob would require. */
 const RECEIPT_DB_NAME = 'household-ledger-receipts';
 const RECEIPT_STORE = 'receipts';
+const RECEIPT_BUCKET = 'receipts';
 let receiptDBPromise = null;
 function openReceiptDB() {
   if (receiptDBPromise) return receiptDBPromise;
@@ -2142,7 +2135,7 @@ function openReceiptDB() {
   });
   return receiptDBPromise;
 }
-function putReceipt(id, dataUrl) {
+function putReceiptLocal(id, dataUrl) {
   return openReceiptDB().then(db => new Promise((resolve, reject) => {
     const tx = db.transaction(RECEIPT_STORE, 'readwrite');
     tx.objectStore(RECEIPT_STORE).put(dataUrl, id);
@@ -2150,7 +2143,7 @@ function putReceipt(id, dataUrl) {
     tx.onerror = () => reject(tx.error);
   }));
 }
-function getReceipt(id) {
+function getReceiptLocal(id) {
   return openReceiptDB().then(db => new Promise((resolve, reject) => {
     const tx = db.transaction(RECEIPT_STORE, 'readonly');
     const req = tx.objectStore(RECEIPT_STORE).get(id);
@@ -2158,13 +2151,60 @@ function getReceipt(id) {
     req.onerror = () => reject(req.error);
   }));
 }
-function deleteReceipt(id) {
+function deleteReceiptLocal(id) {
   return openReceiptDB().then(db => new Promise((resolve, reject) => {
     const tx = db.transaction(RECEIPT_STORE, 'readwrite');
     tx.objectStore(RECEIPT_STORE).delete(id);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   }));
+}
+function receiptStoragePath(id) { return `${currentUserId}/${id}.jpg`; }
+function dataURLToBlob(dataUrl) {
+  return fetch(dataUrl).then(r => r.blob());
+}
+function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+async function uploadReceiptToCloud(id, dataUrl) {
+  if (!sb || !currentUserId) return;
+  try {
+    const blob = await dataURLToBlob(dataUrl);
+    const { error } = await sb.storage.from(RECEIPT_BUCKET).upload(receiptStoragePath(id), blob, { upsert: true, contentType: 'image/jpeg' });
+    if (error) console.error('receipt cloud upload failed', id, error);
+  } catch (e) { console.error('receipt cloud upload failed', id, e); }
+}
+async function downloadReceiptFromCloud(id) {
+  if (!sb || !currentUserId) return null;
+  try {
+    const { data, error } = await sb.storage.from(RECEIPT_BUCKET).download(receiptStoragePath(id));
+    if (error || !data) return null;
+    return await blobToDataURL(data);
+  } catch (e) { console.error('receipt cloud download failed', id, e); return null; }
+}
+function deleteReceiptFromCloud(id) {
+  if (!sb || !currentUserId) return Promise.resolve();
+  return sb.storage.from(RECEIPT_BUCKET).remove([receiptStoragePath(id)]).catch(e => console.error('receipt cloud delete failed', id, e));
+}
+async function putReceipt(id, dataUrl) {
+  await putReceiptLocal(id, dataUrl);
+  uploadReceiptToCloud(id, dataUrl).catch(() => {});
+}
+async function getReceipt(id) {
+  const local = await getReceiptLocal(id).catch(() => null);
+  if (local) return local;
+  const cloudVal = await downloadReceiptFromCloud(id);
+  if (cloudVal) { try { await putReceiptLocal(id, cloudVal); } catch (e) {} }
+  return cloudVal;
+}
+function deleteReceipt(id) {
+  deleteReceiptFromCloud(id).catch(() => {});
+  return deleteReceiptLocal(id);
 }
 async function migrateReceiptsToIndexedDB() {
   const toMigrate = DATA.transactions.filter(t => typeof t.receipt === 'string' && t.receipt.startsWith('data:'));
@@ -2173,6 +2213,16 @@ async function migrateReceiptsToIndexedDB() {
     try { await putReceipt(t.id, t.receipt); t.hasReceipt = true; } catch (e) { console.error('receipt migration failed', t.id, e); }
     delete t.receipt;
   }
+  return true;
+}
+async function backfillReceiptsToCloud() {
+  if (!sb || !currentUserId || (DATA.settings && DATA.settings.receiptsBackfilledToCloud)) return false;
+  for (const t of DATA.transactions) {
+    if (!t.hasReceipt) continue;
+    const local = await getReceiptLocal(t.id).catch(() => null);
+    if (local) await uploadReceiptToCloud(t.id, local);
+  }
+  DATA.settings.receiptsBackfilledToCloud = true;
   return true;
 }
 function compressImage(file, maxDim, quality) {
@@ -3699,6 +3749,7 @@ async function startApp(email) {
   if (!DATA.settings.rateUpdatedAt || Date.now() - new Date(DATA.settings.rateUpdatedAt).getTime() > 6 * 60 * 60 * 1000) {
     fetchExchangeRate(true);
   }
+  backfillReceiptsToCloud().then(changed => { if (changed) saveData(); }).catch(e => console.error('receipt cloud backfill failed', e));
 }
 
 initAuthFlow();
