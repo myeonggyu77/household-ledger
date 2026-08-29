@@ -106,6 +106,7 @@
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .overflow-x table { table-layout: fixed; min-width: 480px; }
   tbody td { white-space: nowrap; padding: 10px 8px; border-bottom: 1px solid var(--line-soft); overflow: hidden; text-overflow: ellipsis; }
+  tbody tr.day-boundary td { border-bottom: 2px solid var(--ink-faint); }
   .name-cell { line-height: 1.35; white-space: normal; overflow: visible; text-overflow: clip; word-break: keep-all; overflow-wrap: break-word; }
   thead th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-faint); font-weight: 500; padding: 8px; border-bottom: 1px solid var(--ink); position: sticky; top: 0; background: var(--paper); z-index: 4; box-shadow: 0 1px 0 var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   th.num, td.num { text-align: right; font-family: var(--mono); width: 128px; }
@@ -1585,7 +1586,8 @@ function renderTxTable(list, hideDate) {
       <th class="actions-cell">관리</th>
     </tr></thead>
     <tbody>
-      ${list.map(t => {
+      ${list.map((t, i) => {
+        const dayBoundary = list[i + 1] && list[i + 1].date !== t.date;
         const acc = getAccount(t.accountId);
         const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
         const vendor = t.vendor || t.payee || '';
@@ -1611,7 +1613,7 @@ function renderTxTable(list, hideDate) {
         if (t.memo) memoParts.push(escapeHtml(t.memo));
         if (t.excludeFromStats) memoParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
         const memoCell = memoParts.join(' · ') + (t.receipt ? ' 🧾' : '');
-        return `<tr>
+        return `<tr class="${dayBoundary ? 'day-boundary' : ''}">
           ${hideDate ? '' : `<td>${t.date.slice(5)}</td>`}
           <td class="mcol">
             <div class="name-cell"><span class="type-tag ${t.type}">${typeLabel}</span> ${mid}</div>
@@ -2399,7 +2401,8 @@ function renderAccountTxTable(list, acc) {
       <th class="actions-cell">관리</th>
     </tr></thead>
     <tbody>
-      ${list.map(t => {
+      ${list.map((t, i) => {
+        const dayBoundary = list[i + 1] && list[i + 1].date !== t.date;
         const isLoanLink = t.linkedLoanAccountId === acc.id && t.accountId !== acc.id;
         const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
         const vendor = t.vendor || t.payee || '';
@@ -2442,7 +2445,7 @@ function renderAccountTxTable(list, acc) {
         const amtCls = isLoanLink ? 'income' : (t.type === 'transfer' ? (outgoing ? 'expense' : 'income') : t.type);
         const bal = runningMap[t.id];
         const balStr = bal != null ? bal.toLocaleString('ko-KR') : '';
-        return `<tr>
+        return `<tr class="${dayBoundary ? 'day-boundary' : ''}">
           <td>${t.date.slice(5)}</td>
           <td class="mcol">
             <div class="name-cell"><span class="type-tag ${t.type}">${typeLabel}</span> ${mid}</div>
