@@ -159,6 +159,7 @@
   @media (min-width: 860px) {
     .tx-actions-cell { display: none; }
     .tx-row-clickable { cursor: pointer; }
+    .tx-row-clickable.row-editing { background: var(--accent-tint); }
   }
   .tx-split { display: flex; align-items: flex-start; width: 100%; }
   .tx-split-main { flex: 3 1 420px; min-width: 0; }
@@ -528,6 +529,8 @@ async function onAuthed(userId) {
       const stockMigratedBefore = !!(cloudData.settings && cloudData.settings.stockTransferCategoryMigrated);
       cloudData = migrateAddTransferCategories(cloudData);
       cloudData = migrateStockTransferCategory(cloudData);
+      cloudData = migrateAddLifeTransferLeaf(cloudData);
+      cloudData = migrateLifeTransferCategory(cloudData);
       const categoriesChanged = cloudData.categories.length !== catCountBefore || (!stockMigratedBefore && cloudData.settings.stockTransferCategoryMigrated);
       delete cloudData.receiptsById;
       DATA = cloudData;
@@ -604,7 +607,7 @@ const CATEGORY_TREE = {
   transfer: [
     { name: '저축/투자', icon: '💰', children: [['주식투자','📈'], ['적금/예금','🏦']] },
     { name: '카드/대출 상환', icon: '💳', children: [['카드대금','💳'], ['대출상환','🏦']] },
-    { name: '기타', icon: '📦', children: [['기타 이체','🔁']] },
+    { name: '기타', icon: '📦', children: [['기타 이체','🔁'], ['생활비 이체','🏠']] },
   ],
 };
 
@@ -796,6 +799,38 @@ function migrateStockTransferCategory(d) {
   return d;
 }
 
+/* '생활비 이체' 이체 소분류가 없으면 기타 그룹 아래에 추가해요(additive, 한 번만). */
+function migrateAddLifeTransferLeaf(d) {
+  d.settings = d.settings || {};
+  if (d.settings.lifeTransferLeafAdded) return d;
+  if ((d.categories || []).some((c) => c.type === 'transfer' && c.name === '생활비 이체')) {
+    d.settings.lifeTransferLeafAdded = true;
+    return d;
+  }
+  let kitaParent = (d.categories || []).find((c) => c.type === 'transfer' && c.name === '기타' && !c.parentId);
+  if (!kitaParent) {
+    kitaParent = { id: uid(), type: 'transfer', name: '기타', icon: '📦', parentId: null };
+    d.categories.push(kitaParent);
+  }
+  const leafCount = (d.categories || []).filter((c) => c.type === 'transfer' && c.parentId).length;
+  d.categories.push({ id: uid(), type: 'transfer', name: '생활비 이체', icon: '🏠', parentId: kitaParent.id, colorIdx: leafCount % 8 });
+  d.settings.lifeTransferLeafAdded = true;
+  return d;
+}
+
+/* 일회성 데이터 보정: 메모가 "생활비 이체"인 이체 거래/정기거래의 카테고리를 "생활비 이체"로 맞춰요. */
+function migrateLifeTransferCategory(d) {
+  d.settings = d.settings || {};
+  if (d.settings.lifeTransferCategoryMigrated) return d;
+  const lifeCat = (d.categories || []).find((c) => c.type === 'transfer' && c.name === '생활비 이체');
+  if (lifeCat) {
+    (d.transactions || []).forEach((t) => { if (t.type === 'transfer' && t.memo === '생활비 이체') t.categoryId = lifeCat.id; });
+    (d.recurring || []).forEach((r) => { if (r.type === 'transfer' && (r.name === '생활비 이체' || r.memo === '생활비 이체')) r.categoryId = lifeCat.id; });
+  }
+  d.settings.lifeTransferCategoryMigrated = true;
+  return d;
+}
+
 function loadData() {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -812,6 +847,8 @@ function loadData() {
     d = migrateToUpdatedCategoryTree(d);
     d = migrateAddTransferCategories(d);
     d = migrateStockTransferCategory(d);
+    d = migrateAddLifeTransferLeaf(d);
+    d = migrateLifeTransferCategory(d);
     return d;
   } catch (e) { console.error(e); return defaultData(); }
 }
@@ -1397,8 +1434,6 @@ function onVendorKeydown(e) {
     if (!items.length) return;
     vsState.activeIndex = (vsState.activeIndex - 1 + items.length) % items.length;
     highlightActiveVendorItem();
-  } else if (e.key === 'Enter') {
-    if (items[vsState.activeIndex] != null) { e.preventDefault(); pickVendorSuggest(vsState.activeIndex); }
   } else if (e.key === 'Tab') {
     if (items[vsState.activeIndex] != null) {
       e.preventDefault();
@@ -1406,6 +1441,8 @@ function onVendorKeydown(e) {
       const nextField = document.getElementById('tx-memo');
       if (nextField) nextField.focus();
     }
+  } else if (e.key === 'Enter') {
+    closeVendorSuggest();
   } else if (e.key === 'Escape') {
     e.preventDefault();
     closeVendorSuggest();
@@ -1492,10 +1529,10 @@ function onMemoKeydown(e) {
     if (!items.length) return;
     msState.activeIndex = (msState.activeIndex - 1 + items.length) % items.length;
     highlightActiveMemoItem();
-  } else if (e.key === 'Enter') {
-    if (items[msState.activeIndex] != null) { e.preventDefault(); pickMemoSuggest(msState.activeIndex); }
   } else if (e.key === 'Tab') {
     if (items[msState.activeIndex] != null) pickMemoSuggest(msState.activeIndex);
+  } else if (e.key === 'Enter') {
+    closeMemoSuggest();
   } else if (e.key === 'Escape') {
     e.preventDefault();
     closeMemoSuggest();
@@ -1844,7 +1881,8 @@ function renderTxTable(list, hideDate, showCategoryCol) {
         if (t.memo) memoParts.push(escapeHtml(t.memo));
         if (t.excludeFromStats) memoParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
         const memoCell = memoParts.join(' · ') + (t.hasReceipt ? ' 🧾' : '');
-        return `<tr class="tx-row-clickable ${dayBoundary ? 'day-boundary' : ''}" onclick="onTxRowClick(event, '${t.id}')">
+        const isEditing = showCategoryCol && state._txModal && state._txModal.renderMode === 'inline' && state._txModal.txId === t.id;
+        return `<tr class="tx-row-clickable ${dayBoundary ? 'day-boundary' : ''} ${isEditing ? 'row-editing' : ''}" data-txid="${t.id}" onclick="onTxRowClick(event, '${t.id}')">
           ${hideDate ? '' : `<td>${t.date.slice(5)}</td>`}
           <td class="mcol">
             <div class="name-cell"><span class="type-tag ${t.type}">${typeLabel}</span> ${mid}</div>
@@ -1952,7 +1990,7 @@ function renderTransactions() {
 
   document.getElementById('panel-transactions').innerHTML = `
     <div class="tx-split">
-      <div class="tx-split-main">
+      <div class="tx-split-main" onclick="onTxMainClick(event)">
         ${periodNav}
         <div class="toolbar">
           <div class="btn-group">
@@ -2008,7 +2046,18 @@ function duplicateTx(id) {
 function onTxRowClick(e, id) {
   if (!window.matchMedia('(min-width: 860px)').matches) return;
   if (e.target.closest('button, a, input, select, textarea')) return;
+  if (state._txModal && state._txModal.renderMode === 'inline' && state._txModal.txId === id) {
+    closeTxPanel();
+    return;
+  }
   openTxModal(id);
+}
+function onTxMainClick(e) {
+  const slot = document.getElementById('tx-inline-slot-transactions');
+  if (!slot || !slot.classList.contains('active')) return;
+  if (e.target.closest('tr.tx-row-clickable')) return;
+  if (e.target.closest('button, a, input, select, textarea, label, .search-wrap')) return;
+  closeTxPanel();
 }
 function txInlineSlot() {
   if (!window.matchMedia('(min-width: 860px)').matches) return null;
@@ -2021,6 +2070,7 @@ function closeTxPanel() {
   const mode = state._txModal && state._txModal.renderMode;
   state._txModal = null;
   if (mode === 'inline') {
+    document.querySelectorAll('tr.row-editing').forEach(tr => tr.classList.remove('row-editing'));
     document.querySelectorAll('.tx-inline-panel').forEach(el => { el.classList.remove('active'); el.innerHTML = ''; });
   } else {
     closeModal();
@@ -2092,10 +2142,12 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     document.querySelectorAll('.tx-inline-panel').forEach(el => { if (el !== inlineSlot) { el.classList.remove('active'); el.innerHTML = ''; } });
     inlineSlot.innerHTML = `<div class="modal-card tx-inline-card">${formHtml}</div>`;
     inlineSlot.classList.add('active');
-    state._txModal = { type, editing, receipt: null, fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, renderMode: 'inline' };
+    document.querySelectorAll('tr.row-editing').forEach(tr => tr.classList.remove('row-editing'));
+    if (txId) { const tr = document.querySelector(`tr.tx-row-clickable[data-txid="${txId}"]`); if (tr) tr.classList.add('row-editing'); }
+    state._txModal = { txId: txId || null, type, editing, receipt: null, fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, renderMode: 'inline' };
   } else {
     openModal(formHtml, { sidePanel: true });
-    state._txModal = { type, editing, receipt: null, fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, renderMode: 'overlay' };
+    state._txModal = { txId: txId || null, type, editing, receipt: null, fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, renderMode: 'overlay' };
   }
   if (editing && editing.type === 'expense' && editing.hasReceipt) {
     getReceipt(editing.id).then(dataUrl => {
