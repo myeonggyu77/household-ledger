@@ -1382,7 +1382,7 @@ function openVendorSuggest(input) {
   const pop = document.createElement('div');
   pop.className = 'cp-pop';
   document.body.appendChild(pop);
-  vsState = { input, pop, items: [], activeIndex: 0 };
+  vsState = { input, pop, items: [], activeIndex: -1 };
   renderVendorSuggest();
   positionVendorSuggest();
   setTimeout(() => document.addEventListener('mousedown', onVendorSuggestOutsideClick), 0);
@@ -1409,7 +1409,7 @@ function renderVendorSuggest() {
   const matches = all.filter(v => !q || v.toLowerCase().includes(q)).slice(0, 8);
   if (!matches.length) { closeVendorSuggest(); return; }
   vsState.items = matches;
-  vsState.activeIndex = Math.min(vsState.activeIndex, matches.length - 1);
+  vsState.activeIndex = vsState.activeIndex < 0 ? -1 : Math.min(vsState.activeIndex, matches.length - 1);
   vsState.pop.innerHTML = `<div class="cp-list">${matches.map((v, i) => `<div class="cp-item ${i === vsState.activeIndex ? 'active' : ''}" data-idx="${i}" onclick="pickVendorSuggest('${i}')">${escapeHtml(v)}</div>`).join('')}</div>`;
 }
 function highlightActiveVendorItem() {
@@ -1427,19 +1427,21 @@ function onVendorKeydown(e) {
   if (e.key === 'ArrowDown') {
     e.preventDefault();
     if (!items.length) return;
-    vsState.activeIndex = (vsState.activeIndex + 1) % items.length;
+    vsState.activeIndex = vsState.activeIndex < 0 ? 0 : (vsState.activeIndex + 1) % items.length;
     highlightActiveVendorItem();
   } else if (e.key === 'ArrowUp') {
     e.preventDefault();
     if (!items.length) return;
-    vsState.activeIndex = (vsState.activeIndex - 1 + items.length) % items.length;
+    vsState.activeIndex = vsState.activeIndex <= 0 ? items.length - 1 : vsState.activeIndex - 1;
     highlightActiveVendorItem();
   } else if (e.key === 'Tab') {
-    if (items[vsState.activeIndex] != null) {
+    if (vsState.activeIndex >= 0 && items[vsState.activeIndex] != null) {
       e.preventDefault();
       pickVendorSuggest(vsState.activeIndex);
       const nextField = document.getElementById('tx-memo');
       if (nextField) nextField.focus();
+    } else {
+      closeVendorSuggest();
     }
   } else if (e.key === 'Enter') {
     closeVendorSuggest();
@@ -1477,7 +1479,7 @@ function openMemoSuggest(input) {
   const pop = document.createElement('div');
   pop.className = 'cp-pop';
   document.body.appendChild(pop);
-  msState = { input, pop, items: [], activeIndex: 0 };
+  msState = { input, pop, items: [], activeIndex: -1 };
   renderMemoSuggest();
   positionMemoSuggest();
   setTimeout(() => document.addEventListener('mousedown', onMemoSuggestOutsideClick), 0);
@@ -1504,7 +1506,7 @@ function renderMemoSuggest() {
   const matches = all.filter(v => !q || v.toLowerCase().includes(q)).slice(0, 8);
   if (!matches.length) { closeMemoSuggest(); return; }
   msState.items = matches;
-  msState.activeIndex = Math.min(msState.activeIndex, matches.length - 1);
+  msState.activeIndex = msState.activeIndex < 0 ? -1 : Math.min(msState.activeIndex, matches.length - 1);
   msState.pop.innerHTML = `<div class="cp-list">${matches.map((v, i) => `<div class="cp-item ${i === msState.activeIndex ? 'active' : ''}" data-idx="${i}" onclick="pickMemoSuggest('${i}')">${escapeHtml(v)}</div>`).join('')}</div>`;
 }
 function highlightActiveMemoItem() {
@@ -1522,15 +1524,16 @@ function onMemoKeydown(e) {
   if (e.key === 'ArrowDown') {
     e.preventDefault();
     if (!items.length) return;
-    msState.activeIndex = (msState.activeIndex + 1) % items.length;
+    msState.activeIndex = msState.activeIndex < 0 ? 0 : (msState.activeIndex + 1) % items.length;
     highlightActiveMemoItem();
   } else if (e.key === 'ArrowUp') {
     e.preventDefault();
     if (!items.length) return;
-    msState.activeIndex = (msState.activeIndex - 1 + items.length) % items.length;
+    msState.activeIndex = msState.activeIndex <= 0 ? items.length - 1 : msState.activeIndex - 1;
     highlightActiveMemoItem();
   } else if (e.key === 'Tab') {
-    if (items[msState.activeIndex] != null) pickMemoSuggest(msState.activeIndex);
+    if (msState.activeIndex >= 0 && items[msState.activeIndex] != null) pickMemoSuggest(msState.activeIndex);
+    else closeMemoSuggest();
   } else if (e.key === 'Enter') {
     closeMemoSuggest();
   } else if (e.key === 'Escape') {
