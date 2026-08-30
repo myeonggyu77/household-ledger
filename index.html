@@ -1444,7 +1444,8 @@ function onVendorKeydown(e) {
       closeVendorSuggest();
     }
   } else if (e.key === 'Enter') {
-    closeVendorSuggest();
+    if (vsState.activeIndex >= 0 && items[vsState.activeIndex] != null) { e.preventDefault(); pickVendorSuggest(vsState.activeIndex); }
+    else closeVendorSuggest();
   } else if (e.key === 'Escape') {
     e.preventDefault();
     closeVendorSuggest();
@@ -1535,7 +1536,8 @@ function onMemoKeydown(e) {
     if (msState.activeIndex >= 0 && items[msState.activeIndex] != null) pickMemoSuggest(msState.activeIndex);
     else closeMemoSuggest();
   } else if (e.key === 'Enter') {
-    closeMemoSuggest();
+    if (msState.activeIndex >= 0 && items[msState.activeIndex] != null) { e.preventDefault(); pickMemoSuggest(msState.activeIndex); }
+    else closeMemoSuggest();
   } else if (e.key === 'Escape') {
     e.preventDefault();
     closeMemoSuggest();
