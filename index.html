@@ -3036,9 +3036,11 @@ function exportAccountTxExcel() {
   if (!acc) return;
   const mKey = state.acctMonth;
   const period = state.acctPeriod || 'month';
-  const list = txInPeriod(period, mKey)
-    .filter(t => t.accountId === acc.id || t.toAccountId === acc.id || t.linkedLoanAccountId === acc.id)
-    .sort((a, b) => (a.date + a.id).localeCompare(b.date + b.id));
+  const q = ((state._acctTxFilter || {}).q || '').trim().toLowerCase();
+  let list = txInPeriod(period, mKey)
+    .filter(t => t.accountId === acc.id || t.toAccountId === acc.id || t.linkedLoanAccountId === acc.id);
+  if (q) list = list.filter(t => txSearchText(t).includes(q));
+  list = list.sort((a, b) => (a.date + a.id).localeCompare(b.date + b.id));
   const runningMap = accountRunningBalances(acc);
   const header = ['날짜', '구분', '계좌/대상', '카테고리', '메모', '대상/거래처', '금액', '잔액'];
   const rows = list.map((t) => {
@@ -3076,6 +3078,7 @@ function selectAccountDetail(id) {
   state.acctSelectedId = id;
   state.acctMonth = monthKey(new Date());
   state.acctPeriod = 'month';
+  state._acctTxFilter = { q: '' };
   renderAccounts();
 }
 function deselectAccountDetail() {
@@ -3130,9 +3133,12 @@ function renderAccountDetail(acc) {
   const periodNav = period === 'all' ? `<div class="month-nav">${periodSegHtml}</div>`
     : period === 'year' ? acctYearNavHtml(mKey, periodSegHtml)
     : monthNavHtml('navAcctPeriod(-1)', 'navAcctPeriod(1)', mKey, { onToday: 'jumpAcctToday()', onPick: 'navAcctToMonth', extraButtons: periodSegHtml });
-  const list = txInPeriod(period, mKey)
-    .filter(t => t.accountId === acc.id || t.toAccountId === acc.id || t.linkedLoanAccountId === acc.id)
-    .sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
+  state._acctTxFilter = state._acctTxFilter || { q: '' };
+  const q = (state._acctTxFilter.q || '').trim().toLowerCase();
+  let list = txInPeriod(period, mKey)
+    .filter(t => t.accountId === acc.id || t.toAccountId === acc.id || t.linkedLoanAccountId === acc.id);
+  if (q) list = list.filter(t => txSearchText(t).includes(q));
+  list = list.sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
   return `
     <div class="tx-split">
       <div class="tx-split-main">
@@ -3158,12 +3164,24 @@ function renderAccountDetail(acc) {
         </div>
         <div class="section-block">
           <div class="section-heading">${periodLabel} 내역 (${list.length}건)<button class="ghost-btn" onclick="addTxForAccount('${acc.id}')">+ 내역 추가</button></div>
-          ${list.length ? renderAccountTxTable(list, acc) : `<div class="empty">해당 기간에는 거래가 없어요.</div>`}
+          <div class="search-wrap" style="max-width:320px;display:flex;gap:6px;margin-bottom:10px;">
+            <input class="search-input" id="acct-tx-f-q" placeholder="이 자산의 거래 검색" value="${escapeHtml(state._acctTxFilter.q)}" onkeydown="onAcctTxSearchKeydown(event)" style="flex:1;min-width:0;">
+            <button class="ghost-btn" onclick="runAcctTxSearch()" style="flex-shrink:0;">검색</button>
+          </div>
+          ${list.length ? renderAccountTxTable(list, acc) : `<div class="empty">${q ? '검색 결과가 없어요.' : '해당 기간에는 거래가 없어요.'}</div>`}
         </div>
       </div>
       <div class="tx-inline-panel" id="tx-inline-slot-accounts"></div>
     </div>
   `;
+}
+function onAcctTxSearchKeydown(e) {
+  if (e.key === 'Enter') { e.preventDefault(); runAcctTxSearch(); }
+}
+function runAcctTxSearch() {
+  state._acctTxFilter = state._acctTxFilter || { q: '' };
+  state._acctTxFilter.q = document.getElementById('acct-tx-f-q').value;
+  renderAccounts();
 }
 function acctPeriodSegHtml(period) {
   return `
@@ -3172,14 +3190,27 @@ function acctPeriodSegHtml(period) {
     <button type="button" class="ghost-btn ${period === 'all' ? 'acct-seg-active' : ''}" style="font-size:12px;padding:5px 10px;" onclick="setAcctPeriod('all')">전체</button>
   `;
 }
+function acctSearchText(a) {
+  return [a.name || '', ACC_TYPE_LABEL[a.type] || '', a.currency || 'KRW'].join(' ').toLowerCase();
+}
+function onAcctSearchKeydown(e) {
+  if (e.key === 'Enter') { e.preventDefault(); runAcctSearch(); }
+}
+function runAcctSearch() {
+  state._acctFilter = state._acctFilter || { q: '' };
+  state._acctFilter.q = document.getElementById('acct-f-q').value;
+  renderAccounts();
+}
 function renderAccounts() {
   const selected = state.acctSelectedId ? DATA.accounts.find(a => a.id === state.acctSelectedId) : null;
+  state._acctFilter = state._acctFilter || { q: '' };
+  const q = (state._acctFilter.q || '').trim().toLowerCase();
   const listRow = (a) => `<div class="acct-list-row ${a.includeInTotal === false ? 'excluded' : ''} ${selected && selected.id === a.id ? 'selected' : ''}" onclick="selectAccountDetail('${a.id}')">
     <span>${a.icon || ACC_TYPE_ICON[a.type] || '💰'} ${escapeHtml(a.name)}${a.currency === 'USD' ? ' <span class="ccy-badge usd">USD</span>' : ''}</span>
     <span class="acct-list-bal ${accountBalance(a) < 0 ? 'expense' : ''}">${fmtCurrencySigned(accountBalance(a), a.currency || 'KRW')}</span>
   </div>`;
   const groupBlock = (type) => {
-    const accts = DATA.accounts.filter(a => a.type === type);
+    const accts = DATA.accounts.filter(a => a.type === type && (!q || acctSearchText(a).includes(q)));
     if (!accts.length) return '';
     const hasUsd = accts.some(a => a.currency === 'USD');
     const subtotalKRW = accts.reduce((s, a) => s + toKRW(accountBalance(a), a.currency || 'KRW'), 0);
@@ -3191,6 +3222,7 @@ function renderAccounts() {
       ${accts.map(listRow).join('')}
     </details>`;
   };
+  const matchedCount = q ? DATA.accounts.filter(a => acctSearchText(a).includes(q)).length : DATA.accounts.length;
   const rate = DATA.settings.usdKrwRate;
   const rateLine = rate
     ? `1 USD = ${won(rate)} <span style="color:var(--ink-faint);">(${new Date(DATA.settings.rateUpdatedAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} 기준)</span>`
@@ -3213,10 +3245,14 @@ function renderAccounts() {
     </div>
     <div class="acct-master-detail">
       <div class="acct-list-pane ${selected ? 'has-selection' : ''}">
-        <div class="acct-list-group">
-          <div class="acct-list-group-head"><span>전체 <span class="form-note" style="margin:0;">${DATA.accounts.length}</span></span><span>${wonSigned(totalAssets())}</span></div>
+        <div class="search-wrap" style="max-width:100%;display:flex;gap:6px;margin-bottom:10px;">
+          <input class="search-input" id="acct-f-q" placeholder="자산 검색 (이름/종류/통화)" value="${escapeHtml(state._acctFilter.q)}" onkeydown="onAcctSearchKeydown(event)" style="flex:1;min-width:0;">
+          <button class="ghost-btn" onclick="runAcctSearch()" style="flex-shrink:0;">검색</button>
         </div>
-        ${ACC_TYPES.map(groupBlock).join('')}
+        <div class="acct-list-group">
+          <div class="acct-list-group-head"><span>${q ? `검색 결과 ${matchedCount}` : '전체'} <span class="form-note" style="margin:0;">${q ? '' : DATA.accounts.length}</span></span><span>${q ? '' : wonSigned(totalAssets())}</span></div>
+        </div>
+        ${matchedCount ? ACC_TYPES.map(groupBlock).join('') : (q ? `<div class="empty">검색 결과가 없어요.</div>` : '')}
       </div>
       <div class="acct-detail-pane ${selected ? 'active' : ''}">
         ${selected ? renderAccountDetail(selected) : `<div class="empty">왼쪽에서 자산을 선택하면 상세 내역을 볼 수 있어요.</div>`}
@@ -3862,10 +3898,23 @@ function onCatDragEnd() {
   catDrag = null;
   reorderCategory(id, newIndex);
 }
+function onCatSearchKeydown(e) {
+  if (e.key === 'Enter') { e.preventDefault(); runCatSearch(); }
+}
+function runCatSearch() {
+  state._catFilter = state._catFilter || { q: '' };
+  state._catFilter.q = document.getElementById('cat-f-q').value;
+  renderSettings();
+}
 function renderSettings() {
+  state._catFilter = state._catFilter || { q: '' };
+  const q = (state._catFilter.q || '').trim().toLowerCase();
   const dragHandle = (id) => `<button class="icon-btn cat-drag-handle" style="margin-left:0;" onpointerdown="startCatDrag(event, '${id}')" title="드래그해서 순서 변경" aria-label="드래그해서 순서 변경">⠿</button>`;
   const parentGroupHtml = (p) => {
-    const children = childCategories(p.id);
+    const allChildren = childCategories(p.id);
+    const parentMatches = !q || p.name.toLowerCase().includes(q);
+    const children = (q && !parentMatches) ? allChildren.filter((c) => c.name.toLowerCase().includes(q)) : allChildren;
+    if (q && !parentMatches && !children.length) return '';
     return `<div class="cat-parent-group" data-cat-id="${p.id}">
       <div class="cat-parent-head">
         <span class="cat-chip-name">${dragHandle(p.id)} ${p.icon} ${escapeHtml(p.name)}</span>
@@ -3889,14 +3938,20 @@ function renderSettings() {
   };
   const expenseParents = topCategories('expense');
   const incomeParents = topCategories('income');
+  const expenseHtml = expenseParents.map(parentGroupHtml).filter(Boolean).join('');
+  const incomeHtml = incomeParents.map(parentGroupHtml).filter(Boolean).join('');
 
   document.getElementById('panel-settings').innerHTML = `
     <div class="section-block">
       <div class="section-heading">카테고리 관리<button class="ghost-btn" onclick="openParentCategoryModal()">+ 대분류 추가</button></div>
       <div class="form-note">대분류 안에 소분류를 두는 2단계 구조예요. 실제 거래는 소분류에 기록돼요.</div>
+      <div class="search-wrap" style="max-width:320px;display:flex;gap:6px;margin:10px 0;">
+        <input class="search-input" id="cat-f-q" placeholder="카테고리 검색" value="${escapeHtml(state._catFilter.q)}" onkeydown="onCatSearchKeydown(event)" style="flex:1;min-width:0;">
+        <button class="ghost-btn" onclick="runCatSearch()" style="flex-shrink:0;">검색</button>
+      </div>
       <div class="cat-manage-grid">
-        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">지출</h4>${expenseParents.map(parentGroupHtml).join('') || '<div class="form-note">대분류가 없어요.</div>'}</div>
-        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">수입</h4>${incomeParents.map(parentGroupHtml).join('') || '<div class="form-note">대분류가 없어요.</div>'}</div>
+        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">지출</h4>${expenseHtml || (q ? '<div class="form-note">검색 결과가 없어요.</div>' : '<div class="form-note">대분류가 없어요.</div>')}</div>
+        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">수입</h4>${incomeHtml || (q ? '<div class="form-note">검색 결과가 없어요.</div>' : '<div class="form-note">대분류가 없어요.</div>')}</div>
       </div>
     </div>
     <div class="section-block">
