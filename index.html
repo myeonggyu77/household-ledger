@@ -992,6 +992,22 @@ function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (
 
 function getCategory(id) { return DATA.categories.find(c => c.id === id) || { name: '(삭제된 카테고리)', icon: '❔', colorIdx: 0 }; }
 function getAccount(id) { return DATA.accounts.find(a => a.id === id) || { name: '(삭제된 자산)', icon: '❔' }; }
+/* 지출/수입/이체 어떤 구분이든 categoryId만 있으면 동일한 형식으로 카테고리를 보여줘요. */
+function categoryCellHtml(categoryId) {
+  if (!categoryId) return '-';
+  const cat = getCategory(categoryId);
+  const parent = cat.parentId ? getCategory(cat.parentId) : cat;
+  return cat.parentId
+    ? `${parent.icon || ''} ${escapeHtml(parent.name)} <span style="color:var(--ink-faint)">· ${escapeHtml(cat.name)}</span>`
+    : `${parent.icon || ''} ${escapeHtml(parent.name)}`;
+}
+/* categoryCellHtml의 일반 텍스트 버전 (엑셀 등 HTML이 아닌 출력용) */
+function categoryCellText(categoryId) {
+  if (!categoryId) return '-';
+  const cat = getCategory(categoryId);
+  const parent = cat.parentId ? getCategory(cat.parentId) : cat;
+  return cat.parentId ? `${parent.name} · ${cat.name}` : parent.name;
+}
 function catColor(cat) {
   if (cat.colorIdx != null) return CAT_COLORS[cat.colorIdx % 8];
   if (!cat.parentId && cat.type) {
@@ -1698,7 +1714,7 @@ function renderHome() {
       ${dueToday.length ? dueToday.map(r => {
         const acc = getAccount(r.accountId);
         const mid = r.type === 'transfer'
-          ? `${acc.icon} ${escapeHtml(acc.name)} → ${getAccount(r.toAccountId).icon} ${escapeHtml(getAccount(r.toAccountId).name)}`
+          ? `${categoryCellHtml(r.categoryId)} <span style="color:var(--ink-faint)">· ${acc.icon} ${escapeHtml(acc.name)} → ${getAccount(r.toAccountId).icon} ${escapeHtml(getAccount(r.toAccountId).name)}</span>`
           : `${getCategory(r.categoryId).icon} ${escapeHtml(getCategory(r.categoryId).name)} · ${escapeHtml(acc.name)}`;
         return `<div class="due-row">
           <div class="due-main">
@@ -1873,23 +1889,12 @@ function renderTxTable(list, hideDate, showCategoryCol) {
           const toAcc = getAccount(t.toAccountId);
           mid = `${acc.icon} ${escapeHtml(acc.name)} → ${toAcc.icon} ${escapeHtml(toAcc.name)}`;
           acctCell = mid;
-          if (t.categoryId) {
-            const cat = getCategory(t.categoryId);
-            const parent = cat.parentId ? getCategory(cat.parentId) : cat;
-            catCell = cat.parentId
-              ? `${parent.icon || ''} ${escapeHtml(parent.name)} <span style="color:var(--ink-faint)">· ${escapeHtml(cat.name)}</span>`
-              : `${parent.icon || ''} ${escapeHtml(parent.name)}`;
-          } else {
-            catCell = '-';
-          }
+          catCell = categoryCellHtml(t.categoryId);
         } else {
           const cat = getCategory(t.categoryId);
-          const parent = cat.parentId ? getCategory(cat.parentId) : cat;
           mid = `${cat.icon} ${escapeHtml(cat.name)} <span style="color:var(--ink-faint)">· ${escapeHtml(acc.name)}</span>`;
           acctCell = `${acc.icon} ${escapeHtml(acc.name)}`;
-          catCell = cat.parentId
-            ? `${parent.icon || ''} ${escapeHtml(parent.name)} <span style="color:var(--ink-faint)">· ${escapeHtml(cat.name)}</span>`
-            : `${parent.icon || ''} ${escapeHtml(parent.name)}`;
+          catCell = categoryCellHtml(t.categoryId);
         }
         const sign = t.type === 'income' ? '+' : t.type === 'expense' ? '-' : '';
         const subParts = [];
@@ -2973,13 +2978,9 @@ function renderAccountTxTable(list, acc) {
           const other = getAccount(outgoing ? t.toAccountId : t.accountId);
           mid = `${outgoing ? '→' : '←'} ${other.icon || ''} ${escapeHtml(other.name)}`;
           acctCell = mid;
-          catCell = '-';
+          catCell = categoryCellHtml(t.categoryId);
         } else {
-          const cat = getCategory(t.categoryId);
-          const parent = cat.parentId ? getCategory(cat.parentId) : cat;
-          mid = cat.parentId
-            ? `${parent.icon || ''} ${escapeHtml(parent.name)} <span style="color:var(--ink-faint)">· ${escapeHtml(cat.name)}</span>`
-            : `${parent.icon || ''} ${escapeHtml(parent.name)}`;
+          mid = categoryCellHtml(t.categoryId);
           catCell = mid;
           if (isLoanLink) {
             const payAcc = getAccount(t.accountId);
@@ -3055,11 +3056,9 @@ function exportAccountTxExcel() {
       const outgoing = t.accountId === acc.id;
       const other = getAccount(outgoing ? t.toAccountId : t.accountId);
       acctCell = `${outgoing ? '→' : '←'} ${other.name}`;
-      catCell = '-';
+      catCell = categoryCellText(t.categoryId);
     } else {
-      const cat = getCategory(t.categoryId);
-      const parent = cat.parentId ? getCategory(cat.parentId) : cat;
-      catCell = cat.parentId ? `${parent.name} · ${cat.name}` : parent.name;
+      catCell = categoryCellText(t.categoryId);
       if (isLoanLink) {
         const payAcc = getAccount(t.accountId);
         acctCell = payAcc.name;
