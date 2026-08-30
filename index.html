@@ -3021,6 +3021,50 @@ function renderAccountTxTable(list, acc) {
     </tbody>
   </table></div>`;
 }
+function exportAccountTxExcel() {
+  if (!window.XLSX) return showToast('엑셀 라이브러리를 불러오는 중이에요. 잠시 후 다시 시도해주세요.', 'error');
+  const acc = DATA.accounts.find(a => a.id === state.acctSelectedId);
+  if (!acc) return;
+  const mKey = state.acctMonth;
+  const period = state.acctPeriod || 'month';
+  const list = txInPeriod(period, mKey)
+    .filter(t => t.accountId === acc.id || t.toAccountId === acc.id || t.linkedLoanAccountId === acc.id)
+    .sort((a, b) => (a.date + a.id).localeCompare(b.date + b.id));
+  const runningMap = accountRunningBalances(acc);
+  const header = ['날짜', '구분', '계좌/대상', '카테고리', '메모', '대상/거래처', '금액', '잔액'];
+  const rows = list.map((t) => {
+    const isLoanLink = t.linkedLoanAccountId === acc.id && t.accountId !== acc.id;
+    const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
+    const vendor = t.vendor || t.payee || '';
+    let acctCell, catCell;
+    if (t.type === 'transfer') {
+      const outgoing = t.accountId === acc.id;
+      const other = getAccount(outgoing ? t.toAccountId : t.accountId);
+      acctCell = `${outgoing ? '→' : '←'} ${other.name}`;
+      catCell = '-';
+    } else {
+      const cat = getCategory(t.categoryId);
+      const parent = cat.parentId ? getCategory(cat.parentId) : cat;
+      catCell = cat.parentId ? `${parent.name} · ${cat.name}` : parent.name;
+      if (isLoanLink) {
+        const payAcc = getAccount(t.accountId);
+        acctCell = payAcc.name;
+      } else {
+        acctCell = acc.name;
+      }
+    }
+    const outgoing = !isLoanLink && (t.type === 'expense' || (t.type === 'transfer' && t.accountId === acc.id));
+    const sign = isLoanLink ? 1 : (t.type === 'transfer' ? (outgoing ? -1 : 1) : (t.type === 'income' ? 1 : -1));
+    const bal = runningMap[t.id];
+    return [t.date, typeLabel, acctCell, catCell, t.memo || '', vendor, sign * t.amount, bal != null ? bal : ''];
+  });
+  const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+  ws['!cols'] = [{ wch: 12 }, { wch: 8 }, { wch: 16 }, { wch: 20 }, { wch: 24 }, { wch: 16 }, { wch: 14 }, { wch: 14 }];
+  const wb = XLSX.utils.book_new();
+  const sheetName = acc.name.replace(/[\\/*?:\[\]]/g, '_').slice(0, 31) || '거래내역';
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, `가계부-${acc.name}-${todayStr()}.xlsx`);
+}
 function selectAccountDetail(id) {
   state.acctSelectedId = id;
   state.acctMonth = monthKey(new Date());
@@ -3092,7 +3136,10 @@ function renderAccountDetail(acc) {
               <button class="icon-btn" onclick="openAccountModal('${acc.id}')" title="수정" aria-label="수정">✏️</button>
               <span class="form-note" style="margin:0;">사용기간 ${usagePeriod}</span>
             </div>
-            <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="deselectAccountDetail()">← 목록으로</button>
+            <div style="display:flex;gap:8px;">
+              <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="exportAccountTxExcel()">⬇ 내려받기</button>
+              <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="deselectAccountDetail()">← 목록으로</button>
+            </div>
           </div>
           ${periodNav}
           <div class="acct-summary-row">
