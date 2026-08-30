@@ -3365,13 +3365,13 @@ function renderRecurring() {
       <div class="rec-col-body">
         ${g.items.length ? `<div class="overflow-x"><table>
           <thead><tr>
-            <th style="width:28px;"><input type="checkbox" ${allSelected ? 'checked' : ''} onchange="toggleRecSelectAllInGroup(this, '${g.type}')" title="전체 선택"></th>
+            <th style="width:26px;"><input type="checkbox" ${allSelected ? 'checked' : ''} onchange="toggleRecSelectAllInGroup(this, '${g.type}')" title="전체 선택"></th>
             <th class="name-cell">메모</th>
-            <th style="width:150px;">계좌</th>
-            <th style="width:130px;">카테고리</th>
-            <th style="width:130px;">대상/거래처</th>
+            <th style="width:110px;">계좌</th>
+            <th style="width:100px;">카테고리</th>
+            <th style="width:95px;">대상/거래처</th>
             <th class="num">금액</th>
-            <th style="width:120px;">주기</th>
+            <th style="width:85px;">주기</th>
             <th class="actions-cell">관리</th>
           </tr></thead>
           <tbody>
@@ -3406,6 +3406,9 @@ function renderRecurring() {
   `;
   }).join('');
   const selectedCount = selected.size;
+  const inlineSlotHtml = selectedCount > 0
+    ? `<div class="tx-inline-panel active" id="tx-inline-slot-recurring"><div class="modal-card tx-inline-card">${recSelectionPanelHtml()}</div></div>`
+    : `<div class="tx-inline-panel" id="tx-inline-slot-recurring"></div>`;
   document.getElementById('panel-recurring').innerHTML = `
     <div class="tx-split">
       <div class="tx-split-main">
@@ -3421,7 +3424,39 @@ function renderRecurring() {
         </div>
         <div class="rec-cols">${colHtml}</div>
       </div>
-      <div class="tx-inline-panel" id="tx-inline-slot-recurring"></div>
+      ${inlineSlotHtml}
+    </div>
+  `;
+}
+function recSelectionPanelHtml() {
+  const selected = state._recBulkSelected || new Set();
+  const items = Array.from(selected).map(id => DATA.recurring.find(r => r.id === id)).filter(Boolean);
+  if (!items.length) return '';
+  const sumByType = { income: 0, expense: 0, transfer: 0 };
+  items.forEach(r => { sumByType[r.type] += Number(r.amount) || 0; });
+  return `
+    <h3>선택 현황 <span style="font-weight:400;font-size:13px;color:var(--ink-faint);">(${items.length}건)</span></h3>
+    <div class="form-note">체크한 항목이 여기에 실시간으로 표시돼요.</div>
+    <div style="max-height:calc(100vh - 420px);min-height:120px;overflow-y:auto;border:1px solid var(--line);border-radius:4px;margin:10px 0;">
+      ${items.map(r => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--line-soft);font-size:13px;">
+        <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+          <span class="type-tag ${r.type}">${REC_TYPE_LABEL[r.type]}</span>
+          ${escapeHtml(r.name)}
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+          <span class="form-note" style="margin:0;">${fmtCurrency(r.amount, getAccount(r.accountId).currency || 'KRW')}</span>
+          <button class="icon-btn" onclick="toggleRecSelect('${r.id}')" title="선택 해제" aria-label="선택 해제">✕</button>
+        </div>
+      </div>`).join('')}
+    </div>
+    <div class="form-note" style="margin-bottom:14px;">
+      ${sumByType.income ? `수입 합계 ${won(sumByType.income)}<br>` : ''}
+      ${sumByType.expense ? `지출 합계 ${won(sumByType.expense)}<br>` : ''}
+      ${sumByType.transfer ? `이체 합계 ${won(sumByType.transfer)}` : ''}
+    </div>
+    <div class="form-actions">
+      <button class="ghost-btn" onclick="clearRecSelection()">선택 해제</button>
+      <button class="primary-btn" onclick="openRecBulkApplyModal()">📅 일괄 적용</button>
     </div>
   `;
 }
@@ -3461,7 +3496,7 @@ function closeRecPanel() {
   const mode = state._recPanelMode;
   state._recPanelMode = null;
   if (mode === 'inline') {
-    document.querySelectorAll('.tx-inline-panel').forEach(el => { el.classList.remove('active'); el.innerHTML = ''; });
+    renderRecurring();
   } else {
     closeModal();
   }
