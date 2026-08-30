@@ -533,6 +533,7 @@ async function onAuthed(userId) {
       cloudData = migrateStockTransferCategory(cloudData);
       cloudData = migrateAddLifeTransferLeaf(cloudData);
       cloudData = migrateLifeTransferCategory(cloudData);
+      cloudData = migrateTransferCategoryFallback(cloudData);
       const categoriesChanged = cloudData.categories.length !== catCountBefore || (!stockMigratedBefore && cloudData.settings.stockTransferCategoryMigrated);
       delete cloudData.receiptsById;
       DATA = cloudData;
@@ -833,6 +834,19 @@ function migrateLifeTransferCategory(d) {
   return d;
 }
 
+/* 일회성 데이터 보정: 카테고리가 비어있는 이체 거래/정기거래를 "기타 이체"로 채워요. (목록에서 이체도 카테고리가 보이도록) */
+function migrateTransferCategoryFallback(d) {
+  d.settings = d.settings || {};
+  if (d.settings.transferCategoryFallbackApplied) return d;
+  const fallbackCat = (d.categories || []).find((c) => c.type === 'transfer' && c.name === '기타 이체');
+  if (fallbackCat) {
+    (d.transactions || []).forEach((t) => { if (t.type === 'transfer' && !t.categoryId) t.categoryId = fallbackCat.id; });
+    (d.recurring || []).forEach((r) => { if (r.type === 'transfer' && !r.categoryId) r.categoryId = fallbackCat.id; });
+  }
+  d.settings.transferCategoryFallbackApplied = true;
+  return d;
+}
+
 function loadData() {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -851,6 +865,7 @@ function loadData() {
     d = migrateStockTransferCategory(d);
     d = migrateAddLifeTransferLeaf(d);
     d = migrateLifeTransferCategory(d);
+    d = migrateTransferCategoryFallback(d);
     return d;
   } catch (e) { console.error(e); return defaultData(); }
 }
@@ -2589,6 +2604,7 @@ function downloadBulkTemplate() {
   const sample = [
     ['2026-08-01', '지출', '식비', '현금', '', '스타벅스', '스타벅스 강남점', 4500, '아메리카노'],
     ['2026-08-01', '수입', '급여', '현금', '', '회사', '', 3000000, '8월 급여'],
+    ['2026-08-01', '이체', '기타 이체', '현금', '토스뱅크', '', '', 100000, '생활비 이체'],
   ];
   const ws = XLSX.utils.aoa_to_sheet([BULK_HEADERS, ...sample]);
   ws['!cols'] = [{ wch: 15 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 18 }, { wch: 10 }, { wch: 22 }];
@@ -2597,12 +2613,13 @@ function downloadBulkTemplate() {
 
   const expenseCats = leafCategories('expense').map(c => c.name);
   const incomeCats = leafCategories('income').map(c => c.name);
+  const transferCats = leafCategories('transfer').map(c => c.name);
   const accts = DATA.accounts.map(a => a.name);
-  const maxLen = Math.max(expenseCats.length, incomeCats.length, accts.length, 1);
-  const refRows = [['지출 카테고리(소분류)', '수입 카테고리(소분류)', '자산']];
-  for (let i = 0; i < maxLen; i++) refRows.push([expenseCats[i] || '', incomeCats[i] || '', accts[i] || '']);
+  const maxLen = Math.max(expenseCats.length, incomeCats.length, transferCats.length, accts.length, 1);
+  const refRows = [['지출 카테고리(소분류)', '수입 카테고리(소분류)', '이체 카테고리(소분류)', '자산']];
+  for (let i = 0; i < maxLen; i++) refRows.push([expenseCats[i] || '', incomeCats[i] || '', transferCats[i] || '', accts[i] || '']);
   const wsRef = XLSX.utils.aoa_to_sheet(refRows);
-  wsRef['!cols'] = [{ wch: 20 }, { wch: 20 }, { wch: 16 }];
+  wsRef['!cols'] = [{ wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 16 }];
   XLSX.utils.book_append_sheet(wb, wsRef, '참고(카테고리·자산)');
 
   XLSX.writeFile(wb, `가계부-일괄등록양식-${todayStr()}.xlsx`);
@@ -2654,12 +2671,14 @@ function parseBulkRow(row, idx) {
   const memo = String(memoRaw || '').trim();
   let categoryId = null, accountId = null, toAccountId = null, payee = null, vendor = null;
   if (type === 'transfer') {
+    const cat = DATA.categories.find(c => c.type === 'transfer' && c.parentId && c.name === String(catName || '').trim());
     const acc = DATA.accounts.find(a => a.name === String(accName || '').trim());
     const toAcc = DATA.accounts.find(a => a.name === String(toAccName || '').trim());
+    if (!cat) errors.push(`카테고리 없음: ${catName || '(비어있음)'}`);
     if (!acc) errors.push(`출금 자산 없음: ${accName || '(비어있음)'}`);
     if (!toAcc) errors.push(`입금 자산 없음: ${toAccName || '(비어있음)'}`);
     else if (acc && toAcc.id === acc.id) errors.push('출금/입금 자산이 같아요');
-    accountId = acc ? acc.id : null; toAccountId = toAcc ? toAcc.id : null;
+    categoryId = cat ? cat.id : null; accountId = acc ? acc.id : null; toAccountId = toAcc ? toAcc.id : null;
   } else if (type) {
     const cat = DATA.categories.find(c => c.type === type && c.parentId && c.name === String(catName || '').trim());
     const acc = DATA.accounts.find(a => a.name === String(accName || '').trim());
@@ -3565,7 +3584,12 @@ function renderRecModalFields(presetCat, presetAcc, presetToAcc, presetPayee) {
   const payeeField = document.getElementById('rec-payee-field');
   const acctOption = (a, presetId) => `<option value="${a.id}" ${presetId === a.id ? 'selected' : ''}>${a.icon} ${escapeHtml(a.name)}${a.currency === 'USD' ? ' (USD)' : ''}</option>`;
   if (type === 'transfer') {
-    catField.innerHTML = '';
+    const transferGroups = topCategories('transfer').map(p => {
+      const children = childCategories(p.id);
+      if (!children.length) return '';
+      return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}" ${presetCat === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
+    }).join('');
+    catField.innerHTML = `<label class="field-lbl">카테고리</label><select id="rec-category">${transferGroups}</select>`;
     accField.innerHTML = `<label class="field-lbl">출금자산</label><select id="rec-account" onchange="updateRecAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
     toAccField.innerHTML = `<label class="field-lbl">이체자산</label><select id="rec-toaccount">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
   } else {
@@ -3619,8 +3643,10 @@ function submitRecurring(editId) {
     payload.day = dayRaw === 'last' ? 'last' : Math.min(31, Math.max(1, Number(dayRaw) || 1));
   }
   if (type === 'transfer') {
+    payload.categoryId = document.getElementById('rec-category').value;
     payload.accountId = document.getElementById('rec-account').value;
     payload.toAccountId = document.getElementById('rec-toaccount').value;
+    if (!payload.categoryId) return showToast('카테고리가 없어요. 설정에서 먼저 추가해주세요.', 'error');
     if (payload.accountId === payload.toAccountId) return showToast('출금/입금 자산이 같을 수 없어요.', 'error');
   } else {
     payload.categoryId = document.getElementById('rec-category').value;
