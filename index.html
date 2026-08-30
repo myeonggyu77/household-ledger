@@ -3345,11 +3345,38 @@ function compareRecurringSortKey(a, b) {
   for (let i = 0; i < ka.length; i++) { if (ka[i] !== kb[i]) return ka[i] - kb[i]; }
   return a.name.localeCompare(b.name, 'ko');
 }
+function recSearchText(r) {
+  const acc = getAccount(r.accountId);
+  const typeLabel = REC_TYPE_LABEL[r.type] || '';
+  const parts = [r.name || '', typeLabel, acc ? acc.name : '', r.payee || '', String(r.amount), recurringScheduleLabel(r)];
+  if (r.type === 'transfer') {
+    const toAcc = getAccount(r.toAccountId);
+    if (toAcc) parts.push(toAcc.name);
+    const cat = r.categoryId ? getCategory(r.categoryId) : null;
+    if (cat) { parts.push(cat.name); if (cat.parentId) parts.push(getCategory(cat.parentId).name); }
+  } else {
+    const cat = getCategory(r.categoryId);
+    if (cat) { parts.push(cat.name); if (cat.parentId) parts.push(getCategory(cat.parentId).name); }
+  }
+  return parts.join(' ').toLowerCase();
+}
+function onRecSearchKeydown(e) {
+  if (e.key === 'Enter') { e.preventDefault(); runRecSearch(); }
+}
+function runRecSearch() {
+  state._recFilter = state._recFilter || { q: '' };
+  state._recFilter.q = document.getElementById('rec-f-q').value;
+  renderRecurring();
+}
 function renderRecurring() {
   state._recPanelMode = null;
   state._recBulkSelected = state._recBulkSelected || new Set();
+  state._recFilter = state._recFilter || { q: '' };
   const selected = state._recBulkSelected;
-  const items = DATA.recurring.slice().sort(compareRecurringSortKey);
+  const q = (state._recFilter.q || '').trim().toLowerCase();
+  let items = DATA.recurring.slice();
+  if (q) items = items.filter(r => recSearchText(r).includes(q));
+  items = items.sort(compareRecurringSortKey);
   const allSelected = items.length > 0 && items.every(r => selected.has(r.id));
   const colHtml = items.length ? `<div class="overflow-x"><table>
       <thead><tr>
@@ -3390,7 +3417,7 @@ function renderRecurring() {
           </tr>`;
         }).join('')}
       </tbody>
-    </table></div>` : `<div class="empty">등록된 정기거래가 없어요.</div>`;
+    </table></div>` : `<div class="empty">${q ? '검색 결과가 없어요.' : '등록된 정기거래가 없어요.'}</div>`;
   const selectedCount = selected.size;
   const inlineSlotHtml = selectedCount > 0
     ? `<div class="tx-inline-panel active" id="tx-inline-slot-recurring"><div class="modal-card tx-inline-card">${recSelectionPanelHtml()}</div></div>`
@@ -3399,7 +3426,10 @@ function renderRecurring() {
     <div class="tx-split">
       <div class="tx-split-main">
         <div class="toolbar">
-          <div class="hint">${selectedCount > 0 ? `${selectedCount}건 선택됨` : '체크박스로 여러 건을 선택하면 원하는 날짜에 한 번에 등록할 수 있어요.'}</div>
+          <div class="search-wrap" style="max-width:320px;display:flex;gap:6px;">
+            <input class="search-input" id="rec-f-q" placeholder="정기거래 전체 검색" value="${escapeHtml(state._recFilter.q)}" onkeydown="onRecSearchKeydown(event)" style="flex:1;min-width:0;">
+            <button class="ghost-btn" onclick="runRecSearch()" style="flex-shrink:0;">검색</button>
+          </div>
           <div style="display:flex;gap:8px;">
             ${selectedCount > 0 ? `
               <button class="ghost-btn" onclick="clearRecSelection()">선택 해제</button>
@@ -3408,6 +3438,7 @@ function renderRecurring() {
             <button class="primary-btn" onclick="openRecurringModal()">+ 정기거래 추가</button>
           </div>
         </div>
+        <div class="form-note">${selectedCount > 0 ? `${selectedCount}건 선택됨` : (q ? `검색 결과 ${items.length}건` : '체크박스로 여러 건을 선택하면 원하는 날짜에 한 번에 등록할 수 있어요.')}</div>
         <div class="rec-list">${colHtml}</div>
       </div>
       ${inlineSlotHtml}
@@ -3454,7 +3485,9 @@ function toggleRecSelect(id) {
 }
 function toggleRecSelectAll(checkboxEl) {
   state._recBulkSelected = state._recBulkSelected || new Set();
-  const ids = DATA.recurring.map(r => r.id);
+  state._recFilter = state._recFilter || { q: '' };
+  const q = (state._recFilter.q || '').trim().toLowerCase();
+  const ids = DATA.recurring.filter(r => !q || recSearchText(r).includes(q)).map(r => r.id);
   if (checkboxEl.checked) ids.forEach(id => state._recBulkSelected.add(id));
   else ids.forEach(id => state._recBulkSelected.delete(id));
   renderRecurring();
