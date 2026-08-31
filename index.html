@@ -528,11 +528,13 @@ async function onAuthed(userId) {
       cloudData = migrateAddLifeTransferLeaf(cloudData);
       cloudData = migrateLifeTransferCategory(cloudData);
       cloudData = migrateTransferCategoryFallback(cloudData);
+      const payeeMigratedBefore = !!(cloudData.settings && cloudData.settings.payeeExtractedFromMemo);
+      cloudData = migratePayeeFromMemo(cloudData);
       const categoriesChanged = cloudData.categories.length !== catCountBefore || (!stockMigratedBefore && cloudData.settings.stockTransferCategoryMigrated);
       delete cloudData.receiptsById;
       DATA = cloudData;
       try { localStorage.setItem(LS_KEY, JSON.stringify(DATA)); } catch (e) {}
-      if (beforeVersion !== CATEGORY_TREE_VERSION || categoriesChanged) scheduleCloudSave();
+      if (beforeVersion !== CATEGORY_TREE_VERSION || categoriesChanged || (!payeeMigratedBefore && cloudData.settings.payeeExtractedFromMemo)) scheduleCloudSave();
     }
   } catch (e) {
     console.error('cloud sync on login failed', e);
@@ -841,6 +843,39 @@ function migrateTransferCategoryFallback(d) {
   return d;
 }
 
+/* 일회성 데이터 보정: 메모에 사람 이름이 단어로 들어있으면 적용대상으로 옮기고 메모에서 그 단어를 지워요. */
+const MEMO_PAYEE_EXTRACT_RULES = [
+  { find: '아빠', payee: '아빠' },
+  { find: '현승이', payee: '현승' },
+  { find: '엄마', payee: '엄마' },
+  { find: '현수', payee: '현수' },
+  { find: '현정이', payee: '현정이' },
+];
+function extractPayeeFromMemoText(memo) {
+  const tokens = memo.split(/\s+/).filter(Boolean);
+  let payee = null;
+  const kept = tokens.filter((tok) => {
+    const rule = MEMO_PAYEE_EXTRACT_RULES.find((r) => r.find === tok);
+    if (rule) { if (!payee) payee = rule.payee; return false; }
+    return true;
+  });
+  return { memo: kept.join(' '), payee };
+}
+function migratePayeeFromMemo(d) {
+  d.settings = d.settings || {};
+  if (d.settings.payeeExtractedFromMemo) return d;
+  (d.transactions || []).forEach((t) => {
+    if (!t.memo) return;
+    const { memo, payee } = extractPayeeFromMemoText(t.memo);
+    if (payee) {
+      t.memo = memo;
+      if (!t.payee) t.payee = payee;
+    }
+  });
+  d.settings.payeeExtractedFromMemo = true;
+  return d;
+}
+
 function loadData() {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -860,6 +895,7 @@ function loadData() {
     d = migrateAddLifeTransferLeaf(d);
     d = migrateLifeTransferCategory(d);
     d = migrateTransferCategoryFallback(d);
+    d = migratePayeeFromMemo(d);
     return d;
   } catch (e) { console.error(e); return defaultData(); }
 }
