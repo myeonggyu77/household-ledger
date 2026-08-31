@@ -534,6 +534,7 @@ async function onAuthed(userId) {
       const payeeMigratedBefore = !!(cloudData.settings && cloudData.settings.payeeExtractedFromMemo);
       cloudData = migratePayeeFromMemo(cloudData);
       cloudData = migrateReceiptIdsArray(cloudData);
+      cloudData = migrateTossBankDefaultPayee(cloudData);
       const categoriesChanged = cloudData.categories.length !== catCountBefore || (!stockMigratedBefore && cloudData.settings.stockTransferCategoryMigrated);
       delete cloudData.receiptsById;
       DATA = cloudData;
@@ -893,6 +894,22 @@ function migrateReceiptIdsArray(d) {
   return d;
 }
 
+/* 일회성 데이터 보정: "토스뱅크" 자산과 관련된 거래 중 적용대상이 비어있는 곳을 "아빠"로 채워요. */
+function migrateTossBankDefaultPayee(d) {
+  d.settings = d.settings || {};
+  if (d.settings.tossBankDefaultPayeeApplied) return d;
+  const acc = (d.accounts || []).find((a) => a.name === '토스뱅크');
+  if (acc) {
+    (d.transactions || []).forEach((t) => {
+      if (!t.payee && (t.accountId === acc.id || t.toAccountId === acc.id || t.linkedLoanAccountId === acc.id)) {
+        t.payee = '아빠';
+      }
+    });
+  }
+  d.settings.tossBankDefaultPayeeApplied = true;
+  return d;
+}
+
 function loadData() {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -914,6 +931,7 @@ function loadData() {
     d = migrateTransferCategoryFallback(d);
     d = migratePayeeFromMemo(d);
     d = migrateReceiptIdsArray(d);
+    d = migrateTossBankDefaultPayee(d);
     return d;
   } catch (e) { console.error(e); return defaultData(); }
 }
