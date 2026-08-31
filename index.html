@@ -1002,6 +1002,29 @@ function categoryCellText(categoryId) {
   const parent = cat.parentId ? getCategory(cat.parentId) : cat;
   return cat.parentId ? `${parent.name} · ${cat.name}` : parent.name;
 }
+/* 목록의 대분류/소분류 컬럼을 분리해서 보여줄 때 쓰는 짝 함수들 */
+function categoryParentCellHtml(categoryId) {
+  if (!categoryId) return '-';
+  const cat = getCategory(categoryId);
+  const parent = cat.parentId ? getCategory(cat.parentId) : cat;
+  return `${parent.icon || ''} ${escapeHtml(parent.name)}`;
+}
+function categoryChildCellHtml(categoryId) {
+  if (!categoryId) return '-';
+  const cat = getCategory(categoryId);
+  return cat.parentId ? `${cat.icon || ''} ${escapeHtml(cat.name)}` : '-';
+}
+function categoryParentCellText(categoryId) {
+  if (!categoryId) return '-';
+  const cat = getCategory(categoryId);
+  const parent = cat.parentId ? getCategory(cat.parentId) : cat;
+  return parent.name;
+}
+function categoryChildCellText(categoryId) {
+  if (!categoryId) return '-';
+  const cat = getCategory(categoryId);
+  return cat.parentId ? cat.name : '-';
+}
 function catColor(cat) {
   if (cat.colorIdx != null) return CAT_COLORS[cat.colorIdx % 8];
   if (!cat.parentId && cat.type) {
@@ -1866,7 +1889,7 @@ function renderTxTable(list, hideDate, showCategoryCol) {
       <th class="name-cell mcol">내역</th>
       <th class="dcol" style="width:64px;">구분</th>
       <th class="dcol" style="width:130px;">계좌</th>
-      ${showCategoryCol ? '<th class="dcol" style="width:130px;">카테고리</th>' : ''}
+      ${showCategoryCol ? '<th class="dcol" style="width:100px;">대분류</th><th class="dcol" style="width:100px;">소분류</th>' : ''}
       <th class="dcol">메모</th>
       <th class="dcol" style="width:130px;">대상/거래처</th>
       <th class="num">금액</th>
@@ -1878,18 +1901,18 @@ function renderTxTable(list, hideDate, showCategoryCol) {
         const acc = getAccount(t.accountId);
         const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
         const vendor = t.vendor || t.payee || '';
-        let mid, acctCell, catCell;
+        let mid, acctCell;
         if (t.type === 'transfer') {
           const toAcc = getAccount(t.toAccountId);
           mid = `${acc.icon} ${escapeHtml(acc.name)} → ${toAcc.icon} ${escapeHtml(toAcc.name)}`;
           acctCell = mid;
-          catCell = categoryCellHtml(t.categoryId);
         } else {
           const cat = getCategory(t.categoryId);
           mid = `${cat.icon} ${escapeHtml(cat.name)} <span style="color:var(--ink-faint)">· ${escapeHtml(acc.name)}</span>`;
           acctCell = `${acc.icon} ${escapeHtml(acc.name)}`;
-          catCell = categoryCellHtml(t.categoryId);
         }
+        const catParentCell = categoryParentCellHtml(t.categoryId);
+        const catChildCell = categoryChildCellHtml(t.categoryId);
         const sign = t.type === 'income' ? '+' : t.type === 'expense' ? '-' : '';
         const subParts = [];
         if (vendor) subParts.push(`<span style="font-weight:600;">${escapeHtml(vendor)}</span>`);
@@ -1911,7 +1934,7 @@ function renderTxTable(list, hideDate, showCategoryCol) {
           </td>
           <td class="dcol"><span class="type-tag ${t.type}">${typeLabel}</span></td>
           <td class="dcol" title="${acctCell.replace(/<[^>]*>/g, '')}">${acctCell}</td>
-          ${showCategoryCol ? `<td class="dcol" title="${catCell.replace(/<[^>]*>/g, '')}">${catCell}</td>` : ''}
+          ${showCategoryCol ? `<td class="dcol" title="${catParentCell.replace(/<[^>]*>/g, '')}">${catParentCell}</td><td class="dcol" title="${catChildCell.replace(/<[^>]*>/g, '')}">${catChildCell}</td>` : ''}
           <td class="dcol memo-col" title="${escapeHtml(t.memo || '')}"><div class="memo-inner">${memoCell}</div></td>
           <td class="dcol" title="${escapeHtml(vendor)}">${escapeHtml(vendor)}</td>
           <td class="num amt ${t.type}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</td>
@@ -2953,7 +2976,8 @@ function renderAccountTxTable(list, acc) {
       <th class="name-cell mcol">내역</th>
       <th class="dcol" style="width:64px;">구분</th>
       <th class="dcol" style="width:130px;">계좌</th>
-      <th class="dcol" style="width:130px;">카테고리</th>
+      <th class="dcol" style="width:100px;">대분류</th>
+      <th class="dcol" style="width:100px;">소분류</th>
       <th class="dcol">메모</th>
       <th class="dcol" style="width:130px;">대상/거래처</th>
       <th class="num">금액</th>
@@ -2966,16 +2990,16 @@ function renderAccountTxTable(list, acc) {
         const isLoanLink = t.linkedLoanAccountId === acc.id && t.accountId !== acc.id;
         const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
         const vendor = t.vendor || t.payee || '';
-        let mid, acctCell, catCell;
+        const catParentCell = categoryParentCellHtml(t.categoryId);
+        const catChildCell = categoryChildCellHtml(t.categoryId);
+        let mid, acctCell;
         if (t.type === 'transfer') {
           const outgoing = t.accountId === acc.id;
           const other = getAccount(outgoing ? t.toAccountId : t.accountId);
           mid = `${outgoing ? '→' : '←'} ${other.icon || ''} ${escapeHtml(other.name)}`;
           acctCell = mid;
-          catCell = categoryCellHtml(t.categoryId);
         } else {
           mid = categoryCellHtml(t.categoryId);
-          catCell = mid;
           if (isLoanLink) {
             const payAcc = getAccount(t.accountId);
             acctCell = `${payAcc.icon || ''} ${escapeHtml(payAcc.name)}`;
@@ -3011,7 +3035,8 @@ function renderAccountTxTable(list, acc) {
           </td>
           <td class="dcol"><span class="type-tag ${t.type}">${typeLabel}</span></td>
           <td class="dcol" title="${acctCell.replace(/<[^>]*>/g, '')}">${acctCell}</td>
-          <td class="dcol" title="${catCell.replace(/<[^>]*>/g, '')}">${catCell}</td>
+          <td class="dcol" title="${catParentCell.replace(/<[^>]*>/g, '')}">${catParentCell}</td>
+          <td class="dcol" title="${catChildCell.replace(/<[^>]*>/g, '')}">${catChildCell}</td>
           <td class="dcol memo-col" title="${escapeHtml(t.memo || '')}"><div class="memo-inner">${memoCell}</div></td>
           <td class="dcol" title="${escapeHtml(vendor)}">${escapeHtml(vendor)}</td>
           <td class="num">
@@ -3042,33 +3067,29 @@ function exportAccountTxExcel() {
   if (q) list = list.filter(t => txSearchText(t).includes(q));
   list = list.sort((a, b) => (a.date + a.id).localeCompare(b.date + b.id));
   const runningMap = accountRunningBalances(acc);
-  const header = ['날짜', '구분', '계좌/대상', '카테고리', '메모', '대상/거래처', '금액', '잔액'];
+  const header = ['날짜', '구분', '계좌', '대분류', '소분류', '메모', '대상/거래처', '금액', '잔액'];
   const rows = list.map((t) => {
     const isLoanLink = t.linkedLoanAccountId === acc.id && t.accountId !== acc.id;
     const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
     const vendor = t.vendor || t.payee || '';
-    let acctCell, catCell;
+    let acctCell;
     if (t.type === 'transfer') {
       const outgoing = t.accountId === acc.id;
       const other = getAccount(outgoing ? t.toAccountId : t.accountId);
       acctCell = `${outgoing ? '→' : '←'} ${other.name}`;
-      catCell = categoryCellText(t.categoryId);
+    } else if (isLoanLink) {
+      const payAcc = getAccount(t.accountId);
+      acctCell = payAcc.name;
     } else {
-      catCell = categoryCellText(t.categoryId);
-      if (isLoanLink) {
-        const payAcc = getAccount(t.accountId);
-        acctCell = payAcc.name;
-      } else {
-        acctCell = acc.name;
-      }
+      acctCell = acc.name;
     }
     const outgoing = !isLoanLink && (t.type === 'expense' || (t.type === 'transfer' && t.accountId === acc.id));
     const sign = isLoanLink ? 1 : (t.type === 'transfer' ? (outgoing ? -1 : 1) : (t.type === 'income' ? 1 : -1));
     const bal = runningMap[t.id];
-    return [t.date, typeLabel, acctCell, catCell, t.memo || '', vendor, sign * t.amount, bal != null ? bal : ''];
+    return [t.date, typeLabel, acctCell, categoryParentCellText(t.categoryId), categoryChildCellText(t.categoryId), t.memo || '', vendor, sign * t.amount, bal != null ? bal : ''];
   });
   const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
-  ws['!cols'] = [{ wch: 12 }, { wch: 8 }, { wch: 16 }, { wch: 20 }, { wch: 24 }, { wch: 16 }, { wch: 14 }, { wch: 14 }];
+  ws['!cols'] = [{ wch: 12 }, { wch: 8 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 24 }, { wch: 16 }, { wch: 14 }, { wch: 14 }];
   const wb = XLSX.utils.book_new();
   const sheetName = acc.name.replace(/[\\/*?:\[\]]/g, '_').slice(0, 31) || '거래내역';
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
@@ -3403,9 +3424,10 @@ function renderRecurring() {
       <thead><tr>
         <th style="width:26px;"><input type="checkbox" ${allSelected ? 'checked' : ''} onchange="toggleRecSelectAll(this)" title="전체 선택"></th>
         <th style="width:52px;">구분</th>
-        <th class="name-cell">메모</th>
         <th style="width:110px;">계좌</th>
-        <th style="width:100px;">카테고리</th>
+        <th style="width:90px;">대분류</th>
+        <th style="width:90px;">소분류</th>
+        <th class="name-cell">메모</th>
         <th style="width:95px;">대상/거래처</th>
         <th class="num">금액</th>
         <th style="width:85px;">주기</th>
@@ -3417,16 +3439,18 @@ function renderRecurring() {
           const acctCell = r.type === 'transfer'
             ? `${acc.icon} ${escapeHtml(acc.name)} → ${getAccount(r.toAccountId).icon} ${escapeHtml(getAccount(r.toAccountId).name)}`
             : `${acc.icon} ${escapeHtml(acc.name)}`;
-          const catCell = categoryCellHtml(r.categoryId);
+          const catParentCell = categoryParentCellHtml(r.categoryId);
+          const catChildCell = categoryChildCellHtml(r.categoryId);
           const noteParts = [];
           if (r.type === 'expense' && r.noHolidayShift) noteParts.push('휴일무관');
           if (r.type === 'income' && r.payBeforeHoliday) noteParts.push('휴일 전 평일');
           return `<tr>
             <td><input type="checkbox" ${selected.has(r.id) ? 'checked' : ''} onchange="toggleRecSelect('${r.id}')"></td>
             <td><span class="type-tag ${r.type}">${REC_TYPE_LABEL[r.type]}</span></td>
-            <td class="name-cell">${escapeHtml(r.name)}${noteParts.length ? `<div style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${noteParts.join(' · ')}</div>` : ''}</td>
             <td title="${acctCell.replace(/<[^>]*>/g, '')}">${acctCell}</td>
-            <td title="${catCell.replace(/<[^>]*>/g, '')}">${catCell}</td>
+            <td title="${catParentCell.replace(/<[^>]*>/g, '')}">${catParentCell}</td>
+            <td title="${catChildCell.replace(/<[^>]*>/g, '')}">${catChildCell}</td>
+            <td class="name-cell">${escapeHtml(r.name)}${noteParts.length ? `<div style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${noteParts.join(' · ')}</div>` : ''}</td>
             <td title="${escapeHtml(r.payee || '')}">${escapeHtml(r.payee || '')}</td>
             <td class="num">${fmtCurrency(r.amount, acc.currency || 'KRW')}</td>
             <td>${recurringScheduleLabel(r)}</td>
