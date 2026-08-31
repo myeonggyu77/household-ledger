@@ -121,6 +121,9 @@
   tbody tr.day-boundary td { border-bottom: 2px solid var(--accent-line); }
   .name-cell { line-height: 1.35; white-space: normal; overflow: visible; text-overflow: clip; word-break: keep-all; overflow-wrap: break-word; }
   thead th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-faint); font-weight: 500; padding: 8px; border-bottom: 1px solid var(--ink); position: sticky; top: 0; background: var(--paper); z-index: 4; box-shadow: 0 1px 0 var(--ink); white-space: nowrap; }
+  thead th.sortable-th { cursor: pointer; user-select: none; }
+  thead th.sortable-th:hover { color: var(--ink); }
+  thead th.sortable-th .sort-arrow { display: inline-block; margin-left: 2px; color: var(--accent); }
   th.num, td.num { text-align: right; font-family: var(--mono); min-width: 128px; }
   tbody tr:hover { background: var(--accent-tint); }
   .actions-cell { text-align: right; white-space: normal; overflow: visible; width: 86px; }
@@ -1965,17 +1968,21 @@ function abbrevWon(n) {
 
 /* ---------------- TRANSACTIONS ---------------- */
 function renderTxTable(list, hideDate, showCategoryCol) {
+  const sortState = showCategoryCol ? state._txSort : null;
+  const th = (key, label, style) => showCategoryCol
+    ? `<th class="dcol sortable-th" style="${style || ''}" onclick="setTxSort('${key}')" title="클릭하여 정렬">${label}${sortArrowHtml(sortState, key)}</th>`
+    : `<th class="dcol" style="${style || ''}">${label}</th>`;
   return `<div class="overflow-x"><table>
     <thead><tr>
-      ${hideDate ? '' : '<th style="width:64px;">날짜</th>'}
+      ${hideDate ? '' : (showCategoryCol ? `<th class="sortable-th" style="width:64px;" onclick="setTxSort('date')" title="클릭하여 정렬">날짜${sortArrowHtml(sortState, 'date')}</th>` : '<th style="width:64px;">날짜</th>')}
       <th class="name-cell mcol">내역</th>
-      <th class="dcol" style="width:64px;">구분</th>
-      <th class="dcol" style="width:130px;">계좌</th>
-      ${showCategoryCol ? '<th class="dcol" style="width:100px;">대분류</th><th class="dcol" style="width:100px;">소분류</th>' : ''}
-      <th class="dcol">메모</th>
-      <th class="dcol" style="width:90px;">적용대상</th>
-      <th class="dcol" style="width:90px;">거래처</th>
-      <th class="num">금액</th>
+      ${th('type', '구분', 'width:64px;')}
+      ${th('account', '계좌', 'width:130px;')}
+      ${showCategoryCol ? `${th('catParent', '대분류', 'width:100px;')}${th('catChild', '소분류', 'width:100px;')}` : ''}
+      ${th('memo', '메모')}
+      ${th('payee', '적용대상', 'width:90px;')}
+      ${th('vendor', '거래처', 'width:90px;')}
+      ${showCategoryCol ? `<th class="num sortable-th" onclick="setTxSort('amount')" title="클릭하여 정렬">금액${sortArrowHtml(sortState, 'amount')}</th>` : '<th class="num">금액</th>'}
       <th class="actions-cell tx-actions-cell">관리</th>
     </tr></thead>
     <tbody>
@@ -2034,6 +2041,49 @@ function renderTxTable(list, hideDate, showCategoryCol) {
   </table></div>`;
 }
 
+/* 목록 헤더 클릭 정렬 공용 헬퍼 */
+function sortArrowHtml(sortState, key) {
+  if (!sortState || sortState.key !== key) return '';
+  return `<span class="sort-arrow">${sortState.dir === 'asc' ? '▲' : '▼'}</span>`;
+}
+function toggleSortState(sortState, key) {
+  if (sortState && sortState.key === key) return { key, dir: sortState.dir === 'asc' ? 'desc' : 'asc' };
+  return { key, dir: 'asc' };
+}
+function compareSortValues(va, vb) {
+  if (va == null && vb == null) return 0;
+  if (va == null) return 1;
+  if (vb == null) return -1;
+  if (typeof va === 'number' && typeof vb === 'number') return va - vb;
+  return String(va).localeCompare(String(vb), 'ko');
+}
+function txSortKeyValue(t, key) {
+  switch (key) {
+    case 'date': return t.date;
+    case 'type': return t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
+    case 'account': return (getAccount(t.accountId) || {}).name || '';
+    case 'catParent': { const v = categoryParentCellText(t.categoryId); return v === '-' ? '' : v; }
+    case 'catChild': { const v = categoryChildCellText(t.categoryId); return v === '-' ? '' : v; }
+    case 'memo': return t.memo || '';
+    case 'payee': return t.payee || '';
+    case 'vendor': return t.vendor || '';
+    case 'amount': return t.amount;
+    case 'balance': return t.balance;
+    default: return '';
+  }
+}
+function sortTxList(list, sortState) {
+  if (!sortState) return list;
+  const { key, dir } = sortState;
+  return list.slice().sort((a, b) => {
+    const cmp = compareSortValues(txSortKeyValue(a, key), txSortKeyValue(b, key));
+    return dir === 'asc' ? cmp : -cmp;
+  });
+}
+function setTxSort(key) {
+  state._txSort = toggleSortState(state._txSort, key);
+  renderTransactions();
+}
 function receiptBadge(t) {
   const n = (t.receiptIds || []).length;
   if (!n) return '';
@@ -2102,7 +2152,7 @@ function renderTransactions() {
   if (f.categoryId) list = list.filter(t => t.categoryId === f.categoryId);
   if (f.accountId) list = list.filter(t => t.accountId === f.accountId || t.toAccountId === f.accountId);
   if (f.q) { const q = f.q.toLowerCase(); list = list.filter(t => txSearchText(t).includes(q)); }
-  list = list.sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
+  list = state._txSort ? sortTxList(list, state._txSort) : list.sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
 
   const catTypesForFilter = f.type === 'all' ? ['expense', 'income'] : (f.type === 'transfer' ? [] : [f.type]);
   const catOptions = catTypesForFilter.map(type => {
@@ -3091,21 +3141,40 @@ function accountRunningBalances(acc) {
   });
   return map;
 }
+function acctTxSortKeyValue(t, key, runningMap) {
+  if (key === 'balance') return runningMap[t.id];
+  return txSortKeyValue(t, key);
+}
+function sortAcctTxList(list, sortState, runningMap) {
+  if (!sortState) return list;
+  const { key, dir } = sortState;
+  return list.slice().sort((a, b) => {
+    const cmp = compareSortValues(acctTxSortKeyValue(a, key, runningMap), acctTxSortKeyValue(b, key, runningMap));
+    return dir === 'asc' ? cmp : -cmp;
+  });
+}
+function setAcctTxSort(key) {
+  state._acctTxSort = toggleSortState(state._acctTxSort, key);
+  renderAccounts();
+}
 function renderAccountTxTable(list, acc) {
   const runningMap = accountRunningBalances(acc);
+  const sortState = state._acctTxSort;
+  if (sortState) list = sortAcctTxList(list, sortState, runningMap);
+  const th = (key, label, style) => `<th class="dcol sortable-th" style="${style || ''}" onclick="setAcctTxSort('${key}')" title="클릭하여 정렬">${label}${sortArrowHtml(sortState, key)}</th>`;
   return `<div class="overflow-x"><table class="tx-table-balance">
     <thead><tr>
-      <th style="width:64px;">날짜</th>
+      <th class="sortable-th" style="width:64px;" onclick="setAcctTxSort('date')" title="클릭하여 정렬">날짜${sortArrowHtml(sortState, 'date')}</th>
       <th class="name-cell mcol">내역</th>
-      <th class="dcol" style="width:64px;">구분</th>
-      <th class="dcol" style="width:130px;">계좌</th>
-      <th class="dcol" style="width:100px;">대분류</th>
-      <th class="dcol" style="width:100px;">소분류</th>
-      <th class="dcol">메모</th>
-      <th class="dcol" style="width:90px;">적용대상</th>
-      <th class="dcol" style="width:90px;">거래처</th>
-      <th class="num">금액</th>
-      <th class="num dcol dcol-balance">잔액</th>
+      ${th('type', '구분', 'width:64px;')}
+      ${th('account', '계좌', 'width:130px;')}
+      ${th('catParent', '대분류', 'width:100px;')}
+      ${th('catChild', '소분류', 'width:100px;')}
+      ${th('memo', '메모')}
+      ${th('payee', '적용대상', 'width:90px;')}
+      ${th('vendor', '거래처', 'width:90px;')}
+      <th class="num sortable-th" onclick="setAcctTxSort('amount')" title="클릭하여 정렬">금액${sortArrowHtml(sortState, 'amount')}</th>
+      <th class="num dcol dcol-balance sortable-th" onclick="setAcctTxSort('balance')" title="클릭하여 정렬">잔액${sortArrowHtml(sortState, 'balance')}</th>
       <th class="actions-cell tx-actions-cell">관리</th>
     </tr></thead>
     <tbody>
@@ -3511,6 +3580,35 @@ function compareRecurringSortKey(a, b) {
   for (let i = 0; i < ka.length; i++) { if (ka[i] !== kb[i]) return ka[i] - kb[i]; }
   return a.name.localeCompare(b.name, 'ko');
 }
+function recSortKeyValue(r, key) {
+  switch (key) {
+    case 'type': return REC_TYPE_LABEL[r.type] || '';
+    case 'account': return (getAccount(r.accountId) || {}).name || '';
+    case 'catParent': { const v = categoryParentCellText(r.categoryId); return v === '-' ? '' : v; }
+    case 'catChild': { const v = categoryChildCellText(r.categoryId); return v === '-' ? '' : v; }
+    case 'name': return r.name || '';
+    case 'payee': return r.payee || '';
+    case 'vendor': return r.vendor || '';
+    case 'amount': return r.amount;
+    default: return '';
+  }
+}
+function compareRecByKey(a, b, key) {
+  if (key === 'freq') return compareRecurringSortKey(a, b);
+  return compareSortValues(recSortKeyValue(a, key), recSortKeyValue(b, key));
+}
+function sortRecList(items, sortState) {
+  if (!sortState) return items;
+  const { key, dir } = sortState;
+  return items.slice().sort((a, b) => {
+    const cmp = compareRecByKey(a, b, key);
+    return dir === 'asc' ? cmp : -cmp;
+  });
+}
+function setRecSort(key) {
+  state._recSort = toggleSortState(state._recSort, key);
+  renderRecurring();
+}
 function recSearchText(r) {
   const acc = getAccount(r.accountId);
   const typeLabel = REC_TYPE_LABEL[r.type] || '';
@@ -3542,20 +3640,22 @@ function renderRecurring() {
   const q = (state._recFilter.q || '').trim().toLowerCase();
   let items = DATA.recurring.slice();
   if (q) items = items.filter(r => recSearchText(r).includes(q));
-  items = items.sort(compareRecurringSortKey);
+  items = state._recSort ? sortRecList(items, state._recSort) : items.sort(compareRecurringSortKey);
   const allSelected = items.length > 0 && items.every(r => selected.has(r.id));
+  const recSortState = state._recSort;
+  const rth = (key, label, style) => `<th class="sortable-th" style="${style || ''}" onclick="setRecSort('${key}')" title="클릭하여 정렬">${label}${sortArrowHtml(recSortState, key)}</th>`;
   const colHtml = items.length ? `<div class="overflow-x"><table>
       <thead><tr>
         <th style="width:26px;"><input type="checkbox" ${allSelected ? 'checked' : ''} onchange="toggleRecSelectAll(this)" title="전체 선택"></th>
-        <th style="width:52px;">구분</th>
-        <th style="width:110px;">계좌</th>
-        <th style="width:90px;">대분류</th>
-        <th style="width:90px;">소분류</th>
-        <th class="name-cell">메모</th>
-        <th style="width:80px;">적용대상</th>
-        <th style="width:80px;">거래처</th>
-        <th class="num">금액</th>
-        <th style="width:85px;">주기</th>
+        ${rth('type', '구분', 'width:52px;')}
+        ${rth('account', '계좌', 'width:110px;')}
+        ${rth('catParent', '대분류', 'width:90px;')}
+        ${rth('catChild', '소분류', 'width:90px;')}
+        <th class="name-cell sortable-th" onclick="setRecSort('name')" title="클릭하여 정렬">메모${sortArrowHtml(recSortState, 'name')}</th>
+        ${rth('payee', '적용대상', 'width:80px;')}
+        ${rth('vendor', '거래처', 'width:80px;')}
+        <th class="num sortable-th" onclick="setRecSort('amount')" title="클릭하여 정렬">금액${sortArrowHtml(recSortState, 'amount')}</th>
+        ${rth('freq', '주기', 'width:85px;')}
         <th class="actions-cell">관리</th>
       </tr></thead>
       <tbody>
