@@ -1426,13 +1426,13 @@ function closeMonthPicker() {
 
 /* ---------------- custom 대상/거래처 suggestion list (no native <datalist>, which iOS Safari doesn't render) ---------------- */
 let vsState = null;
-function openVendorSuggest(input) {
+function openVendorSuggest(input, field, nextFieldId) {
   if (vsState && vsState.input === input) return;
   closeVendorSuggest();
   const pop = document.createElement('div');
   pop.className = 'cp-pop';
   document.body.appendChild(pop);
-  vsState = { input, pop, items: [], activeIndex: -1 };
+  vsState = { input, pop, items: [], activeIndex: -1, field: field || 'vendor', nextFieldId: nextFieldId || null };
   renderVendorSuggest();
   positionVendorSuggest();
   setTimeout(() => document.addEventListener('mousedown', onVendorSuggestOutsideClick), 0);
@@ -1455,7 +1455,7 @@ function positionVendorSuggest() {
 function renderVendorSuggest() {
   if (!vsState) return;
   const q = vsState.input.value.trim().toLowerCase();
-  const all = Array.from(new Set(DATA.transactions.flatMap(t => [t.vendor, t.payee]).filter(Boolean)));
+  const all = Array.from(new Set(DATA.transactions.map(t => t[vsState.field]).filter(Boolean)));
   const matches = all.filter(v => !q || v.toLowerCase().includes(q)).slice(0, 8);
   if (!matches.length) { closeVendorSuggest(); return; }
   vsState.items = matches;
@@ -1488,7 +1488,7 @@ function onVendorKeydown(e) {
     if (vsState.activeIndex >= 0 && items[vsState.activeIndex] != null) {
       e.preventDefault();
       pickVendorSuggest(vsState.activeIndex);
-      const nextField = document.getElementById('tx-memo');
+      const nextField = vsState.nextFieldId ? document.getElementById(vsState.nextFieldId) : null;
       if (nextField) nextField.focus();
     } else {
       closeVendorSuggest();
@@ -1891,7 +1891,8 @@ function renderTxTable(list, hideDate, showCategoryCol) {
       <th class="dcol" style="width:130px;">계좌</th>
       ${showCategoryCol ? '<th class="dcol" style="width:100px;">대분류</th><th class="dcol" style="width:100px;">소분류</th>' : ''}
       <th class="dcol">메모</th>
-      <th class="dcol" style="width:130px;">대상/거래처</th>
+      <th class="dcol" style="width:90px;">적용대상</th>
+      <th class="dcol" style="width:90px;">거래처</th>
       <th class="num">금액</th>
       <th class="actions-cell tx-actions-cell">관리</th>
     </tr></thead>
@@ -1900,7 +1901,6 @@ function renderTxTable(list, hideDate, showCategoryCol) {
         const dayBoundary = list[i + 1] && list[i + 1].date !== t.date;
         const acc = getAccount(t.accountId);
         const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
-        const vendor = t.vendor || t.payee || '';
         let mid, acctCell;
         if (t.type === 'transfer') {
           const toAcc = getAccount(t.toAccountId);
@@ -1915,7 +1915,8 @@ function renderTxTable(list, hideDate, showCategoryCol) {
         const catChildCell = categoryChildCellHtml(t.categoryId);
         const sign = t.type === 'income' ? '+' : t.type === 'expense' ? '-' : '';
         const subParts = [];
-        if (vendor) subParts.push(`<span style="font-weight:600;">${escapeHtml(vendor)}</span>`);
+        if (t.payee) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.payee)}</span>`);
+        if (t.vendor) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.vendor)}</span>`);
         if (t.memo) subParts.push(escapeHtml(t.memo));
         if (t.excludeFromStats) subParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
         const subLine = subParts.length || t.hasReceipt
@@ -1936,7 +1937,8 @@ function renderTxTable(list, hideDate, showCategoryCol) {
           <td class="dcol" title="${acctCell.replace(/<[^>]*>/g, '')}">${acctCell}</td>
           ${showCategoryCol ? `<td class="dcol" title="${catParentCell.replace(/<[^>]*>/g, '')}">${catParentCell}</td><td class="dcol" title="${catChildCell.replace(/<[^>]*>/g, '')}">${catChildCell}</td>` : ''}
           <td class="dcol memo-col" title="${escapeHtml(t.memo || '')}"><div class="memo-inner">${memoCell}</div></td>
-          <td class="dcol" title="${escapeHtml(vendor)}">${escapeHtml(vendor)}</td>
+          <td class="dcol" title="${escapeHtml(t.payee || '')}">${escapeHtml(t.payee || '')}</td>
+          <td class="dcol" title="${escapeHtml(t.vendor || '')}">${escapeHtml(t.vendor || '')}</td>
           <td class="num amt ${t.type}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</td>
           <td class="actions-cell tx-actions-cell">
             ${t.hasReceipt ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
@@ -1953,7 +1955,7 @@ function renderTxTable(list, hideDate, showCategoryCol) {
 function txSearchText(t) {
   const acc = getAccount(t.accountId);
   const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
-  const parts = [t.memo || '', t.vendor || t.payee || '', acc ? acc.name : '', typeLabel, t.date];
+  const parts = [t.memo || '', t.payee || '', t.vendor || '', acc ? acc.name : '', typeLabel, t.date];
   if (t.type === 'transfer') {
     const toAcc = getAccount(t.toAccountId);
     if (toAcc) parts.push(toAcc.name);
@@ -2206,8 +2208,9 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     editing ? editing.accountId : (fromRecurring ? fromRecurring.accountId : (duplicateFrom ? duplicateFrom.accountId : (presetAccountId || null))),
     editing ? editing.toAccountId : (fromRecurring ? fromRecurring.toAccountId : (duplicateFrom ? duplicateFrom.toAccountId : null)),
     editing ? !!editing.excludeFromStats : (duplicateFrom ? !!duplicateFrom.excludeFromStats : false),
-    editing ? (editing.vendor || editing.payee || '') : (fromRecurring ? (fromRecurring.payee || '') : (duplicateFrom ? (duplicateFrom.vendor || duplicateFrom.payee || '') : '')),
-    editing ? (editing.linkedLoanAccountId || '') : (duplicateFrom ? (duplicateFrom.linkedLoanAccountId || '') : '')
+    editing ? (editing.payee || '') : (fromRecurring ? (fromRecurring.payee || '') : (duplicateFrom ? (duplicateFrom.payee || '') : '')),
+    editing ? (editing.linkedLoanAccountId || '') : (duplicateFrom ? (duplicateFrom.linkedLoanAccountId || '') : ''),
+    editing ? (editing.vendor || '') : (fromRecurring ? (fromRecurring.vendor || '') : (duplicateFrom ? (duplicateFrom.vendor || '') : ''))
   );
 }
 function openRecurringQuickApplyModal(id) {
@@ -2225,7 +2228,7 @@ function setTxType(t) {
   });
   renderTxModalFields(null, state._txModal.presetAccountId);
 }
-function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, presetVendor, presetLoanAccountId) {
+function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, presetPayee, presetLoanAccountId, presetVendor) {
   const type = state._txModal.type;
   const catField = document.getElementById('tx-cat-field');
   const accField = document.getElementById('tx-acc-field');
@@ -2286,8 +2289,10 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     }
     renderBudgetQuickRow();
   }
-  vendorField.innerHTML = `<label class="field-lbl">대상/거래처</label>
-    <input type="text" id="tx-vendor" autocomplete="off" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 정기적금 이체' : '예: 스타벅스 강남점'}" value="${escapeHtml(presetVendor || '')}" onfocus="openVendorSuggest(this)" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="setTimeout(closeVendorSuggest, 150)">`;
+  vendorField.innerHTML = `<label class="field-lbl">적용대상</label>
+    <input type="text" id="tx-payee" autocomplete="off" placeholder="예: 아빠, 엄마, 회사" value="${escapeHtml(presetPayee || '')}" onfocus="openVendorSuggest(this, 'payee', 'tx-vendor')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="setTimeout(closeVendorSuggest, 150)" style="margin-bottom:8px;">
+    <label class="field-lbl">거래처</label>
+    <input type="text" id="tx-vendor" autocomplete="off" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 미래에셋증권' : '예: 스타벅스 강남점'}" value="${escapeHtml(presetVendor || '')}" onfocus="openVendorSuggest(this, 'vendor', 'tx-memo')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="setTimeout(closeVendorSuggest, 150)">`;
   updateTxAmountCurrencyBadge();
 }
 function currentTxCurrency() {
@@ -2520,10 +2525,12 @@ function registerAsRecurringFromTxForm() {
   const dateVal = document.getElementById('tx-date').value;
   const day = dateVal ? Number(dateVal.slice(8, 10)) || 1 : 1;
   const memo = document.getElementById('tx-memo').value.trim();
+  const payeeEl = document.getElementById('tx-payee');
+  const payee = payeeEl ? payeeEl.value.trim() : '';
   const vendorEl = document.getElementById('tx-vendor');
   const vendor = vendorEl ? vendorEl.value.trim() : '';
   const typeLabel = type === 'income' ? '수입' : type === 'expense' ? '지출' : '이체';
-  const template = { type, amount, day, frequency: 'monthly', name: memo || vendor || typeLabel, payee: vendor || null };
+  const template = { type, amount, day, frequency: 'monthly', name: memo || vendor || payee || typeLabel, payee: payee || null, vendor: vendor || null };
   if (type === 'transfer') {
     template.accountId = document.getElementById('tx-account').value;
     template.toAccountId = document.getElementById('tx-toaccount').value;
@@ -2569,6 +2576,7 @@ async function submitTx(editId) {
     }
     payload.linkedLoanAccountId = type === 'expense' ? linkedLoanAccountId : undefined;
   }
+  payload.payee = document.getElementById('tx-payee').value.trim() || null;
   payload.vendor = document.getElementById('tx-vendor').value.trim() || null;
 
   const txId = editId || uid();
@@ -2604,7 +2612,7 @@ function deleteTx(id) {
 }
 
 /* ---------------- BULK IMPORT (엑셀) ---------------- */
-const BULK_HEADERS = ['날짜(YYYY-MM-DD)', '구분(지출/수입/이체)', '자산(출금)', '입금자산(이체시)', '카테고리(소분류명)', '메모(선택)', '대상/거래처(선택)', '금액'];
+const BULK_HEADERS = ['날짜(YYYY-MM-DD)', '구분(지출/수입/이체)', '자산(출금)', '입금자산(이체시)', '카테고리(소분류명)', '메모(선택)', '적용대상(선택)', '거래처(선택)', '금액'];
 const BULK_TYPE_LABEL = { expense: '지출', income: '수입', transfer: '이체' };
 const BULK_TYPE_FROM_LABEL = { '지출': 'expense', '수입': 'income', '이체': 'transfer' };
 
@@ -2624,12 +2632,12 @@ function normalizeDateString(s) {
 function downloadBulkTemplate() {
   if (!window.XLSX) return showToast('엑셀 라이브러리를 불러오는 중이에요. 잠시 후 다시 시도해주세요.', 'error');
   const sample = [
-    ['2026-08-01', '지출', '현금', '', '식비', '아메리카노', '스타벅스 강남점', 4500],
-    ['2026-08-01', '수입', '현금', '', '급여', '8월 급여', '회사', 3000000],
-    ['2026-08-01', '이체', '현금', '토스뱅크', '기타 이체', '생활비 이체', '', 100000],
+    ['2026-08-01', '지출', '현금', '', '식비', '아메리카노', '', '스타벅스 강남점', 4500],
+    ['2026-08-01', '수입', '현금', '', '급여', '8월 급여', '회사', '', 3000000],
+    ['2026-08-01', '이체', '현금', '토스뱅크', '기타 이체', '생활비 이체', '아빠', '', 100000],
   ];
   const ws = XLSX.utils.aoa_to_sheet([BULK_HEADERS, ...sample]);
-  ws['!cols'] = [{ wch: 15 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 22 }, { wch: 18 }, { wch: 10 }];
+  ws['!cols'] = [{ wch: 15 }, { wch: 16 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 22 }, { wch: 14 }, { wch: 14 }, { wch: 10 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, '거래내역');
 
@@ -2682,7 +2690,7 @@ async function onBulkFileChange(input) {
   }
 }
 function parseBulkRow(row, idx) {
-  const [dateRaw, typeRaw, accName, toAccName, catName, memoRaw, vendorRaw, amountRaw] = row;
+  const [dateRaw, typeRaw, accName, toAccName, catName, memoRaw, payeeRaw, vendorRaw, amountRaw] = row;
   const errors = [];
   const date = normalizeDateString(dateRaw);
   if (!date) errors.push('날짜 형식 오류');
@@ -2691,6 +2699,7 @@ function parseBulkRow(row, idx) {
   const amount = Math.round(Number(String(amountRaw || '').replace(/[^0-9.-]/g, '')));
   if (!amount || amount <= 0) errors.push('금액 오류');
   const memo = String(memoRaw || '').trim();
+  const payee = String(payeeRaw || '').trim() || null;
   const vendor = String(vendorRaw || '').trim() || null;
   let categoryId = null, accountId = null, toAccountId = null;
   if (type === 'transfer') {
@@ -2709,7 +2718,7 @@ function parseBulkRow(row, idx) {
     if (!acc) errors.push(`자산 없음: ${accName || '(비어있음)'}`);
     categoryId = cat ? cat.id : null; accountId = acc ? acc.id : null;
   }
-  return { idx, date, type, amount, categoryId, accountId, toAccountId, vendor, memo, errors };
+  return { idx, date, type, amount, categoryId, accountId, toAccountId, payee, vendor, memo, errors };
 }
 function renderBulkPreview() {
   const rows = state._bulkImport.rows;
@@ -2724,7 +2733,7 @@ function renderBulkPreview() {
           <td>${r.idx + 2}</td>
           <td>${escapeHtml(r.date || '-')}</td>
           <td>${r.type ? `<span class="type-tag ${r.type}">${BULK_TYPE_LABEL[r.type]}</span>` : '-'}</td>
-          <td class="name-cell">${r.errors.length ? `<span style="color:var(--down);">${escapeHtml(r.errors.join(', '))}</span>` : `${r.vendor ? escapeHtml(r.vendor) + ' · ' : ''}${escapeHtml(r.memo || '')}`}</td>
+          <td class="name-cell">${r.errors.length ? `<span style="color:var(--down);">${escapeHtml(r.errors.join(', '))}</span>` : `${r.payee ? escapeHtml(r.payee) + ' · ' : ''}${r.vendor ? escapeHtml(r.vendor) + ' · ' : ''}${escapeHtml(r.memo || '')}`}</td>
           <td class="num">${r.amount ? won(r.amount) : '-'}</td>
           <td>${r.errors.length ? '<span class="budget-pct-tag over">오류</span>' : '<span class="budget-pct-tag ok">정상</span>'}</td>
         </tr>`).join('')}
@@ -2739,7 +2748,7 @@ function commitBulkImport() {
   const valid = (state._bulkImport.rows || []).filter(r => r.errors.length === 0);
   if (!valid.length) return;
   valid.forEach(r => {
-    const payload = { id: uid(), type: r.type, date: r.date, amount: r.amount, memo: r.memo, vendor: r.vendor };
+    const payload = { id: uid(), type: r.type, date: r.date, amount: r.amount, memo: r.memo, payee: r.payee, vendor: r.vendor };
     if (r.type === 'transfer') { payload.categoryId = r.categoryId; payload.accountId = r.accountId; payload.toAccountId = r.toAccountId; }
     else { payload.categoryId = r.categoryId; payload.accountId = r.accountId; payload.excludeFromStats = false; }
     DATA.transactions.push(payload);
@@ -2979,7 +2988,8 @@ function renderAccountTxTable(list, acc) {
       <th class="dcol" style="width:100px;">대분류</th>
       <th class="dcol" style="width:100px;">소분류</th>
       <th class="dcol">메모</th>
-      <th class="dcol" style="width:130px;">대상/거래처</th>
+      <th class="dcol" style="width:90px;">적용대상</th>
+      <th class="dcol" style="width:90px;">거래처</th>
       <th class="num">금액</th>
       <th class="num dcol dcol-balance">잔액</th>
       <th class="actions-cell tx-actions-cell">관리</th>
@@ -2989,7 +2999,6 @@ function renderAccountTxTable(list, acc) {
         const dayBoundary = list[i + 1] && list[i + 1].date !== t.date;
         const isLoanLink = t.linkedLoanAccountId === acc.id && t.accountId !== acc.id;
         const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
-        const vendor = t.vendor || t.payee || '';
         const catParentCell = categoryParentCellHtml(t.categoryId);
         const catChildCell = categoryChildCellHtml(t.categoryId);
         let mid, acctCell;
@@ -3012,7 +3021,8 @@ function renderAccountTxTable(list, acc) {
           const payAcc = getAccount(t.accountId);
           subParts.push(`<span style="font-weight:600;">${payAcc.icon || ''} ${escapeHtml(payAcc.name)}에서 상환</span>`);
         }
-        if (vendor) subParts.push(`<span style="font-weight:600;">${escapeHtml(vendor)}</span>`);
+        if (t.payee) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.payee)}</span>`);
+        if (t.vendor) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.vendor)}</span>`);
         if (t.memo) subParts.push(escapeHtml(t.memo));
         if (t.excludeFromStats) subParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
         const subLine = subParts.length || t.hasReceipt
@@ -3038,7 +3048,8 @@ function renderAccountTxTable(list, acc) {
           <td class="dcol" title="${catParentCell.replace(/<[^>]*>/g, '')}">${catParentCell}</td>
           <td class="dcol" title="${catChildCell.replace(/<[^>]*>/g, '')}">${catChildCell}</td>
           <td class="dcol memo-col" title="${escapeHtml(t.memo || '')}"><div class="memo-inner">${memoCell}</div></td>
-          <td class="dcol" title="${escapeHtml(vendor)}">${escapeHtml(vendor)}</td>
+          <td class="dcol" title="${escapeHtml(t.payee || '')}">${escapeHtml(t.payee || '')}</td>
+          <td class="dcol" title="${escapeHtml(t.vendor || '')}">${escapeHtml(t.vendor || '')}</td>
           <td class="num">
             <div class="amt ${amtCls}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</div>
             <div class="form-note mcol" style="margin:2px 0 0;text-align:right;">${balStr}</div>
@@ -3067,11 +3078,10 @@ function exportAccountTxExcel() {
   if (q) list = list.filter(t => txSearchText(t).includes(q));
   list = list.sort((a, b) => (a.date + a.id).localeCompare(b.date + b.id));
   const runningMap = accountRunningBalances(acc);
-  const header = ['날짜', '구분', '계좌', '대분류', '소분류', '메모', '대상/거래처', '금액', '잔액'];
+  const header = ['날짜', '구분', '계좌', '대분류', '소분류', '메모', '적용대상', '거래처', '금액', '잔액'];
   const rows = list.map((t) => {
     const isLoanLink = t.linkedLoanAccountId === acc.id && t.accountId !== acc.id;
     const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
-    const vendor = t.vendor || t.payee || '';
     let acctCell;
     if (t.type === 'transfer') {
       const outgoing = t.accountId === acc.id;
@@ -3086,10 +3096,10 @@ function exportAccountTxExcel() {
     const outgoing = !isLoanLink && (t.type === 'expense' || (t.type === 'transfer' && t.accountId === acc.id));
     const sign = isLoanLink ? 1 : (t.type === 'transfer' ? (outgoing ? -1 : 1) : (t.type === 'income' ? 1 : -1));
     const bal = runningMap[t.id];
-    return [t.date, typeLabel, acctCell, categoryParentCellText(t.categoryId), categoryChildCellText(t.categoryId), t.memo || '', vendor, sign * t.amount, bal != null ? bal : ''];
+    return [t.date, typeLabel, acctCell, categoryParentCellText(t.categoryId), categoryChildCellText(t.categoryId), t.memo || '', t.payee || '', t.vendor || '', sign * t.amount, bal != null ? bal : ''];
   });
   const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
-  ws['!cols'] = [{ wch: 12 }, { wch: 8 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 24 }, { wch: 16 }, { wch: 14 }, { wch: 14 }];
+  ws['!cols'] = [{ wch: 12 }, { wch: 8 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 24 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
   const wb = XLSX.utils.book_new();
   const sheetName = acc.name.replace(/[\\/*?:\[\]]/g, '_').slice(0, 31) || '거래내역';
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
@@ -3390,7 +3400,7 @@ function compareRecurringSortKey(a, b) {
 function recSearchText(r) {
   const acc = getAccount(r.accountId);
   const typeLabel = REC_TYPE_LABEL[r.type] || '';
-  const parts = [r.name || '', typeLabel, acc ? acc.name : '', r.payee || '', String(r.amount), recurringScheduleLabel(r)];
+  const parts = [r.name || '', typeLabel, acc ? acc.name : '', r.payee || '', r.vendor || '', String(r.amount), recurringScheduleLabel(r)];
   if (r.type === 'transfer') {
     const toAcc = getAccount(r.toAccountId);
     if (toAcc) parts.push(toAcc.name);
@@ -3428,7 +3438,8 @@ function renderRecurring() {
         <th style="width:90px;">대분류</th>
         <th style="width:90px;">소분류</th>
         <th class="name-cell">메모</th>
-        <th style="width:95px;">대상/거래처</th>
+        <th style="width:80px;">적용대상</th>
+        <th style="width:80px;">거래처</th>
         <th class="num">금액</th>
         <th style="width:85px;">주기</th>
         <th class="actions-cell">관리</th>
@@ -3452,6 +3463,7 @@ function renderRecurring() {
             <td title="${catChildCell.replace(/<[^>]*>/g, '')}">${catChildCell}</td>
             <td class="name-cell">${escapeHtml(r.name)}${noteParts.length ? `<div style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${noteParts.join(' · ')}</div>` : ''}</td>
             <td title="${escapeHtml(r.payee || '')}">${escapeHtml(r.payee || '')}</td>
+            <td title="${escapeHtml(r.vendor || '')}">${escapeHtml(r.vendor || '')}</td>
             <td class="num">${fmtCurrency(r.amount, acc.currency || 'KRW')}</td>
             <td>${recurringScheduleLabel(r)}</td>
             <td class="actions-cell">
@@ -3585,7 +3597,7 @@ function submitRecurringApply(id) {
   if (!r || !date) return showToast('날짜를 선택해주세요.', 'error');
   DATA.transactions.push({
     id: uid(), date, type: r.type, amount: r.amount, memo: r.name, fromRecurringId: r.id,
-    categoryId: r.categoryId, accountId: r.accountId, toAccountId: r.toAccountId, payee: r.payee || null,
+    categoryId: r.categoryId, accountId: r.accountId, toAccountId: r.toAccountId, payee: r.payee || null, vendor: r.vendor || null,
   });
   saveData();
   closeRecPanel();
@@ -3626,7 +3638,7 @@ function submitRecBulkApply() {
   items.forEach(r => {
     DATA.transactions.push({
       id: uid(), date, type: r.type, amount: r.amount, memo: r.name, fromRecurringId: r.id,
-      categoryId: r.categoryId, accountId: r.accountId, toAccountId: r.toAccountId, payee: r.payee || null,
+      categoryId: r.categoryId, accountId: r.accountId, toAccountId: r.toAccountId, payee: r.payee || null, vendor: r.vendor || null,
     });
   });
   saveData();
@@ -3678,7 +3690,7 @@ function openRecurringModal(id, presetTemplate) {
   state._recPanelMode = renderRecPanel(formHtml);
   state._recModal = { type, freq };
   renderRecFreqDetail(freq, seed ? seed.day : 1, seed ? seed.weekday : null, seed ? seed.dailyMode : null, seed ? seed.month : null);
-  renderRecModalFields(seed ? seed.categoryId : null, seed ? seed.accountId : null, seed ? seed.toAccountId : null, seed ? (seed.payee || '') : '');
+  renderRecModalFields(seed ? seed.categoryId : null, seed ? seed.accountId : null, seed ? seed.toAccountId : null, seed ? (seed.payee || '') : '', seed ? (seed.vendor || '') : '');
 }
 function setRecType(t) {
   state._recModal.type = t;
@@ -3737,7 +3749,7 @@ function setRecFreq(f) {
   document.getElementById('rec-holiday-field').style.display = (state._recModal.type !== 'transfer' && f !== 'daily') ? '' : 'none';
   renderRecFreqDetail(f);
 }
-function renderRecModalFields(presetCat, presetAcc, presetToAcc, presetPayee) {
+function renderRecModalFields(presetCat, presetAcc, presetToAcc, presetPayee, presetVendor) {
   const type = state._recModal.type;
   const catField = document.getElementById('rec-cat-field');
   const accField = document.getElementById('rec-acc-field');
@@ -3760,9 +3772,13 @@ function renderRecModalFields(presetCat, presetAcc, presetToAcc, presetPayee) {
     toAccField.innerHTML = '';
   }
   const payeeOptions = Array.from(new Set(DATA.transactions.filter(t => t.payee).map(t => t.payee)));
-  payeeField.innerHTML = `<label class="field-lbl">대상</label>
-    <input type="text" id="rec-payee" list="rec-payee-list" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 정기적금 이체' : '예: 스타벅스, 이마트'}" value="${escapeHtml(presetPayee || '')}">
-    <datalist id="rec-payee-list">${payeeOptions.map(p => `<option value="${escapeHtml(p)}">`).join('')}</datalist>`;
+  const vendorOptions = Array.from(new Set(DATA.transactions.filter(t => t.vendor).map(t => t.vendor)));
+  payeeField.innerHTML = `<label class="field-lbl">적용대상</label>
+    <input type="text" id="rec-payee" list="rec-payee-list" placeholder="예: 아빠, 엄마, 회사" value="${escapeHtml(presetPayee || '')}" style="margin-bottom:8px;">
+    <datalist id="rec-payee-list">${payeeOptions.map(p => `<option value="${escapeHtml(p)}">`).join('')}</datalist>
+    <label class="field-lbl">거래처</label>
+    <input type="text" id="rec-vendor" list="rec-vendor-list" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 미래에셋증권' : '예: 스타벅스, 이마트'}" value="${escapeHtml(presetVendor || '')}">
+    <datalist id="rec-vendor-list">${vendorOptions.map(v => `<option value="${escapeHtml(v)}">`).join('')}</datalist>`;
   updateRecAmountCurrencyBadge();
 }
 function currentRecCurrency() {
@@ -3814,6 +3830,7 @@ function submitRecurring(editId) {
     payload.accountId = document.getElementById('rec-account').value;
   }
   payload.payee = document.getElementById('rec-payee').value.trim() || null;
+  payload.vendor = document.getElementById('rec-vendor').value.trim() || null;
   if (editId) {
     const idx = DATA.recurring.findIndex(r => r.id === editId);
     DATA.recurring[idx] = { ...DATA.recurring[idx], ...payload };
