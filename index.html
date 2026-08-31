@@ -109,8 +109,11 @@
   .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
   .field-lbl { font-size: 10px; color: var(--ink-faint); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.03em; display: block; }
   .field { margin-bottom: 12px; }
-  .receipt-thumb-wrap { display: flex; align-items: flex-start; gap: 8px; }
-  .receipt-thumb { width: 82px; height: 82px; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); }
+  .receipt-thumb-list { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .receipt-thumb-wrap { position: relative; width: 82px; height: 82px; flex-shrink: 0; }
+  .receipt-thumb { width: 82px; height: 82px; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); display: block; }
+  .receipt-thumb-loading { width: 82px; height: 82px; border-radius: 4px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--ink-faint); background: var(--paper-raised); }
+  .receipt-remove-btn { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: none; background: var(--ink); color: var(--paper); font-size: 12px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
 
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   .overflow-x table { table-layout: auto; min-width: 480px; }
@@ -530,6 +533,7 @@ async function onAuthed(userId) {
       cloudData = migrateTransferCategoryFallback(cloudData);
       const payeeMigratedBefore = !!(cloudData.settings && cloudData.settings.payeeExtractedFromMemo);
       cloudData = migratePayeeFromMemo(cloudData);
+      cloudData = migrateReceiptIdsArray(cloudData);
       const categoriesChanged = cloudData.categories.length !== catCountBefore || (!stockMigratedBefore && cloudData.settings.stockTransferCategoryMigrated);
       delete cloudData.receiptsById;
       DATA = cloudData;
@@ -876,6 +880,19 @@ function migratePayeeFromMemo(d) {
   return d;
 }
 
+/* 일회성 데이터 보정: 영수증 1장만 지원하던 시절의 hasReceipt 플래그를 배열(receiptIds)로 바꿔요.
+   기존 사진은 거래 id를 키로 그대로 저장돼 있으므로 재업로드 없이 [t.id]로 이어받아요. */
+function migrateReceiptIdsArray(d) {
+  d.settings = d.settings || {};
+  if (d.settings.receiptIdsMigrated) return d;
+  (d.transactions || []).forEach((t) => {
+    if (t.hasReceipt && !t.receiptIds) t.receiptIds = [t.id];
+    delete t.hasReceipt;
+  });
+  d.settings.receiptIdsMigrated = true;
+  return d;
+}
+
 function loadData() {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -896,6 +913,7 @@ function loadData() {
     d = migrateLifeTransferCategory(d);
     d = migrateTransferCategoryFallback(d);
     d = migratePayeeFromMemo(d);
+    d = migrateReceiptIdsArray(d);
     return d;
   } catch (e) { console.error(e); return defaultData(); }
 }
@@ -1965,13 +1983,13 @@ function renderTxTable(list, hideDate, showCategoryCol) {
         if (t.vendor) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.vendor)}</span>`);
         if (t.memo) subParts.push(escapeHtml(t.memo));
         if (t.excludeFromStats) subParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
-        const subLine = subParts.length || t.hasReceipt
-          ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}${t.hasReceipt ? ' 🧾' : ''}</div>`
+        const subLine = subParts.length || (t.receiptIds && t.receiptIds.length)
+          ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}${receiptBadge(t)}</div>`
           : '';
         const memoParts = [];
         if (t.memo) memoParts.push(escapeHtml(t.memo));
         if (t.excludeFromStats) memoParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
-        const memoCell = memoParts.join(' · ') + (t.hasReceipt ? ' 🧾' : '');
+        const memoCell = memoParts.join(' · ') + receiptBadge(t);
         const isEditing = showCategoryCol && state._txModal && state._txModal.renderMode === 'inline' && state._txModal.txId === t.id;
         return `<tr class="tx-row-clickable ${dayBoundary ? 'day-boundary' : ''} ${isEditing ? 'row-editing' : ''}" data-txid="${t.id}" onclick="onTxRowClick(event, '${t.id}')">
           ${hideDate ? '' : `<td>${t.date.slice(5)}</td>`}
@@ -1987,7 +2005,7 @@ function renderTxTable(list, hideDate, showCategoryCol) {
           <td class="dcol" title="${escapeHtml(t.vendor || '')}">${escapeHtml(t.vendor || '')}</td>
           <td class="num amt ${t.type}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</td>
           <td class="actions-cell tx-actions-cell">
-            ${t.hasReceipt ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
+            ${(t.receiptIds && t.receiptIds.length) ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="duplicateTx('${t.id}')" title="이 거래를 복사해서 새로 등록">복사</button>
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openTxModal('${t.id}')">수정</button>
             <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteTx('${t.id}')">삭제</button>
@@ -1998,6 +2016,11 @@ function renderTxTable(list, hideDate, showCategoryCol) {
   </table></div>`;
 }
 
+function receiptBadge(t) {
+  const n = (t.receiptIds || []).length;
+  if (!n) return '';
+  return ' 🧾' + (n > 1 ? `×${n}` : '');
+}
 function txSearchText(t) {
   const acc = getAccount(t.accountId);
   const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
@@ -2225,7 +2248,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     </div>
     ${editing ? `<div class="panel-footer-actions">
       <button class="ghost-btn" onclick="duplicateTx('${editing.id}')" title="이 거래를 복사해서 새로 등록">복사</button>
-      ${editing.hasReceipt ? `<button class="ghost-btn" onclick="openReceiptLightboxForTx('${editing.id}')">사진</button>` : ''}
+      ${(editing.receiptIds && editing.receiptIds.length) ? `<button class="ghost-btn" onclick="openReceiptLightboxForTx('${editing.id}')">사진</button>` : ''}
       <button class="ghost-btn danger-btn" onclick="if (deleteTx('${editing.id}')) closeTxPanel();">삭제</button>
     </div>` : ''}
   `;
@@ -2236,18 +2259,23 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     inlineSlot.classList.add('active');
     document.querySelectorAll('tr.row-editing').forEach(tr => tr.classList.remove('row-editing'));
     if (txId) { const tr = document.querySelector(`tr.tx-row-clickable[data-txid="${txId}"]`); if (tr) tr.classList.add('row-editing'); }
-    state._txModal = { txId: txId || null, type, editing, receipt: null, fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, renderMode: 'inline' };
+    state._txModal = { txId: txId || null, type, editing, receipts: [], fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, renderMode: 'inline' };
   } else {
     openModal(formHtml, { sidePanel: true });
-    state._txModal = { txId: txId || null, type, editing, receipt: null, fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, renderMode: 'overlay' };
+    state._txModal = { txId: txId || null, type, editing, receipts: [], fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, renderMode: 'overlay' };
   }
-  if (editing && editing.type === 'expense' && editing.hasReceipt) {
-    getReceipt(editing.id).then(dataUrl => {
-      if (state._txModal && state._txModal.editing === editing) {
-        state._txModal.receipt = dataUrl;
-        renderReceiptPreview();
-      }
-    }).catch(() => {});
+  if (editing && editing.type === 'expense' && editing.receiptIds && editing.receiptIds.length) {
+    editing.receiptIds.forEach((receiptId) => {
+      const entry = { id: receiptId, dataUrl: null, loading: true };
+      state._txModal.receipts.push(entry);
+      getReceipt(receiptId).then(dataUrl => {
+        if (state._txModal && state._txModal.editing === editing) {
+          entry.dataUrl = dataUrl;
+          entry.loading = false;
+          renderReceiptPreview();
+        }
+      }).catch(() => { entry.loading = false; renderReceiptPreview(); });
+    });
   }
   renderTxModalFields(
     editing ? editing.categoryId : (fromRecurring ? fromRecurring.categoryId : (duplicateFrom ? duplicateFrom.categoryId : null)),
@@ -2316,7 +2344,7 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     if (type === 'expense') {
       receiptField.innerHTML = `<label class="field-lbl">영수증 사진</label>
         <input type="file" id="tx-receipt-camera" accept="image/*" capture="environment" style="display:none" onchange="onReceiptFileChange(this)">
-        <input type="file" id="tx-receipt-gallery" accept="image/*" style="display:none" onchange="onReceiptFileChange(this)">
+        <input type="file" id="tx-receipt-gallery" accept="image/*" multiple style="display:none" onchange="onReceiptFileChange(this)">
         <div id="tx-receipt-preview"></div>`;
       renderReceiptPreview();
     } else {
@@ -2393,11 +2421,13 @@ function onAmountInputDynamic(el) {
 /* ---------------- receipt photo storage (IndexedDB locally, Supabase Storage in the cloud) ----------------
    localStorage is capped at ~5-10MB per origin, and receipt photos are the single
    biggest thing this app stores. Photos live in IndexedDB locally (typically hundreds
-   of MB+ available) keyed by transaction id; DATA.transactions only keeps a lightweight
-   hasReceipt boolean flag, so the localStorage payload stays small. Each photo is also
-   uploaded once, at save time, to the "receipts" Supabase Storage bucket (path
-   "<user id>/<tx id>.jpg") so it survives across devices without being re-uploaded on
-   every unrelated save the way embedding it in the synced jsonb blob would require. */
+   of MB+ available), each keyed by its own receipt id; DATA.transactions only keeps a
+   lightweight receiptIds array (the tx's first photo reuses the tx id as its key for
+   backward compatibility, additional photos get freshly minted ids), so the localStorage
+   payload stays small. Each photo is also uploaded once, at save time, to the "receipts"
+   Supabase Storage bucket (path "<user id>/<receipt id>.jpg") so it survives across
+   devices without being re-uploaded on every unrelated save the way embedding it in the
+   synced jsonb blob would require. */
 const RECEIPT_DB_NAME = 'household-ledger-receipts';
 const RECEIPT_STORE = 'receipts';
 const RECEIPT_BUCKET = 'receipts';
@@ -2487,7 +2517,7 @@ async function migrateReceiptsToIndexedDB() {
   const toMigrate = DATA.transactions.filter(t => typeof t.receipt === 'string' && t.receipt.startsWith('data:'));
   if (!toMigrate.length) return false;
   for (const t of toMigrate) {
-    try { await putReceipt(t.id, t.receipt); t.hasReceipt = true; } catch (e) { console.error('receipt migration failed', t.id, e); }
+    try { await putReceipt(t.id, t.receipt); t.receiptIds = [t.id]; } catch (e) { console.error('receipt migration failed', t.id, e); }
     delete t.receipt;
   }
   return true;
@@ -2495,9 +2525,10 @@ async function migrateReceiptsToIndexedDB() {
 async function backfillReceiptsToCloud() {
   if (!sb || !currentUserId || (DATA.settings && DATA.settings.receiptsBackfilledToCloud)) return false;
   for (const t of DATA.transactions) {
-    if (!t.hasReceipt) continue;
-    const local = await getReceiptLocal(t.id).catch(() => null);
-    if (local) await uploadReceiptToCloud(t.id, local);
+    for (const rid of (t.receiptIds || [])) {
+      const local = await getReceiptLocal(rid).catch(() => null);
+      if (local) await uploadReceiptToCloud(rid, local);
+    }
   }
   DATA.settings.receiptsBackfilledToCloud = true;
   return true;
@@ -2527,39 +2558,46 @@ function compressImage(file, maxDim, quality) {
   });
 }
 async function onReceiptFileChange(input) {
-  const file = input.files[0];
+  const files = Array.from(input.files || []);
   input.value = '';
-  if (!file) return;
-  if (!file.type.startsWith('image/')) return showToast('이미지 파일만 첨부할 수 있어요.', 'error');
-  try {
-    state._txModal.receipt = await compressImage(file);
-    renderReceiptPreview();
-  } catch (e) {
-    showToast('사진을 처리하는 중 문제가 생겼어요.', 'error');
+  if (!files.length) return;
+  for (const file of files) {
+    if (!file.type.startsWith('image/')) { showToast('이미지 파일만 첨부할 수 있어요.', 'error'); continue; }
+    try {
+      const dataUrl = await compressImage(file);
+      state._txModal.receipts.push({ id: null, dataUrl, loading: false });
+    } catch (e) {
+      showToast('사진을 처리하는 중 문제가 생겼어요.', 'error');
+    }
   }
+  renderReceiptPreview();
 }
 function renderReceiptPreview() {
   const wrap = document.getElementById('tx-receipt-preview');
   if (!wrap) return;
-  const r = state._txModal.receipt;
-  wrap.innerHTML = r
-    ? `<div class="receipt-thumb-wrap"><img src="${r}" class="receipt-thumb" alt="영수증 미리보기"><button type="button" class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="removeReceipt()">삭제</button></div>`
-    : `<div style="display:flex;gap:8px;flex-wrap:wrap;">
+  const receipts = state._txModal.receipts || [];
+  const thumbsHtml = receipts.length ? `<div class="receipt-thumb-list">${receipts.map((r, i) => `
+    <div class="receipt-thumb-wrap">
+      ${r.loading ? `<div class="receipt-thumb-loading">로딩중</div>` : `<img src="${r.dataUrl}" class="receipt-thumb" alt="영수증 미리보기">`}
+      <button type="button" class="receipt-remove-btn" onclick="removeReceiptAt(${i})" title="삭제" aria-label="삭제">✕</button>
+    </div>`).join('')}</div>` : '';
+  wrap.innerHTML = `${thumbsHtml}<div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button type="button" class="ghost-btn" onclick="document.getElementById('tx-receipt-camera').click()">📷 사진 촬영</button>
         <button type="button" class="ghost-btn" onclick="document.getElementById('tx-receipt-gallery').click()">🖼️ 사진 선택</button>
       </div>`;
 }
-function removeReceipt() { state._txModal.receipt = null; renderReceiptPreview(); }
+function removeReceiptAt(i) { state._txModal.receipts.splice(i, 1); renderReceiptPreview(); }
 async function openReceiptLightboxForTx(id) {
   const t = DATA.transactions.find(x => x.id === id);
-  if (!t || !t.hasReceipt) return;
-  let dataUrl = null;
-  try { dataUrl = await getReceipt(id); } catch (e) {}
-  if (!dataUrl) return showToast('이 기기에서는 영수증 사진을 찾을 수 없어요.', 'error');
+  const receiptIds = (t && t.receiptIds) || [];
+  if (!t || !receiptIds.length) return;
+  const dataUrls = await Promise.all(receiptIds.map((rid) => getReceipt(rid).catch(() => null)));
+  const found = dataUrls.filter(Boolean);
+  if (!found.length) return showToast('이 기기에서는 영수증 사진을 찾을 수 없어요.', 'error');
   openModal(`
-    <h3>영수증 사진</h3>
-    <div style="overflow:auto;max-height:65vh;border-radius:6px;">
-      <img src="${dataUrl}" style="width:100%;display:block;" alt="영수증">
+    <h3>영수증 사진 ${found.length > 1 ? `(${found.length}장)` : ''}</h3>
+    <div style="overflow-y:auto;max-height:65vh;border-radius:6px;display:flex;flex-direction:column;gap:10px;">
+      ${found.map((u) => `<img src="${u}" style="width:100%;display:block;border-radius:6px;" alt="영수증">`).join('')}
     </div>
     <div class="form-actions"><button class="ghost-btn" onclick="closeModal()">닫기</button></div>
   `);
@@ -2597,7 +2635,7 @@ async function submitTx(editId) {
   if (!date) return showToast('날짜를 선택해주세요.', 'error');
   if (!amount || amount <= 0) return showToast('금액을 입력해주세요.', 'error');
 
-  let payload = { type, date, amount, memo, hasReceipt: undefined, payee: undefined, vendor: undefined };
+  let payload = { type, date, amount, memo, payee: undefined, vendor: undefined };
   if (type === 'transfer') {
     const categoryId = document.getElementById('tx-category').value;
     const accountId = document.getElementById('tx-account').value;
@@ -2614,7 +2652,6 @@ async function submitTx(editId) {
     if (!accountId) return showToast('자산이 없어요. 자산 탭에서 먼저 추가해주세요.', 'error');
     payload.categoryId = categoryId; payload.accountId = accountId;
     payload.excludeFromStats = document.getElementById('tx-exclude').checked;
-    payload.hasReceipt = type === 'expense' ? !!state._txModal.receipt : undefined;
     const loanEl = document.getElementById('tx-loan-account');
     const linkedLoanAccountId = type === 'expense' && loanEl ? (loanEl.value || null) : null;
     if (linkedLoanAccountId && (getAccount(linkedLoanAccountId).currency || 'KRW') !== (getAccount(accountId).currency || 'KRW')) {
@@ -2626,6 +2663,7 @@ async function submitTx(editId) {
   payload.vendor = document.getElementById('tx-vendor').value.trim() || null;
 
   const txId = editId || uid();
+  const originalReceiptIds = editId ? ((DATA.transactions.find(t => t.id === editId) || {}).receiptIds || []) : [];
   if (editId) {
     const idx = DATA.transactions.findIndex(t => t.id === editId);
     DATA.transactions[idx] = { ...DATA.transactions[idx], ...payload };
@@ -2635,10 +2673,21 @@ async function submitTx(editId) {
     DATA.transactions.push(payload);
   }
 
-  if (type === 'expense' && state._txModal.receipt) {
-    try { await putReceipt(txId, state._txModal.receipt); } catch (e) { console.error('receipt save failed', e); }
-  } else {
-    try { await deleteReceipt(txId); } catch (e) {}
+  const finalReceiptIds = [];
+  if (type === 'expense') {
+    for (const r of (state._txModal.receipts || [])) {
+      if (r.id) { finalReceiptIds.push(r.id); continue; }
+      if (!r.dataUrl) continue;
+      const newId = `${txId}_${uid()}`;
+      try { await putReceipt(newId, r.dataUrl); finalReceiptIds.push(newId); } catch (e) { console.error('receipt save failed', e); }
+    }
+  }
+  const removedReceiptIds = originalReceiptIds.filter(id => !finalReceiptIds.includes(id));
+  for (const rid of removedReceiptIds) { try { await deleteReceipt(rid); } catch (e) {} }
+  const savedIdx = DATA.transactions.findIndex(t => t.id === txId);
+  if (savedIdx >= 0) {
+    if (finalReceiptIds.length) DATA.transactions[savedIdx].receiptIds = finalReceiptIds;
+    else delete DATA.transactions[savedIdx].receiptIds;
   }
 
   saveData();
@@ -2649,9 +2698,10 @@ async function submitTx(editId) {
 }
 function deleteTx(id) {
   if (!confirm('이 거래를 삭제할까요?')) return false;
+  const removed = DATA.transactions.find(t => t.id === id);
   DATA.transactions = DATA.transactions.filter(t => t.id !== id);
   saveData();
-  deleteReceipt(id).catch(() => {});
+  ((removed && removed.receiptIds) || []).forEach((rid) => { deleteReceipt(rid).catch(() => {}); });
   showToast('삭제했어요.', 'info');
   renderAll();
   return true;
@@ -3071,13 +3121,13 @@ function renderAccountTxTable(list, acc) {
         if (t.vendor) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.vendor)}</span>`);
         if (t.memo) subParts.push(escapeHtml(t.memo));
         if (t.excludeFromStats) subParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
-        const subLine = subParts.length || t.hasReceipt
-          ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}${t.hasReceipt ? ' 🧾' : ''}</div>`
+        const subLine = subParts.length || (t.receiptIds && t.receiptIds.length)
+          ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}${receiptBadge(t)}</div>`
           : '';
         const memoParts = [];
         if (t.memo) memoParts.push(escapeHtml(t.memo));
         if (t.excludeFromStats) memoParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
-        const memoCell = memoParts.join(' · ') + (t.hasReceipt ? ' 🧾' : '');
+        const memoCell = memoParts.join(' · ') + receiptBadge(t);
         const outgoing = !isLoanLink && (t.type === 'expense' || (t.type === 'transfer' && t.accountId === acc.id));
         const sign = isLoanLink ? '+' : (t.type === 'transfer' ? (outgoing ? '-' : '+') : (t.type === 'income' ? '+' : '-'));
         const amtCls = isLoanLink ? 'income' : (t.type === 'transfer' ? (outgoing ? 'expense' : 'income') : t.type);
@@ -3102,7 +3152,7 @@ function renderAccountTxTable(list, acc) {
           </td>
           <td class="num dcol dcol-balance">${balStr}</td>
           <td class="actions-cell tx-actions-cell">
-            ${t.hasReceipt ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
+            ${(t.receiptIds && t.receiptIds.length) ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">사진</button>` : ''}
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="duplicateTx('${t.id}')" title="이 거래를 복사해서 새로 등록">복사</button>
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openTxModal('${t.id}')">수정</button>
             <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteTx('${t.id}')">삭제</button>
@@ -4281,8 +4331,9 @@ function resetAllData() {
 async function exportBackup() {
   const receiptsById = {};
   for (const t of DATA.transactions) {
-    if (!t.hasReceipt) continue;
-    try { const d = await getReceipt(t.id); if (d) receiptsById[t.id] = d; } catch (e) { console.error('receipt export failed', t.id, e); }
+    for (const rid of (t.receiptIds || [])) {
+      try { const d = await getReceipt(rid); if (d) receiptsById[rid] = d; } catch (e) { console.error('receipt export failed', rid, e); }
+    }
   }
   const exportData = { ...DATA, receiptsById };
   const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
