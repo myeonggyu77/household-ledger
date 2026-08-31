@@ -3163,10 +3163,13 @@ function renderAccountDetail(acc) {
           </div>
         </div>
         <div class="section-block">
-          <div class="section-heading">${periodLabel} 내역 (${list.length}건)<button class="ghost-btn" onclick="addTxForAccount('${acc.id}')">+ 내역 추가</button></div>
-          <div class="search-wrap" style="max-width:320px;display:flex;gap:6px;margin-bottom:10px;">
-            <input class="search-input" id="acct-tx-f-q" placeholder="이 자산의 거래 검색" value="${escapeHtml(state._acctTxFilter.q)}" onkeydown="onAcctTxSearchKeydown(event)" style="flex:1;min-width:0;">
-            <button class="ghost-btn" onclick="runAcctTxSearch()" style="flex-shrink:0;">검색</button>
+          <div class="section-heading" style="flex-wrap:wrap;gap:8px;">
+            <span>${periodLabel} 내역 (${list.length}건)</span>
+            <div class="search-wrap" style="display:flex;gap:6px;margin:0 12px;max-width:280px;">
+              <input class="search-input" id="acct-tx-f-q" placeholder="이 자산의 거래 검색" value="${escapeHtml(state._acctTxFilter.q)}" onkeydown="onAcctTxSearchKeydown(event)" style="flex:1;min-width:0;">
+              <button class="ghost-btn" onclick="runAcctTxSearch()" style="flex-shrink:0;">검색</button>
+            </div>
+            <button class="ghost-btn" onclick="addTxForAccount('${acc.id}')">+ 내역 추가</button>
           </div>
           ${list.length ? renderAccountTxTable(list, acc) : `<div class="empty">${q ? '검색 결과가 없어요.' : '해당 기간에는 거래가 없어요.'}</div>`}
         </div>
@@ -3190,27 +3193,14 @@ function acctPeriodSegHtml(period) {
     <button type="button" class="ghost-btn ${period === 'all' ? 'acct-seg-active' : ''}" style="font-size:12px;padding:5px 10px;" onclick="setAcctPeriod('all')">전체</button>
   `;
 }
-function acctSearchText(a) {
-  return [a.name || '', ACC_TYPE_LABEL[a.type] || '', a.currency || 'KRW'].join(' ').toLowerCase();
-}
-function onAcctSearchKeydown(e) {
-  if (e.key === 'Enter') { e.preventDefault(); runAcctSearch(); }
-}
-function runAcctSearch() {
-  state._acctFilter = state._acctFilter || { q: '' };
-  state._acctFilter.q = document.getElementById('acct-f-q').value;
-  renderAccounts();
-}
 function renderAccounts() {
   const selected = state.acctSelectedId ? DATA.accounts.find(a => a.id === state.acctSelectedId) : null;
-  state._acctFilter = state._acctFilter || { q: '' };
-  const q = (state._acctFilter.q || '').trim().toLowerCase();
   const listRow = (a) => `<div class="acct-list-row ${a.includeInTotal === false ? 'excluded' : ''} ${selected && selected.id === a.id ? 'selected' : ''}" onclick="selectAccountDetail('${a.id}')">
     <span>${a.icon || ACC_TYPE_ICON[a.type] || '💰'} ${escapeHtml(a.name)}${a.currency === 'USD' ? ' <span class="ccy-badge usd">USD</span>' : ''}</span>
     <span class="acct-list-bal ${accountBalance(a) < 0 ? 'expense' : ''}">${fmtCurrencySigned(accountBalance(a), a.currency || 'KRW')}</span>
   </div>`;
   const groupBlock = (type) => {
-    const accts = DATA.accounts.filter(a => a.type === type && (!q || acctSearchText(a).includes(q)));
+    const accts = DATA.accounts.filter(a => a.type === type);
     if (!accts.length) return '';
     const hasUsd = accts.some(a => a.currency === 'USD');
     const subtotalKRW = accts.reduce((s, a) => s + toKRW(accountBalance(a), a.currency || 'KRW'), 0);
@@ -3222,7 +3212,6 @@ function renderAccounts() {
       ${accts.map(listRow).join('')}
     </details>`;
   };
-  const matchedCount = q ? DATA.accounts.filter(a => acctSearchText(a).includes(q)).length : DATA.accounts.length;
   const rate = DATA.settings.usdKrwRate;
   const rateLine = rate
     ? `1 USD = ${won(rate)} <span style="color:var(--ink-faint);">(${new Date(DATA.settings.rateUpdatedAt).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })} 기준)</span>`
@@ -3245,14 +3234,10 @@ function renderAccounts() {
     </div>
     <div class="acct-master-detail">
       <div class="acct-list-pane ${selected ? 'has-selection' : ''}">
-        <div class="search-wrap" style="max-width:100%;display:flex;gap:6px;margin-bottom:10px;">
-          <input class="search-input" id="acct-f-q" placeholder="자산 검색 (이름/종류/통화)" value="${escapeHtml(state._acctFilter.q)}" onkeydown="onAcctSearchKeydown(event)" style="flex:1;min-width:0;">
-          <button class="ghost-btn" onclick="runAcctSearch()" style="flex-shrink:0;">검색</button>
-        </div>
         <div class="acct-list-group">
-          <div class="acct-list-group-head"><span>${q ? `검색 결과 ${matchedCount}` : '전체'} <span class="form-note" style="margin:0;">${q ? '' : DATA.accounts.length}</span></span><span>${q ? '' : wonSigned(totalAssets())}</span></div>
+          <div class="acct-list-group-head"><span>전체 <span class="form-note" style="margin:0;">${DATA.accounts.length}</span></span><span>${wonSigned(totalAssets())}</span></div>
         </div>
-        ${matchedCount ? ACC_TYPES.map(groupBlock).join('') : (q ? `<div class="empty">검색 결과가 없어요.</div>` : '')}
+        ${ACC_TYPES.map(groupBlock).join('')}
       </div>
       <div class="acct-detail-pane ${selected ? 'active' : ''}">
         ${selected ? renderAccountDetail(selected) : `<div class="empty">왼쪽에서 자산을 선택하면 상세 내역을 볼 수 있어요.</div>`}
