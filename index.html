@@ -1276,9 +1276,15 @@ document.addEventListener('click', (e) => {
 });
 
 /* ---------------- searchable category picker ---------------- */
-function syncCategoryDisplay() {
-  const sel = document.getElementById('tx-category');
-  const disp = document.getElementById('tx-category-display');
+function categoryPickerConfig(scope) {
+  return scope === 'rec'
+    ? { selId: 'rec-category', displayId: 'rec-category-display', getType: () => state._recModal.type, nextFieldId: 'rec-account' }
+    : { selId: 'tx-category', displayId: 'tx-category-display', getType: () => state._txModal.type, nextFieldId: 'tx-account' };
+}
+function syncCategoryDisplay(scope) {
+  const cfg = categoryPickerConfig(scope);
+  const sel = document.getElementById(cfg.selId);
+  const disp = document.getElementById(cfg.displayId);
   if (!sel || !disp) return;
   if (!sel.value) { disp.value = ''; return; }
   const cat = getCategory(sel.value);
@@ -1286,15 +1292,16 @@ function syncCategoryDisplay() {
   disp.value = parent ? `${parent.icon} ${parent.name} · ${cat.name}` : `${cat.icon} ${cat.name}`;
 }
 let cpState = null;
-function openCategoryPicker(input) {
-  const sel = document.getElementById('tx-category');
+function openCategoryPicker(input, scope) {
+  const cfg = categoryPickerConfig(scope);
+  const sel = document.getElementById(cfg.selId);
   if (!input || !sel) return;
   if (cpState && cpState.input === input) return;
   closeCategoryPicker();
   const pop = document.createElement('div');
   pop.className = 'cp-pop';
   document.body.appendChild(pop);
-  cpState = { input, sel, pop, query: '', items: [], activeIndex: 0 };
+  cpState = { input, sel, pop, query: '', items: [], activeIndex: 0, scope: scope || 'tx', cfg };
   pop.innerHTML = `<div class="cp-list" id="cp-list"></div>`;
   renderCategoryPickerList();
   positionCategoryPicker();
@@ -1314,8 +1321,8 @@ function positionCategoryPicker() {
 function renderCategoryPickerList() {
   if (!cpState) return;
   const listEl = document.getElementById('cp-list');
-  if (!listEl || !state._txModal) return;
-  const type = state._txModal.type;
+  if (!listEl) return;
+  const type = cpState.cfg.getType();
   const q = cpState.query.trim().toLowerCase();
   const items = [];
   const groups = topCategories(type).map(p => {
@@ -1343,8 +1350,8 @@ function highlightActiveCategoryItem() {
   if (el) el.scrollIntoView({ block: 'nearest' });
   if (el) el.classList.add('active');
 }
-function onCategoryInput(input) {
-  if (!cpState || cpState.input !== input) { openCategoryPicker(input); }
+function onCategoryInput(input, scope) {
+  if (!cpState || cpState.input !== input) { openCategoryPicker(input, scope); }
   cpState.query = input.value;
   renderCategoryPickerList();
 }
@@ -1367,8 +1374,9 @@ function onCategoryKeydown(e) {
   } else if (e.key === 'Tab') {
     if (items[cpState.activeIndex]) {
       e.preventDefault();
+      const nextFieldId = cpState.cfg.nextFieldId;
       pickCategory(items[cpState.activeIndex]);
-      const nextField = document.getElementById('tx-account');
+      const nextField = nextFieldId ? document.getElementById(nextFieldId) : null;
       if (nextField) nextField.focus();
     }
   } else if (e.key === 'Escape') {
@@ -1378,9 +1386,10 @@ function onCategoryKeydown(e) {
 }
 function pickCategory(catId) {
   if (!cpState) return;
+  const scope = cpState.scope;
   cpState.sel.value = catId;
   cpState.sel.dispatchEvent(new Event('change', { bubbles: true }));
-  syncCategoryDisplay();
+  syncCategoryDisplay(scope);
   closeCategoryPicker();
 }
 function onCategoryPickerOutsideClick(e) {
@@ -1523,8 +1532,9 @@ function onVendorKeydown(e) {
   } else if (e.key === 'Tab') {
     if (vsState.activeIndex >= 0 && items[vsState.activeIndex] != null) {
       e.preventDefault();
+      const nextFieldId = vsState.nextFieldId;
       pickVendorSuggest(vsState.activeIndex);
-      const nextField = vsState.nextFieldId ? document.getElementById(vsState.nextFieldId) : null;
+      const nextField = nextFieldId ? document.getElementById(nextFieldId) : null;
       if (nextField) nextField.focus();
     } else {
       closeVendorSuggest();
@@ -3491,7 +3501,8 @@ function renderRecurring() {
           const noteParts = [];
           if (r.type === 'expense' && r.noHolidayShift) noteParts.push('휴일무관');
           if (r.type === 'income' && r.payBeforeHoliday) noteParts.push('휴일 전 평일');
-          return `<tr>
+          const isEditing = state._recPanelMode === 'inline' && state._recEditingId === r.id;
+          return `<tr class="tx-row-clickable ${isEditing ? 'row-editing' : ''}" data-recid="${r.id}" onclick="onRecRowClick(event, '${r.id}')">
             <td><input type="checkbox" ${selected.has(r.id) ? 'checked' : ''} onchange="toggleRecSelect('${r.id}')"></td>
             <td><span class="type-tag ${r.type}">${REC_TYPE_LABEL[r.type]}</span></td>
             <td title="${acctCell.replace(/<[^>]*>/g, '')}">${acctCell}</td>
@@ -3504,7 +3515,6 @@ function renderRecurring() {
             <td>${recurringScheduleLabel(r)}</td>
             <td class="actions-cell">
               <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringApplyModal('${r.id}')">적용</button>
-              <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringModal('${r.id}')">수정</button>
               <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteRecurring('${r.id}')">삭제</button>
             </td>
           </tr>`;
@@ -3517,7 +3527,7 @@ function renderRecurring() {
     : `<div class="tx-inline-panel" id="tx-inline-slot-recurring"></div>`;
   document.getElementById('panel-recurring').innerHTML = `
     <div class="tx-split">
-      <div class="tx-split-main">
+      <div class="tx-split-main" onclick="onRecMainClick(event)">
         <div class="toolbar">
           <div class="search-wrap" style="max-width:320px;display:flex;gap:6px;">
             <input class="search-input" id="rec-f-q" placeholder="정기거래 전체 검색" value="${escapeHtml(state._recFilter.q)}" onkeydown="onRecSearchKeydown(event)" style="flex:1;min-width:0;">
@@ -3604,9 +3614,31 @@ function renderRecPanel(formHtml) {
   openModal(formHtml, { sidePanel: true });
   return 'overlay';
 }
+function onRecRowClick(e, id) {
+  if (e.target.closest('button, a, input, select, textarea')) return;
+  if (state._recPanelMode === 'inline' && state._recEditingId === id) {
+    closeRecPanel();
+    return;
+  }
+  openRecurringModal(id);
+}
+function onRecMainClick(e) {
+  if (state._recPanelMode !== 'inline') return;
+  const slot = document.getElementById('tx-inline-slot-recurring');
+  if (!slot || !slot.classList.contains('active')) return;
+  if (e.target.closest('tr')) return;
+  if (e.target.closest('button, a, input, select, textarea, label, .search-wrap')) return;
+  closeRecPanel();
+}
+function setRecRowEditing(id) {
+  state._recEditingId = id || null;
+  document.querySelectorAll('#panel-recurring tr.row-editing').forEach(tr => tr.classList.remove('row-editing'));
+  if (id) { const tr = document.querySelector(`#panel-recurring tr[data-recid="${id}"]`); if (tr) tr.classList.add('row-editing'); }
+}
 function closeRecPanel() {
   const mode = state._recPanelMode;
   state._recPanelMode = null;
+  state._recEditingId = null;
   if (mode === 'inline') {
     renderRecurring();
   } else {
@@ -3626,6 +3658,7 @@ function openRecurringApplyModal(id) {
     </div>
   `;
   state._recPanelMode = renderRecPanel(formHtml);
+  setRecRowEditing(null);
 }
 function submitRecurringApply(id) {
   const r = DATA.recurring.find(x => x.id === id);
@@ -3664,6 +3697,7 @@ function openRecBulkApplyModal() {
     </div>
   `;
   state._recPanelMode = renderRecPanel(formHtml);
+  setRecRowEditing(null);
 }
 function submitRecBulkApply() {
   const date = document.getElementById('rec-bulk-apply-date').value;
@@ -3724,6 +3758,7 @@ function openRecurringModal(id, presetTemplate) {
     </div>
   `;
   state._recPanelMode = renderRecPanel(formHtml);
+  setRecRowEditing(editing ? editing.id : null);
   state._recModal = { type, freq };
   renderRecFreqDetail(freq, seed ? seed.day : 1, seed ? seed.weekday : null, seed ? seed.dailyMode : null, seed ? seed.month : null);
   renderRecModalFields(seed ? seed.categoryId : null, seed ? seed.accountId : null, seed ? seed.toAccountId : null, seed ? (seed.payee || '') : '', seed ? (seed.vendor || '') : '');
@@ -3798,23 +3833,29 @@ function renderRecModalFields(presetCat, presetAcc, presetToAcc, presetPayee, pr
       if (!children.length) return '';
       return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}" ${presetCat === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
     }).join('');
-    catField.innerHTML = `<label class="field-lbl">카테고리</label><select id="rec-category">${transferGroups}</select>`;
+    catField.innerHTML = `<label class="field-lbl">카테고리</label>
+      <select id="rec-category" style="display:none;">${transferGroups}</select>
+      <input type="text" class="cat-field" id="rec-category-display" autocomplete="off" placeholder="카테고리 선택" onfocus="this.select(); openCategoryPicker(this, 'rec')" oninput="onCategoryInput(this, 'rec')" onkeydown="onCategoryKeydown(event)" onblur="setTimeout(closeCategoryPicker, 150)">`;
+    syncCategoryDisplay('rec');
     accField.innerHTML = `<label class="field-lbl">출금자산</label><select id="rec-account" onchange="updateRecAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
     toAccField.innerHTML = `<label class="field-lbl">이체자산</label><select id="rec-toaccount">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
   } else {
-    const cats = DATA.categories.filter(c => c.type === type);
-    catField.innerHTML = `<label class="field-lbl">카테고리</label><select id="rec-category">${cats.map(c => `<option value="${c.id}" ${presetCat === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</select>`;
+    const groups = topCategories(type).map(p => {
+      const children = childCategories(p.id);
+      if (!children.length) return '';
+      return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}" ${presetCat === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
+    }).join('');
+    catField.innerHTML = `<label class="field-lbl">카테고리</label>
+      <select id="rec-category" style="display:none;">${groups}</select>
+      <input type="text" class="cat-field" id="rec-category-display" autocomplete="off" placeholder="카테고리 선택" onfocus="this.select(); openCategoryPicker(this, 'rec')" oninput="onCategoryInput(this, 'rec')" onkeydown="onCategoryKeydown(event)" onblur="setTimeout(closeCategoryPicker, 150)">`;
+    syncCategoryDisplay('rec');
     accField.innerHTML = `<label class="field-lbl">자산</label><select id="rec-account" onchange="updateRecAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
     toAccField.innerHTML = '';
   }
-  const payeeOptions = Array.from(new Set(DATA.transactions.filter(t => t.payee).map(t => t.payee)));
-  const vendorOptions = Array.from(new Set(DATA.transactions.filter(t => t.vendor).map(t => t.vendor)));
   payeeField.innerHTML = `<label class="field-lbl">적용대상</label>
-    <input type="text" id="rec-payee" list="rec-payee-list" placeholder="예: 아빠, 엄마, 회사" value="${escapeHtml(presetPayee || '')}" style="margin-bottom:8px;">
-    <datalist id="rec-payee-list">${payeeOptions.map(p => `<option value="${escapeHtml(p)}">`).join('')}</datalist>
+    <input type="text" id="rec-payee" autocomplete="off" placeholder="예: 아빠, 엄마, 회사" value="${escapeHtml(presetPayee || '')}" onfocus="openVendorSuggest(this, 'payee', 'rec-vendor')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="setTimeout(closeVendorSuggest, 150)" style="margin-bottom:8px;">
     <label class="field-lbl">거래처</label>
-    <input type="text" id="rec-vendor" list="rec-vendor-list" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 미래에셋증권' : '예: 스타벅스, 이마트'}" value="${escapeHtml(presetVendor || '')}">
-    <datalist id="rec-vendor-list">${vendorOptions.map(v => `<option value="${escapeHtml(v)}">`).join('')}</datalist>`;
+    <input type="text" id="rec-vendor" autocomplete="off" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 미래에셋증권' : '예: 스타벅스, 이마트'}" value="${escapeHtml(presetVendor || '')}" onfocus="openVendorSuggest(this, 'vendor', null)" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="setTimeout(closeVendorSuggest, 150)">`;
   updateRecAmountCurrencyBadge();
 }
 function currentRecCurrency() {
