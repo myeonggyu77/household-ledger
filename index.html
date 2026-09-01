@@ -1356,10 +1356,19 @@ function syncCategoryDisplay(scope) {
   disp.value = parent ? `${parent.icon} ${parent.name} · ${cat.name}` : `${cat.icon} ${cat.name}`;
 }
 let cpState = null;
+/* input/oninput 만으로는 한글(IME) 조합이 끝나는 시점을 못 잡는 브라우저가 있어서,
+   조합이 끝났을 때(compositionend) 한 번 더 강제로 갱신해줘요. oncompositionend는
+   표준 HTML 이벤트 핸들러 속성이 아니라 인라인으로는 못 걸리므로 JS로 직접 등록. */
+function bindCompositionEndOnce(input, handler) {
+  if (!input || input._compositionEndBound) return;
+  input._compositionEndBound = true;
+  input.addEventListener('compositionend', () => handler(input));
+}
 function openCategoryPicker(input, scope) {
   const cfg = categoryPickerConfig(scope);
   const sel = document.getElementById(cfg.selId);
   if (!input || !sel) return;
+  bindCompositionEndOnce(input, (el) => onCategoryInput(el, scope));
   if (cpState && cpState.input === input) return;
   closeCategoryPicker();
   const pop = document.createElement('div');
@@ -1653,6 +1662,7 @@ function runPvSearch() {
 /* ---------------- custom 대상/거래처 suggestion list (no native <datalist>, which iOS Safari doesn't render) ---------------- */
 let vsState = null;
 function openVendorSuggest(input, field, nextFieldId) {
+  bindCompositionEndOnce(input, onVendorInput);
   if (vsState && vsState.input === input) return;
   closeVendorSuggest();
   const pop = document.createElement('div');
@@ -1754,6 +1764,7 @@ function closeVendorSuggest() {
 /* ---------------- custom 메모 suggestion list (remembers past memo text) ---------------- */
 let msState = null;
 function openMemoSuggest(input) {
+  bindCompositionEndOnce(input, onMemoInput);
   if (msState && msState.input === input) return;
   closeMemoSuggest();
   const pop = document.createElement('div');
