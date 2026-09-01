@@ -2189,14 +2189,12 @@ function renderTxTable(list, hideDate, showCategoryCol) {
         if (t.payee) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.payee)}</span>`);
         if (t.vendor) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.vendor)}</span>`);
         if (t.memo) subParts.push(escapeHtml(t.memo));
-        if (t.excludeFromStats) subParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
-        const subLine = subParts.length || (t.receiptIds && t.receiptIds.length)
-          ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}${receiptBadge(t)}</div>`
+        const subLine = subParts.length || (t.receiptIds && t.receiptIds.length) || t.excludeFromStats
+          ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}${receiptBadge(t)}${excludeFromStatsBadge(t)}</div>`
           : '';
         const memoParts = [];
         if (t.memo) memoParts.push(escapeHtml(t.memo));
-        if (t.excludeFromStats) memoParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
-        const memoCell = memoParts.join(' · ') + receiptBadge(t);
+        const memoCell = memoParts.join(' · ') + receiptBadge(t) + excludeFromStatsBadge(t);
         const isEditing = showCategoryCol && state._txModal && state._txModal.renderMode === 'inline' && state._txModal.txId === t.id;
         return `<tr class="tx-row-clickable ${dayBoundary ? 'day-boundary' : ''} ${isEditing ? 'row-editing' : ''}" data-txid="${t.id}" onclick="onTxRowClick(event, '${t.id}')">
           ${hideDate ? '' : `<td>${t.date.slice(5)}</td>`}
@@ -2270,6 +2268,10 @@ function receiptBadge(t) {
   const n = (t.receiptIds || []).length;
   if (!n) return '';
   return ' 🧾' + (n > 1 ? `×${n}` : '');
+}
+function excludeFromStatsBadge(t) {
+  if (!t.excludeFromStats) return '';
+  return ' <input type="checkbox" checked disabled title="통계/예산 계산에서 제외" style="accent-color:#2a78d6;width:13px;height:13px;vertical-align:middle;">';
 }
 function txSearchText(t) {
   const acc = getAccount(t.accountId);
@@ -3373,14 +3375,12 @@ function renderAccountTxTable(list, acc) {
         if (t.payee) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.payee)}</span>`);
         if (t.vendor) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.vendor)}</span>`);
         if (t.memo) subParts.push(escapeHtml(t.memo));
-        if (t.excludeFromStats) subParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
-        const subLine = subParts.length || (t.receiptIds && t.receiptIds.length)
-          ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}${receiptBadge(t)}</div>`
+        const subLine = subParts.length || (t.receiptIds && t.receiptIds.length) || t.excludeFromStats
+          ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}${receiptBadge(t)}${excludeFromStatsBadge(t)}</div>`
           : '';
         const memoParts = [];
         if (t.memo) memoParts.push(escapeHtml(t.memo));
-        if (t.excludeFromStats) memoParts.push('<span style="color:var(--ink-faint);">(통계 제외)</span>');
-        const memoCell = memoParts.join(' · ') + receiptBadge(t);
+        const memoCell = memoParts.join(' · ') + receiptBadge(t) + excludeFromStatsBadge(t);
         const outgoing = !isLoanLink && (t.type === 'expense' || (t.type === 'transfer' && t.accountId === acc.id));
         const sign = isLoanLink ? '+' : (t.type === 'transfer' ? (outgoing ? '-' : '+') : (t.type === 'income' ? '+' : '-'));
         const amtCls = isLoanLink ? 'income' : (t.type === 'transfer' ? (outgoing ? 'expense' : 'income') : t.type);
