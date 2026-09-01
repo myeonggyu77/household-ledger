@@ -163,15 +163,6 @@
     .panel-footer-actions { display: flex; gap: 8px; justify-content: flex-start; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
   }
   @keyframes side-panel-in { from { transform: translateX(28px); opacity: .4; } to { transform: translateX(0); opacity: 1; } }
-  .calc-fab { position: fixed; top: 16px; right: 20px; z-index: 3000; width: 40px; height: 40px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--paper-raised); font-size: 18px; line-height: 1; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.12); display: flex; align-items: center; justify-content: center; }
-  .calc-fab:hover { background: var(--accent-tint); border-color: var(--accent-line); }
-  .calc-display { background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 14px 12px; margin-bottom: 12px; text-align: right; overflow-x: auto; }
-  .calc-expr { font-family: var(--mono); font-size: 24px; font-weight: 600; white-space: nowrap; min-height: 30px; }
-  .calc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-  button.calc-btn { font-family: var(--mono); font-size: 16px; padding: 12px 0; text-align: center; }
-  button.calc-btn-op { color: var(--accent); }
-  #calc-result[readonly] { background: var(--line-soft); font-family: var(--mono); font-weight: 600; text-align: right; }
-  @media (max-width: 859px) { .calc-fab { top: 10px; right: 10px; width: 36px; height: 36px; font-size: 16px; } }
   .tx-row-clickable { cursor: default; }
   @media (min-width: 860px) {
     .tx-actions-cell { display: none; }
@@ -410,7 +401,6 @@
   </div>
 </div>
 <div class="app" id="app-root" style="display:none;">
-  <button type="button" class="calc-fab" onclick="openCalcPanel()" title="계산기" aria-label="계산기">🧮</button>
   <nav class="sidebar" id="tabs">
     <button class="tab" data-tab="home"><i>🏠</i><span>홈</span></button>
     <button class="tab" data-tab="calendar"><i>📅</i><span>달력</span></button>
@@ -1233,136 +1223,6 @@ function trapModalTab(e) {
   } else if (!e.shiftKey && document.activeElement === last) {
     e.preventDefault();
     first.focus();
-  }
-}
-
-/* ---------------- 계산기 ---------------- */
-const CALC_OPS = ['+', '−', '×', '÷', '%'];
-function calcState() {
-  if (!state._calc) state._calc = { expr: '', result: null, justEquals: false };
-  return state._calc;
-}
-function calcPanelHtml() {
-  const st = calcState();
-  return `
-    <h3>계산기</h3>
-    <div class="calc-display"><div class="calc-expr" id="calc-expr">${escapeHtml(calcFormatDisplay(st.expr) || '0')}</div></div>
-    <div class="calc-grid">
-      <button type="button" class="ghost-btn calc-btn calc-btn-op" onclick="calcClear()">C</button>
-      <button type="button" class="ghost-btn calc-btn calc-btn-op" onclick="calcBackspace()">⌫</button>
-      <button type="button" class="ghost-btn calc-btn calc-btn-op" onclick="calcAppend('%')">%</button>
-      <button type="button" class="ghost-btn calc-btn calc-btn-op" onclick="calcAppend('÷')">÷</button>
-      <button type="button" class="ghost-btn calc-btn" onclick="calcAppend('7')">7</button>
-      <button type="button" class="ghost-btn calc-btn" onclick="calcAppend('8')">8</button>
-      <button type="button" class="ghost-btn calc-btn" onclick="calcAppend('9')">9</button>
-      <button type="button" class="ghost-btn calc-btn calc-btn-op" onclick="calcAppend('×')">×</button>
-      <button type="button" class="ghost-btn calc-btn" onclick="calcAppend('4')">4</button>
-      <button type="button" class="ghost-btn calc-btn" onclick="calcAppend('5')">5</button>
-      <button type="button" class="ghost-btn calc-btn" onclick="calcAppend('6')">6</button>
-      <button type="button" class="ghost-btn calc-btn calc-btn-op" onclick="calcAppend('−')">−</button>
-      <button type="button" class="ghost-btn calc-btn" onclick="calcAppend('1')">1</button>
-      <button type="button" class="ghost-btn calc-btn" onclick="calcAppend('2')">2</button>
-      <button type="button" class="ghost-btn calc-btn" onclick="calcAppend('3')">3</button>
-      <button type="button" class="ghost-btn calc-btn calc-btn-op" onclick="calcAppend('+')">+</button>
-      <button type="button" class="ghost-btn calc-btn" style="grid-column: span 2;" onclick="calcAppend('0')">0</button>
-      <button type="button" class="ghost-btn calc-btn" onclick="calcAppend('.')">.</button>
-      <button type="button" class="primary-btn calc-btn" onclick="calcEquals()">=</button>
-    </div>
-    <div class="field" style="margin-top:14px;">
-      <label class="field-lbl">계산 결과 (Ctrl+C로 복사)</label>
-      <input type="text" id="calc-result" readonly value="${escapeHtml(st.result != null ? st.result : '')}" onclick="this.select()">
-    </div>
-    <div class="form-actions">
-      <button type="button" class="ghost-btn" onclick="copyCalcResult()">결과 복사</button>
-      <button type="button" class="ghost-btn" onclick="closeModal()">닫기</button>
-    </div>
-  `;
-}
-function openCalcPanel() {
-  calcState();
-  openModal(calcPanelHtml());
-}
-function calcFormatDisplay(expr) {
-  return (expr || '').replace(/\d+(\.\d+)?/g, (m) => {
-    const parts = m.split('.');
-    const intFmt = Number(parts[0]).toLocaleString('en-US');
-    return parts.length > 1 ? intFmt + '.' + parts[1] : intFmt;
-  });
-}
-function renderCalcDisplay() {
-  const el = document.getElementById('calc-expr');
-  if (el) el.textContent = calcFormatDisplay(calcState().expr) || '0';
-}
-function calcAppend(ch) {
-  const st = calcState();
-  const isOp = CALC_OPS.includes(ch);
-  if (st.justEquals) {
-    st.justEquals = false;
-    if (!isOp) st.expr = '';
-  }
-  const lastCh = st.expr.slice(-1);
-  if (isOp) {
-    if (!st.expr && ch !== '−') return;
-    if (CALC_OPS.includes(lastCh)) { st.expr = st.expr.slice(0, -1) + ch; renderCalcDisplay(); return; }
-  }
-  if (ch === '.') {
-    const seg = st.expr.split(/[+−×÷%]/).pop();
-    if (seg.includes('.')) return;
-    if (seg === '') st.expr += '0';
-  }
-  st.expr += ch;
-  st.result = null;
-  renderCalcDisplay();
-}
-function calcClear() {
-  state._calc = { expr: '', result: null, justEquals: false };
-  renderCalcDisplay();
-  const input = document.getElementById('calc-result');
-  if (input) input.value = '';
-}
-function calcBackspace() {
-  const st = calcState();
-  st.expr = st.expr.slice(0, -1);
-  st.result = null;
-  st.justEquals = false;
-  renderCalcDisplay();
-}
-function calcEvalExpr(expr) {
-  let s = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-');
-  s = s.replace(/(\d+(\.\d+)?)%/g, '($1/100)');
-  if (!/^[0-9+\-*/.() ]*$/.test(s)) throw new Error('invalid expression');
-  const val = Function('"use strict"; return (' + s + ')')();
-  if (typeof val !== 'number' || !isFinite(val)) throw new Error('invalid result');
-  return val;
-}
-function calcEquals() {
-  const st = calcState();
-  if (!st.expr) return;
-  try {
-    const val = calcEvalExpr(st.expr);
-    st.result = String(Math.round(val * 1e8) / 1e8);
-    st.expr = st.result;
-  } catch (e) {
-    st.result = null;
-    showToast('계산할 수 없는 식이에요.', 'error');
-  }
-  st.justEquals = true;
-  renderCalcDisplay();
-  const input = document.getElementById('calc-result');
-  if (input && st.result != null) { input.value = st.result; input.select(); }
-}
-async function copyCalcResult() {
-  const st = calcState();
-  const text = st.result != null ? st.result : '';
-  if (!text) { showToast('먼저 계산을 완료해주세요.', 'error'); return; }
-  const input = document.getElementById('calc-result');
-  if (input) { input.value = text; input.select(); }
-  try {
-    if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
-    else document.execCommand('copy');
-    showToast('결과가 복사되었어요.', 'success');
-  } catch (e) {
-    showToast('복사에 실패했어요. 결과를 선택한 뒤 Ctrl+C를 눌러주세요.', 'error');
   }
 }
 
