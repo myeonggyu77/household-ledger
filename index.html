@@ -1443,6 +1443,8 @@ function onCategoryInput(input, scope) {
   if (!cpState || cpState.input !== input) { openCategoryPicker(input, scope); }
   cpState.query = input.value;
   renderCategoryPickerList();
+  clearTimeout(cpState.settleTimer);
+  cpState.settleTimer = setTimeout(() => { if (cpState && cpState.input === input) { cpState.query = input.value; renderCategoryPickerList(); } }, 200);
 }
 function onCategoryKeydown(e) {
   if (!cpState) return;
@@ -1694,6 +1696,11 @@ function openVendorSuggest(input, field, nextFieldId) {
 function onVendorInput(input) {
   if (!vsState || vsState.input !== input) { openVendorSuggest(input); return; }
   renderVendorSuggest();
+  /* 일부 브라우저(예: 아이패드 Safari 가상 키보드)는 한글 조합이 끝나도
+     compositionend가 안정적으로 안 와서 목록이 조합 중간 글자에 멈춰있을 수
+     있어요. 타이핑이 잠깐 멈춘 뒤 한 번 더 최신 값으로 갱신해서 맞춰줘요. */
+  clearTimeout(vsState.settleTimer);
+  vsState.settleTimer = setTimeout(() => { if (vsState && vsState.input === input) renderVendorSuggest(); }, 200);
 }
 function positionVendorSuggest() {
   if (!vsState) return;
@@ -1711,10 +1718,11 @@ function renderVendorSuggest() {
   const historyNames = DATA.transactions.map(t => t[vsState.field]).filter(Boolean);
   const all = Array.from(new Set([...registryNames, ...historyNames]));
   const matches = all.filter(v => !q || v.toLowerCase().includes(q)).slice(0, 8);
-  if (!matches.length) { closeVendorSuggest(); return; }
   vsState.items = matches;
   vsState.activeIndex = vsState.activeIndex < 0 ? -1 : Math.min(vsState.activeIndex, matches.length - 1);
-  vsState.pop.innerHTML = `<div class="cp-list">${matches.map((v, i) => `<div class="cp-item ${i === vsState.activeIndex ? 'active' : ''}" data-idx="${i}" onmousedown="event.preventDefault(); pickVendorSuggest('${i}')">${escapeHtml(v)}</div>`).join('')}</div>`;
+  vsState.pop.innerHTML = matches.length
+    ? `<div class="cp-list">${matches.map((v, i) => `<div class="cp-item ${i === vsState.activeIndex ? 'active' : ''}" data-idx="${i}" onmousedown="event.preventDefault(); pickVendorSuggest('${i}')">${escapeHtml(v)}</div>`).join('')}</div>`
+    : `<div class="empty" style="padding:10px 8px;">검색 결과가 없어요.</div>`;
 }
 function highlightActiveVendorItem() {
   if (!vsState) return;
@@ -1796,6 +1804,8 @@ function openMemoSuggest(input) {
 function onMemoInput(input) {
   if (!msState || msState.input !== input) { openMemoSuggest(input); return; }
   renderMemoSuggest();
+  clearTimeout(msState.settleTimer);
+  msState.settleTimer = setTimeout(() => { if (msState && msState.input === input) renderMemoSuggest(); }, 200);
 }
 function positionMemoSuggest() {
   if (!msState) return;
@@ -1811,10 +1821,11 @@ function renderMemoSuggest() {
   const q = msState.input.value.trim().toLowerCase();
   const all = Array.from(new Set(DATA.transactions.map(t => t.memo).filter(Boolean)));
   const matches = all.filter(v => !q || v.toLowerCase().includes(q)).slice(0, 8);
-  if (!matches.length) { closeMemoSuggest(); return; }
   msState.items = matches;
   msState.activeIndex = msState.activeIndex < 0 ? -1 : Math.min(msState.activeIndex, matches.length - 1);
-  msState.pop.innerHTML = `<div class="cp-list">${matches.map((v, i) => `<div class="cp-item ${i === msState.activeIndex ? 'active' : ''}" data-idx="${i}" onmousedown="event.preventDefault(); pickMemoSuggest('${i}')">${escapeHtml(v)}</div>`).join('')}</div>`;
+  msState.pop.innerHTML = matches.length
+    ? `<div class="cp-list">${matches.map((v, i) => `<div class="cp-item ${i === msState.activeIndex ? 'active' : ''}" data-idx="${i}" onmousedown="event.preventDefault(); pickMemoSuggest('${i}')">${escapeHtml(v)}</div>`).join('')}</div>`
+    : `<div class="empty" style="padding:10px 8px;">검색 결과가 없어요.</div>`;
 }
 function highlightActiveMemoItem() {
   if (!msState) return;
