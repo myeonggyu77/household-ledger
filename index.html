@@ -1364,13 +1364,22 @@ function bindCompositionEndOnce(input, handler) {
   input._compositionEndBound = true;
   input.addEventListener('compositionend', () => handler(input));
 }
+/* 카테고리/적용대상·거래처/메모 검색창은 각자 독립된 상태로 관리되는데,
+   blur로 닫히기까지 150ms 지연이 있어서 다른 필드로 빠르게 옮기면 이전
+   검색창이 화면에 그대로 남아 새로 연 검색창과 겹쳐 보일 수 있어요.
+   그래서 셋 중 하나를 열기 전에 항상 나머지를 먼저 닫아줘요. */
+function closeAllSearchPopups() {
+  closeCategoryPicker();
+  closeVendorSuggest();
+  closeMemoSuggest();
+}
 function openCategoryPicker(input, scope) {
   const cfg = categoryPickerConfig(scope);
   const sel = document.getElementById(cfg.selId);
   if (!input || !sel) return;
   bindCompositionEndOnce(input, (el) => onCategoryInput(el, scope));
   if (cpState && cpState.input === input) return;
-  closeCategoryPicker();
+  closeAllSearchPopups();
   const pop = document.createElement('div');
   pop.className = 'cp-pop';
   document.body.appendChild(pop);
@@ -1404,7 +1413,7 @@ function renderCategoryPickerList() {
     children.forEach(c => items.push(c.id));
     return `<div class="cp-group">
       <div class="cp-group-label">${p.icon} ${escapeHtml(p.name)}</div>
-      ${children.map(c => `<div class="cp-item ${c.id === cpState.sel.value ? 'sel' : ''}" data-cat-id="${c.id}" onclick="pickCategory('${c.id}')">${c.icon} ${escapeHtml(c.name)}</div>`).join('')}
+      ${children.map(c => `<div class="cp-item ${c.id === cpState.sel.value ? 'sel' : ''}" data-cat-id="${c.id}" onmousedown="event.preventDefault(); pickCategory('${c.id}')">${c.icon} ${escapeHtml(c.name)}</div>`).join('')}
     </div>`;
   }).join('');
   listEl.innerHTML = groups || `<div class="empty" style="padding:10px 8px;">검색 결과가 없어요.</div>`;
@@ -1664,7 +1673,7 @@ let vsState = null;
 function openVendorSuggest(input, field, nextFieldId) {
   bindCompositionEndOnce(input, onVendorInput);
   if (vsState && vsState.input === input) return;
-  closeVendorSuggest();
+  closeAllSearchPopups();
   const pop = document.createElement('div');
   pop.className = 'cp-pop';
   document.body.appendChild(pop);
@@ -1698,7 +1707,7 @@ function renderVendorSuggest() {
   if (!matches.length) { closeVendorSuggest(); return; }
   vsState.items = matches;
   vsState.activeIndex = vsState.activeIndex < 0 ? -1 : Math.min(vsState.activeIndex, matches.length - 1);
-  vsState.pop.innerHTML = `<div class="cp-list">${matches.map((v, i) => `<div class="cp-item ${i === vsState.activeIndex ? 'active' : ''}" data-idx="${i}" onclick="pickVendorSuggest('${i}')">${escapeHtml(v)}</div>`).join('')}</div>`;
+  vsState.pop.innerHTML = `<div class="cp-list">${matches.map((v, i) => `<div class="cp-item ${i === vsState.activeIndex ? 'active' : ''}" data-idx="${i}" onmousedown="event.preventDefault(); pickVendorSuggest('${i}')">${escapeHtml(v)}</div>`).join('')}</div>`;
 }
 function highlightActiveVendorItem() {
   if (!vsState) return;
@@ -1766,7 +1775,7 @@ let msState = null;
 function openMemoSuggest(input) {
   bindCompositionEndOnce(input, onMemoInput);
   if (msState && msState.input === input) return;
-  closeMemoSuggest();
+  closeAllSearchPopups();
   const pop = document.createElement('div');
   pop.className = 'cp-pop';
   document.body.appendChild(pop);
@@ -1798,7 +1807,7 @@ function renderMemoSuggest() {
   if (!matches.length) { closeMemoSuggest(); return; }
   msState.items = matches;
   msState.activeIndex = msState.activeIndex < 0 ? -1 : Math.min(msState.activeIndex, matches.length - 1);
-  msState.pop.innerHTML = `<div class="cp-list">${matches.map((v, i) => `<div class="cp-item ${i === msState.activeIndex ? 'active' : ''}" data-idx="${i}" onclick="pickMemoSuggest('${i}')">${escapeHtml(v)}</div>`).join('')}</div>`;
+  msState.pop.innerHTML = `<div class="cp-list">${matches.map((v, i) => `<div class="cp-item ${i === msState.activeIndex ? 'active' : ''}" data-idx="${i}" onmousedown="event.preventDefault(); pickMemoSuggest('${i}')">${escapeHtml(v)}</div>`).join('')}</div>`;
 }
 function highlightActiveMemoItem() {
   if (!msState) return;
@@ -2473,7 +2482,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     <div id="tx-toacc-field" class="field"></div>
     <div class="field" id="tx-loan-field"></div>
     <div class="field" id="tx-vendor-field"></div>
-    <div class="field"><label class="field-lbl">메모</label><textarea id="tx-memo" autocomplete="off" placeholder="메모 (선택)" rows="1" style="min-height:34px;padding:8px 9px;resize:vertical;" onfocus="openMemoSuggest(this)" oninput="onMemoInput(this)" onkeydown="onMemoKeydown(event)" onblur="setTimeout(closeMemoSuggest, 150)">${escapeHtml(editing ? (editing.memo || '') : (fromRecurring ? fromRecurring.name : (duplicateFrom ? (duplicateFrom.memo || '') : '')))}</textarea></div>
+    <div class="field"><label class="field-lbl">메모</label><textarea id="tx-memo" autocomplete="off" placeholder="메모 (선택)" rows="1" style="min-height:34px;padding:8px 9px;resize:vertical;" onfocus="openMemoSuggest(this)" oninput="onMemoInput(this)" onkeydown="onMemoKeydown(event)" onblur="closeMemoSuggest()">${escapeHtml(editing ? (editing.memo || '') : (fromRecurring ? fromRecurring.name : (duplicateFrom ? (duplicateFrom.memo || '') : '')))}</textarea></div>
     <div class="field" id="tx-receipt-field"></div>
     <div class="field" id="tx-exclude-field"></div>
     ${fromRecurring ? '' : `<div class="field"><button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="registerAsRecurringFromTxForm()">🔁 정기거래로 등록</button></div>`}
@@ -2555,7 +2564,7 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     }).join('');
     catField.innerHTML = `<label class="field-lbl">카테고리</label>
       <select id="tx-category" style="display:none;">${transferGroups}</select>
-      <input type="text" class="cat-field" id="tx-category-display" autocomplete="off" placeholder="카테고리 선택" onfocus="this.select(); openCategoryPicker(this)" oninput="onCategoryInput(this)" onkeydown="onCategoryKeydown(event)" onblur="setTimeout(closeCategoryPicker, 150)">`;
+      <input type="text" class="cat-field" id="tx-category-display" autocomplete="off" placeholder="카테고리 선택" onfocus="this.select(); openCategoryPicker(this)" oninput="onCategoryInput(this)" onkeydown="onCategoryKeydown(event)" onblur="closeCategoryPicker()">`;
     syncCategoryDisplay();
     accField.innerHTML = `<label class="field-lbl">출금 자산</label><select id="tx-account" onchange="updateTxAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
     toAccField.innerHTML = `<label class="field-lbl">입금 자산</label><select id="tx-toaccount">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
@@ -2570,7 +2579,7 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     }).join('');
     catField.innerHTML = `<label class="field-lbl">카테고리</label>
       <select id="tx-category" onchange="renderBudgetQuickRow()" style="display:none;">${groups}</select>
-      <input type="text" class="cat-field" id="tx-category-display" autocomplete="off" placeholder="카테고리 선택" onfocus="this.select(); openCategoryPicker(this)" oninput="onCategoryInput(this)" onkeydown="onCategoryKeydown(event)" onblur="setTimeout(closeCategoryPicker, 150)">
+      <input type="text" class="cat-field" id="tx-category-display" autocomplete="off" placeholder="카테고리 선택" onfocus="this.select(); openCategoryPicker(this)" oninput="onCategoryInput(this)" onkeydown="onCategoryKeydown(event)" onblur="closeCategoryPicker()">
       <div id="budget-quick-row" style="margin-top:6px;"></div>`;
     syncCategoryDisplay();
     accField.innerHTML = `<label class="field-lbl">${type === 'income' ? '입금 자산' : '지출 자산'}</label><select id="tx-account" onchange="updateTxAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
@@ -2599,9 +2608,9 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     renderBudgetQuickRow();
   }
   vendorField.innerHTML = `<label class="field-lbl">적용대상</label>
-    <input type="text" id="tx-payee" autocomplete="off" placeholder="예: 아빠, 엄마, 회사" value="${escapeHtml(presetPayee || '')}" onfocus="openVendorSuggest(this, 'payee', 'tx-vendor')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="setTimeout(closeVendorSuggest, 150)" style="margin-bottom:8px;">
+    <input type="text" id="tx-payee" autocomplete="off" placeholder="예: 아빠, 엄마, 회사" value="${escapeHtml(presetPayee || '')}" onfocus="openVendorSuggest(this, 'payee', 'tx-vendor')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="closeVendorSuggest()" style="margin-bottom:8px;">
     <label class="field-lbl">거래처</label>
-    <input type="text" id="tx-vendor" autocomplete="off" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 미래에셋증권' : '예: 스타벅스 강남점'}" value="${escapeHtml(presetVendor || '')}" onfocus="openVendorSuggest(this, 'vendor', 'tx-memo')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="setTimeout(closeVendorSuggest, 150)">`;
+    <input type="text" id="tx-vendor" autocomplete="off" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 미래에셋증권' : '예: 스타벅스 강남점'}" value="${escapeHtml(presetVendor || '')}" onfocus="openVendorSuggest(this, 'vendor', 'tx-memo')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="closeVendorSuggest()">`;
   updateTxAmountCurrencyBadge();
 }
 function currentTxCurrency() {
@@ -4172,7 +4181,7 @@ function renderRecModalFields(presetCat, presetAcc, presetToAcc, presetPayee, pr
     }).join('');
     catField.innerHTML = `<label class="field-lbl">카테고리</label>
       <select id="rec-category" style="display:none;">${transferGroups}</select>
-      <input type="text" class="cat-field" id="rec-category-display" autocomplete="off" placeholder="카테고리 선택" onfocus="this.select(); openCategoryPicker(this, 'rec')" oninput="onCategoryInput(this, 'rec')" onkeydown="onCategoryKeydown(event)" onblur="setTimeout(closeCategoryPicker, 150)">`;
+      <input type="text" class="cat-field" id="rec-category-display" autocomplete="off" placeholder="카테고리 선택" onfocus="this.select(); openCategoryPicker(this, 'rec')" oninput="onCategoryInput(this, 'rec')" onkeydown="onCategoryKeydown(event)" onblur="closeCategoryPicker()">`;
     syncCategoryDisplay('rec');
     accField.innerHTML = `<label class="field-lbl">출금자산</label><select id="rec-account" onchange="updateRecAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
     toAccField.innerHTML = `<label class="field-lbl">이체자산</label><select id="rec-toaccount">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
@@ -4184,15 +4193,15 @@ function renderRecModalFields(presetCat, presetAcc, presetToAcc, presetPayee, pr
     }).join('');
     catField.innerHTML = `<label class="field-lbl">카테고리</label>
       <select id="rec-category" style="display:none;">${groups}</select>
-      <input type="text" class="cat-field" id="rec-category-display" autocomplete="off" placeholder="카테고리 선택" onfocus="this.select(); openCategoryPicker(this, 'rec')" oninput="onCategoryInput(this, 'rec')" onkeydown="onCategoryKeydown(event)" onblur="setTimeout(closeCategoryPicker, 150)">`;
+      <input type="text" class="cat-field" id="rec-category-display" autocomplete="off" placeholder="카테고리 선택" onfocus="this.select(); openCategoryPicker(this, 'rec')" oninput="onCategoryInput(this, 'rec')" onkeydown="onCategoryKeydown(event)" onblur="closeCategoryPicker()">`;
     syncCategoryDisplay('rec');
     accField.innerHTML = `<label class="field-lbl">자산</label><select id="rec-account" onchange="updateRecAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
     toAccField.innerHTML = '';
   }
   payeeField.innerHTML = `<label class="field-lbl">적용대상</label>
-    <input type="text" id="rec-payee" autocomplete="off" placeholder="예: 아빠, 엄마, 회사" value="${escapeHtml(presetPayee || '')}" onfocus="openVendorSuggest(this, 'payee', 'rec-vendor')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="setTimeout(closeVendorSuggest, 150)" style="margin-bottom:8px;">
+    <input type="text" id="rec-payee" autocomplete="off" placeholder="예: 아빠, 엄마, 회사" value="${escapeHtml(presetPayee || '')}" onfocus="openVendorSuggest(this, 'payee', 'rec-vendor')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="closeVendorSuggest()" style="margin-bottom:8px;">
     <label class="field-lbl">거래처</label>
-    <input type="text" id="rec-vendor" autocomplete="off" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 미래에셋증권' : '예: 스타벅스, 이마트'}" value="${escapeHtml(presetVendor || '')}" onfocus="openVendorSuggest(this, 'vendor', null)" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="setTimeout(closeVendorSuggest, 150)">`;
+    <input type="text" id="rec-vendor" autocomplete="off" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 미래에셋증권' : '예: 스타벅스, 이마트'}" value="${escapeHtml(presetVendor || '')}" onfocus="openVendorSuggest(this, 'vendor', null)" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="closeVendorSuggest()">`;
   updateRecAmountCurrencyBadge();
 }
 function currentRecCurrency() {
