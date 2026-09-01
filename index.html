@@ -2102,7 +2102,6 @@ function selectCalDate(date) {
   if (dm !== state.month) state.month = dm;
   state.calSelected = date;
   renderCalendar();
-  openTxModal(null, date);
 }
 function abbrevWon(n) {
   if (n >= 100000000) return (n / 100000000).toFixed(1).replace(/\.0$/, '') + '억';
