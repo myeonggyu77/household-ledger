@@ -345,7 +345,7 @@
     .dcol { display: table-cell; }
     table.tx-table-balance .dcol-balance { display: table-cell; }
     .cal-layout { display: flex; gap: 20px; align-items: flex-start; }
-    .cal-main { flex: 0 0 560px; }
+    .cal-main { flex: 0 0 730px; }
     .cal-main .cal-cell { min-height: 92px; padding: 8px; }
     .cal-main .cal-cell .date-num { font-size: 13px; }
     .cal-main .cal-cell .cal-amt { font-size: 11.5px; }
@@ -2082,20 +2082,32 @@ function renderCalendar() {
   const dayLabel = state.calSelected.replace(/^\d+-0?/, '').replace('-', '월 ') + '일';
 
   document.getElementById('panel-calendar').innerHTML = `
-    <div class="cal-layout">
-      <div class="cal-main">
-        ${monthNavHtml('navMonth(-1)', 'navMonth(1)', mKey)}
-        ${gridHtml}
-      </div>
-      <div class="day-list-card">
-        <div class="section-heading" style="border-bottom:none;margin-bottom:8px;padding-bottom:0;">
-          ${escapeHtml(dayLabel)} 내역
-          <button class="ghost-btn" onclick="openTxModal(null, '${state.calSelected}')">+ 이 날짜에 추가</button>
+    <div class="tx-split">
+      <div class="tx-split-main" onclick="onCalMainClick(event)">
+        <div class="cal-layout">
+          <div class="cal-main">
+            ${monthNavHtml('navMonth(-1)', 'navMonth(1)', mKey)}
+            ${gridHtml}
+          </div>
+          <div class="day-list-card">
+            <div class="section-heading" style="border-bottom:none;margin-bottom:8px;padding-bottom:0;">
+              ${escapeHtml(dayLabel)} 내역
+              <button class="ghost-btn" onclick="openTxModal(null, '${state.calSelected}')">+ 이 날짜에 추가</button>
+            </div>
+            ${dayTx.length ? renderTxTable(dayTx, true) : `<div class="empty">이 날짜에 등록된 거래가 없어요.</div>`}
+          </div>
         </div>
-        ${dayTx.length ? renderTxTable(dayTx, true) : `<div class="empty">이 날짜에 등록된 거래가 없어요.</div>`}
       </div>
+      <div class="tx-inline-panel" id="tx-inline-slot-calendar"></div>
     </div>
   `;
+}
+function onCalMainClick(e) {
+  const slot = document.getElementById('tx-inline-slot-calendar');
+  if (!slot || !slot.classList.contains('active')) return;
+  if (e.target.closest('tr.tx-row-clickable, .cal-cell')) return;
+  if (e.target.closest('button, a, input, select, textarea, label, .search-wrap')) return;
+  closeTxPanel();
 }
 function selectCalDate(date) {
   const dm = date.slice(0, 7);
@@ -2389,6 +2401,7 @@ function txInlineSlot() {
   if (!window.matchMedia('(min-width: 860px)').matches) return null;
   const id = state.tab === 'transactions' ? 'tx-inline-slot-transactions'
     : (state.tab === 'accounts' && state.acctSelectedId) ? 'tx-inline-slot-accounts'
+    : state.tab === 'calendar' ? 'tx-inline-slot-calendar'
     : null;
   return id ? document.getElementById(id) : null;
 }
