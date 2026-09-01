@@ -353,7 +353,7 @@
     .stats-legend-col { flex: 1; min-width: 0; }
   }
 
-  .cat-manage-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .cat-manage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 24px; }
   @media (max-width: 640px) { .cat-manage-grid { grid-template-columns: 1fr; } }
   .cat-chip { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 7px 10px; border: 1px solid var(--line); border-radius: 4px; margin-bottom: 6px; font-size: 13px; }
   .cat-chip .cat-chip-name { display: flex; align-items: center; gap: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 140px; }
@@ -538,11 +538,13 @@ async function onAuthed(userId) {
       cloudData = migratePayeeFromMemo(cloudData);
       cloudData = migrateReceiptIdsArray(cloudData);
       cloudData = migrateTossBankDefaultPayee(cloudData);
+      const payeeVendorRegistrySeededBefore = !!(cloudData.settings && cloudData.settings.payeeVendorRegistrySeeded);
+      cloudData = migratePayeeVendorRegistry(cloudData);
       const categoriesChanged = cloudData.categories.length !== catCountBefore || (!stockMigratedBefore && cloudData.settings.stockTransferCategoryMigrated);
       delete cloudData.receiptsById;
       DATA = cloudData;
       try { localStorage.setItem(LS_KEY, JSON.stringify(DATA)); } catch (e) {}
-      if (beforeVersion !== CATEGORY_TREE_VERSION || categoriesChanged || (!payeeMigratedBefore && cloudData.settings.payeeExtractedFromMemo)) scheduleCloudSave();
+      if (beforeVersion !== CATEGORY_TREE_VERSION || categoriesChanged || (!payeeMigratedBefore && cloudData.settings.payeeExtractedFromMemo) || (!payeeVendorRegistrySeededBefore && cloudData.settings.payeeVendorRegistrySeeded)) scheduleCloudSave();
     }
   } catch (e) {
     console.error('cloud sync on login failed', e);
@@ -690,7 +692,7 @@ function defaultData() {
     });
   });
   const accounts = [{ id: uid(), name: '현금', type: 'cash', icon: '💵', initialBalance: 0, includeInTotal: true, currency: 'KRW' }];
-  return { version: 1, categorySchema: 2, categoryTreeVersion: CATEGORY_TREE_VERSION, accounts, categories, transactions: [], budgets: {}, recurring: [], holidays: [], settings: { usdKrwRate: null, rateUpdatedAt: null } };
+  return { version: 1, categorySchema: 2, categoryTreeVersion: CATEGORY_TREE_VERSION, accounts, categories, transactions: [], budgets: {}, recurring: [], holidays: [], payees: [], vendors: [], settings: { usdKrwRate: null, rateUpdatedAt: null } };
 }
 
 /* 구버전(대/소분류 구분 없는 평평한 카테고리) 데이터를 대분류 트리 밑으로 옮겨요.
@@ -912,6 +914,19 @@ function migrateTossBankDefaultPayee(d) {
   d.settings.tossBankDefaultPayeeApplied = true;
   return d;
 }
+/* 과거 거래·정기거래에 이미 쓰인 적용대상/거래처 값들을 관리 목록(설정 화면)으로 한 번 옮겨담아요. */
+function migratePayeeVendorRegistry(d) {
+  d.settings = d.settings || {};
+  if (d.settings.payeeVendorRegistrySeeded) return d;
+  const payeeNames = new Set();
+  const vendorNames = new Set();
+  (d.transactions || []).forEach((t) => { if (t.payee) payeeNames.add(t.payee); if (t.vendor) vendorNames.add(t.vendor); });
+  (d.recurring || []).forEach((r) => { if (r.payee) payeeNames.add(r.payee); if (r.vendor) vendorNames.add(r.vendor); });
+  d.payees = Array.from(payeeNames).sort((a, b) => a.localeCompare(b, 'ko')).map((name) => ({ id: uid(), name }));
+  d.vendors = Array.from(vendorNames).sort((a, b) => a.localeCompare(b, 'ko')).map((name) => ({ id: uid(), name }));
+  d.settings.payeeVendorRegistrySeeded = true;
+  return d;
+}
 
 function loadData() {
   try {
@@ -935,6 +950,7 @@ function loadData() {
     d = migratePayeeFromMemo(d);
     d = migrateReceiptIdsArray(d);
     d = migrateTossBankDefaultPayee(d);
+    d = migratePayeeVendorRegistry(d);
     return d;
   } catch (e) { console.error(e); return defaultData(); }
 }
@@ -1508,6 +1524,116 @@ function closeMonthPicker() {
   mpState = null;
 }
 
+/* ---------------- 적용대상/거래처 관리 목록 ---------------- */
+function registerPayeeIfNew(name) {
+  if (!name) return;
+  DATA.payees = DATA.payees || [];
+  if (!DATA.payees.some((p) => p.name === name)) DATA.payees.push({ id: uid(), name });
+}
+function registerVendorIfNew(name) {
+  if (!name) return;
+  DATA.vendors = DATA.vendors || [];
+  if (!DATA.vendors.some((v) => v.name === name)) DATA.vendors.push({ id: uid(), name });
+}
+function payeeUsageCount(name) { return DATA.transactions.filter((t) => t.payee === name).length + DATA.recurring.filter((r) => r.payee === name).length; }
+function vendorUsageCount(name) { return DATA.transactions.filter((t) => t.vendor === name).length + DATA.recurring.filter((r) => r.vendor === name).length; }
+function payeeVendorLabel(kind) { return kind === 'payee' ? '적용대상' : '거래처'; }
+function payeeVendorList(kind) { return (kind === 'payee' ? DATA.payees : DATA.vendors) || []; }
+function payeeVendorChipsHtml(kind, q) {
+  const list = payeeVendorList(kind).filter((item) => !q || item.name.toLowerCase().includes(q));
+  if (!list.length) return `<div class="form-note" style="margin:2px 0 8px;">${q ? '검색 결과가 없어요.' : '등록된 항목이 없어요.'}</div>`;
+  return list.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko')).map((item) => {
+    const count = kind === 'payee' ? payeeUsageCount(item.name) : vendorUsageCount(item.name);
+    return `<div class="cat-chip">
+      <span class="cat-chip-name">${escapeHtml(item.name)}${count ? ` <span class="form-note" style="margin:0;">(거래 ${count}건)</span>` : ''}</span>
+      <span>
+        <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openPayeeVendorRenameModal('${kind}', '${item.id}')">수정</button>
+        <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deletePayeeVendor('${kind}', '${item.id}')">삭제</button>
+      </span>
+    </div>`;
+  }).join('');
+}
+function openPayeeVendorAddModal(kind) {
+  const label = payeeVendorLabel(kind);
+  openModal(`
+    <h3>${label} 추가</h3>
+    <div class="field"><label class="field-lbl">${label} 이름</label><input type="text" id="pv-name" placeholder="예: ${kind === 'payee' ? '아빠' : '스타벅스'}"></div>
+    <div class="form-actions">
+      <button class="ghost-btn" onclick="closeModal()">취소</button>
+      <button class="primary-btn" onclick="submitPayeeVendorAdd('${kind}')">추가</button>
+    </div>
+  `);
+}
+function submitPayeeVendorAdd(kind) {
+  const name = document.getElementById('pv-name').value.trim();
+  if (!name) return showToast('이름을 입력해주세요.', 'error');
+  const list = payeeVendorList(kind);
+  if (list.some((p) => p.name === name)) return showToast('이미 등록된 이름이에요.', 'error');
+  list.push({ id: uid(), name });
+  if (kind === 'payee') DATA.payees = list; else DATA.vendors = list;
+  saveData();
+  closeModal();
+  showToast(`${payeeVendorLabel(kind)}을 추가했어요.`, 'success');
+  renderSettings();
+}
+function openPayeeVendorRenameModal(kind, id) {
+  const item = payeeVendorList(kind).find((x) => x.id === id);
+  if (!item) return;
+  const label = payeeVendorLabel(kind);
+  openModal(`
+    <h3>${label} 수정</h3>
+    <div class="field"><label class="field-lbl">${label} 이름</label><input type="text" id="pv-name" value="${escapeHtml(item.name)}"></div>
+    <div class="form-note">이름을 바꾸면 이 ${label}으로 등록된 기존 거래·정기거래에도 함께 반영돼요.</div>
+    <div class="form-actions">
+      <button class="ghost-btn" onclick="closeModal()">취소</button>
+      <button class="primary-btn" onclick="submitPayeeVendorRename('${kind}', '${id}')">저장</button>
+    </div>
+  `);
+}
+function submitPayeeVendorRename(kind, id) {
+  const list = payeeVendorList(kind);
+  const item = list.find((x) => x.id === id);
+  if (!item) return;
+  const name = document.getElementById('pv-name').value.trim();
+  if (!name) return showToast('이름을 입력해주세요.', 'error');
+  if (list.some((x) => x.id !== id && x.name === name)) return showToast('이미 등록된 이름이에요.', 'error');
+  const oldName = item.name;
+  item.name = name;
+  if (oldName !== name) {
+    const field = kind;
+    DATA.transactions.forEach((t) => { if (t[field] === oldName) t[field] = name; });
+    DATA.recurring.forEach((r) => { if (r[field] === oldName) r[field] = name; });
+  }
+  saveData();
+  closeModal();
+  showToast(`${payeeVendorLabel(kind)} 이름을 수정했어요.`, 'success');
+  renderSettings();
+}
+function deletePayeeVendor(kind, id) {
+  const list = payeeVendorList(kind);
+  const idx = list.findIndex((x) => x.id === id);
+  if (idx < 0) return;
+  const item = list[idx];
+  const label = payeeVendorLabel(kind);
+  const count = kind === 'payee' ? payeeUsageCount(item.name) : vendorUsageCount(item.name);
+  const msg = count > 0
+    ? `'${item.name}' ${label}을 목록에서 삭제할까요? 이미 ${count}건의 거래에 쓰였지만, 그 거래들의 값은 그대로 남아요.`
+    : `'${item.name}' ${label}을 삭제할까요?`;
+  if (!confirm(msg)) return;
+  list.splice(idx, 1);
+  saveData();
+  showToast('삭제했어요.', 'info');
+  renderSettings();
+}
+function onPvSearchKeydown(e) {
+  if (e.key === 'Enter') { e.preventDefault(); runPvSearch(); }
+}
+function runPvSearch() {
+  state._pvFilter = state._pvFilter || { q: '' };
+  state._pvFilter.q = document.getElementById('pv-f-q').value;
+  renderSettings();
+}
+
 /* ---------------- custom 대상/거래처 suggestion list (no native <datalist>, which iOS Safari doesn't render) ---------------- */
 let vsState = null;
 function openVendorSuggest(input, field, nextFieldId) {
@@ -1539,7 +1665,9 @@ function positionVendorSuggest() {
 function renderVendorSuggest() {
   if (!vsState) return;
   const q = vsState.input.value.trim().toLowerCase();
-  const all = Array.from(new Set(DATA.transactions.map(t => t[vsState.field]).filter(Boolean)));
+  const registryNames = payeeVendorList(vsState.field).map((x) => x.name);
+  const historyNames = DATA.transactions.map(t => t[vsState.field]).filter(Boolean);
+  const all = Array.from(new Set([...registryNames, ...historyNames]));
   const matches = all.filter(v => !q || v.toLowerCase().includes(q)).slice(0, 8);
   if (!matches.length) { closeVendorSuggest(); return; }
   vsState.items = matches;
@@ -2729,6 +2857,8 @@ async function submitTx(editId) {
   }
   payload.payee = document.getElementById('tx-payee').value.trim() || null;
   payload.vendor = document.getElementById('tx-vendor').value.trim() || null;
+  registerPayeeIfNew(payload.payee);
+  registerVendorIfNew(payload.vendor);
 
   const txId = editId || uid();
   const originalReceiptIds = editId ? ((DATA.transactions.find(t => t.id === editId) || {}).receiptIds || []) : [];
@@ -4076,6 +4206,8 @@ function submitRecurring(editId) {
   }
   payload.payee = document.getElementById('rec-payee').value.trim() || null;
   payload.vendor = document.getElementById('rec-vendor').value.trim() || null;
+  registerPayeeIfNew(payload.payee);
+  registerVendorIfNew(payload.vendor);
   if (editId) {
     const idx = DATA.recurring.findIndex(r => r.id === editId);
     DATA.recurring[idx] = { ...DATA.recurring[idx], ...payload };
@@ -4209,8 +4341,12 @@ function renderSettings() {
   };
   const expenseParents = topCategories('expense');
   const incomeParents = topCategories('income');
+  const transferParents = topCategories('transfer');
   const expenseHtml = expenseParents.map(parentGroupHtml).filter(Boolean).join('');
   const incomeHtml = incomeParents.map(parentGroupHtml).filter(Boolean).join('');
+  const transferHtml = transferParents.map(parentGroupHtml).filter(Boolean).join('');
+  state._pvFilter = state._pvFilter || { q: '' };
+  const pvQ = (state._pvFilter.q || '').trim().toLowerCase();
 
   document.getElementById('panel-settings').innerHTML = `
     <div class="section-block">
@@ -4223,6 +4359,24 @@ function renderSettings() {
       <div class="cat-manage-grid">
         <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">지출</h4>${expenseHtml || (q ? '<div class="form-note">검색 결과가 없어요.</div>' : '<div class="form-note">대분류가 없어요.</div>')}</div>
         <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">수입</h4>${incomeHtml || (q ? '<div class="form-note">검색 결과가 없어요.</div>' : '<div class="form-note">대분류가 없어요.</div>')}</div>
+        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">이체</h4>${transferHtml || (q ? '<div class="form-note">검색 결과가 없어요.</div>' : '<div class="form-note">대분류가 없어요.</div>')}</div>
+      </div>
+    </div>
+    <div class="section-block">
+      <div class="section-heading">적용대상/거래처 관리
+        <span style="display:flex;gap:6px;">
+          <button class="ghost-btn" onclick="openPayeeVendorAddModal('payee')">+ 적용대상 추가</button>
+          <button class="ghost-btn" onclick="openPayeeVendorAddModal('vendor')">+ 거래처 추가</button>
+        </span>
+      </div>
+      <div class="form-note">여기 등록해두면 거래 추가 시 검색 목록에 바로 나타나고, 이름을 바꾸면 기존 거래·정기거래에도 함께 반영돼요. 등록하지 않아도 거래에 입력한 값은 자동으로 이 목록에 추가돼요.</div>
+      <div class="search-wrap" style="max-width:320px;display:flex;gap:6px;margin:10px 0;">
+        <input class="search-input" id="pv-f-q" placeholder="적용대상/거래처 검색" value="${escapeHtml(state._pvFilter.q)}" onkeydown="onPvSearchKeydown(event)" style="flex:1;min-width:0;">
+        <button class="ghost-btn" onclick="runPvSearch()" style="flex-shrink:0;">검색</button>
+      </div>
+      <div class="cat-manage-grid">
+        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">적용대상</h4>${payeeVendorChipsHtml('payee', pvQ)}</div>
+        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">거래처</h4>${payeeVendorChipsHtml('vendor', pvQ)}</div>
       </div>
     </div>
     <div class="section-block">
@@ -4298,6 +4452,7 @@ function openParentCategoryModal(id) {
     ${editing ? '' : `<div class="seg" id="cat-type-seg">
       <button type="button" data-v="expense" class="active expense-active" onclick="setCatType('expense')">지출</button>
       <button type="button" data-v="income" onclick="setCatType('income')">수입</button>
+      <button type="button" data-v="transfer" onclick="setCatType('transfer')">이체</button>
     </div>`}
     <div class="field"><label class="field-lbl">대분류 이름</label><input type="text" id="cat-name" value="${escapeHtml(editing ? editing.name : '')}" placeholder="예: 식비"></div>
     <div class="field"><label class="field-lbl">아이콘</label>
@@ -4473,9 +4628,10 @@ function onImportFileChange(e) {
       const parsed = JSON.parse(reader.result);
       if (!Array.isArray(parsed.categories) || !Array.isArray(parsed.accounts) || !Array.isArray(parsed.transactions)) throw new Error('invalid');
       if (!confirm('가져오기를 하면 현재 데이터를 덮어써요. 계속할까요?')) return;
-      DATA = { version: 1, categorySchema: parsed.categorySchema, accounts: parsed.accounts, categories: parsed.categories, transactions: parsed.transactions, budgets: parsed.budgets || {}, recurring: parsed.recurring || [], settings: parsed.settings || { usdKrwRate: null, rateUpdatedAt: null } };
+      DATA = { version: 1, categorySchema: parsed.categorySchema, accounts: parsed.accounts, categories: parsed.categories, transactions: parsed.transactions, budgets: parsed.budgets || {}, recurring: parsed.recurring || [], payees: parsed.payees || [], vendors: parsed.vendors || [], settings: parsed.settings || { usdKrwRate: null, rateUpdatedAt: null } };
       DATA = migrateCategoriesToHierarchy(DATA);
       DATA = migrateAccountTypes(DATA);
+      DATA = migratePayeeVendorRegistry(DATA);
       if (parsed.receiptsById) {
         for (const [txId, dataUrl] of Object.entries(parsed.receiptsById)) {
           try { await putReceipt(txId, dataUrl); } catch (err) { console.error('receipt import failed', txId, err); }
