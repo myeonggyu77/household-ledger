@@ -350,9 +350,10 @@
     .cal-main .cal-cell .date-num { font-size: 13px; }
     .cal-main .cal-cell .cal-amt { font-size: 11.5px; }
     .cal-layout .day-list-card { flex: 1; min-width: 0; margin-bottom: 0; }
-    .stats-chart-layout { display: flex; gap: 28px; align-items: center; }
+    .stats-chart-layout { display: flex; gap: 28px; align-items: flex-start; }
     .stats-chart-col { flex: 0 0 300px; }
-    .stats-legend-col { flex: 1; min-width: 0; }
+    .stats-legend-col { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 16px; align-content: start; }
+    .stats-legend-col .pie-legend-row { min-width: 0; }
   }
 
   .cat-manage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 24px; }
@@ -968,13 +969,12 @@ let state = {
   tab: 'home',
   month: monthKey(new Date()),
   calSelected: ymd(new Date()),
-  txFilter: { type: 'all', categoryId: '', accountId: '', q: '' },
+  txFilter: { type: 'all', categoryId: '', parentCategoryId: '', accountId: '', q: '' },
   txMonth: monthKey(new Date()),
   txPeriod: 'month',
   statsType: 'expense',
   statsPeriod: 'month',
   statsGroupBy: 'leaf',
-  statsSelectedCategoryId: null,
   acctSelectedId: null,
   acctMonth: monthKey(new Date()),
   acctPeriod: 'month',
@@ -1205,7 +1205,14 @@ function accountUsageCount(accId) { return DATA.transactions.filter(t => t.accou
 function viewCategoryTransactions(catId) {
   const cat = getCategory(catId);
   if (!cat) return;
-  state.txFilter = { type: cat.type, categoryId: cat.id, accountId: '', q: '' };
+  state.txFilter = { type: cat.type, categoryId: cat.id, parentCategoryId: '', accountId: '', q: '' };
+  state.txPeriod = 'all';
+  switchTab('transactions');
+}
+function viewParentCategoryTransactions(parentCatId) {
+  const parent = getCategory(parentCatId);
+  if (!parent) return;
+  state.txFilter = { type: parent.type, categoryId: '', parentCategoryId: parent.id, accountId: '', q: '' };
   state.txPeriod = 'all';
   switchTab('transactions');
 }
@@ -1567,7 +1574,7 @@ function vendorUsageCount(name) { return DATA.transactions.filter((t) => t.vendo
 function viewPayeeVendorTransactions(kind, id) {
   const item = payeeVendorList(kind).find((x) => x.id === id);
   if (!item) return;
-  state.txFilter = { type: 'all', categoryId: '', accountId: '', q: item.name };
+  state.txFilter = { type: 'all', categoryId: '', parentCategoryId: '', accountId: '', q: item.name };
   state.txPeriod = 'all';
   switchTab('transactions');
 }
@@ -2325,6 +2332,7 @@ function renderTransactions() {
   let list = txInPeriod(period, mKey);
   if (f.type !== 'all') list = list.filter(t => t.type === f.type);
   if (f.categoryId) list = list.filter(t => t.categoryId === f.categoryId);
+  else if (f.parentCategoryId) list = list.filter(t => { const c = getCategory(t.categoryId); return c && c.parentId === f.parentCategoryId; });
   if (f.accountId) list = list.filter(t => t.accountId === f.accountId || t.toAccountId === f.accountId);
   if (f.q) { const q = f.q.toLowerCase(); list = list.filter(t => txSearchText(t).includes(q)); }
   list = state._txSort ? sortTxList(list, state._txSort) : list.sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
@@ -2384,6 +2392,7 @@ function renderTransactions() {
 function onFilterChange() {
   state.txFilter.type = document.getElementById('f-type').value;
   state.txFilter.categoryId = document.getElementById('f-category').value;
+  state.txFilter.parentCategoryId = '';
   state.txFilter.accountId = document.getElementById('f-account').value;
   renderTransactions();
 }
@@ -3171,7 +3180,7 @@ function renderStats() {
         <div class="stats-chart-col">${totals.length ? renderPieChart(totals, sum) : ''}</div>
         <div class="stats-legend-col">
           ${totals.length ? totals.map(c => `
-            <div class="pie-legend-row" style="cursor:pointer;${c.categoryId === state.statsSelectedCategoryId ? 'background:var(--accent-tint);border-radius:4px;' : ''}" onclick="selectStatsCategory('${c.categoryId}')">
+            <div class="pie-legend-row" style="cursor:pointer;" onclick="${groupBy === 'parent' ? `viewParentCategoryTransactions('${c.categoryId}')` : `viewCategoryTransactions('${c.categoryId}')`}" title="이 카테고리가 쓰인 거래를 내역 탭에서 보기">
               <span class="pct-badge" style="background:${catColor(c.category)}">${sum ? Math.round(c.amount / sum * 100) : 0}%</span>
               <span class="name">${c.category.icon} ${escapeHtml(c.category.name)}</span>
               <span class="amt">${won(c.amount)}</span>
@@ -3179,32 +3188,11 @@ function renderStats() {
         </div>
       </div>
     </div>
-    ${renderStatsCategoryDetail(period, mKey, type, periodLabel)}
   `;
 }
-function setStatsType(t) { state.statsType = t; state.statsSelectedCategoryId = null; renderStats(); }
+function setStatsType(t) { state.statsType = t; renderStats(); }
 function setStatsPeriod(p) { state.statsPeriod = p; renderStats(); }
-function setStatsGroupBy(g) { state.statsGroupBy = g; state.statsSelectedCategoryId = null; renderStats(); }
-function selectStatsCategory(categoryId) {
-  state.statsSelectedCategoryId = state.statsSelectedCategoryId === categoryId ? null : categoryId;
-  renderStats();
-}
-function renderStatsCategoryDetail(period, mKey, type, periodLabel) {
-  const categoryId = state.statsSelectedCategoryId;
-  if (!categoryId) return '';
-  const cat = getCategory(categoryId);
-  const groupBy = state.statsGroupBy || 'leaf';
-  const list = txInPeriod(period, mKey)
-    .filter(t => t.type === type && !t.excludeFromStats)
-    .filter(t => groupBy === 'parent' ? getCategory(t.categoryId).parentId === categoryId : t.categoryId === categoryId)
-    .sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
-  const sum = list.reduce((s, t) => s + txAmountKRW(t), 0);
-  return `<div class="section-block">
-    <div class="section-heading">${cat.icon} ${escapeHtml(cat.name)}<button class="ghost-btn" onclick="selectStatsCategory('${categoryId}')">닫기</button></div>
-    <div class="form-note">${periodLabel} · ${list.length}건 · 합계 ${won(sum)}</div>
-    ${list.length ? renderTxTable(list, false) : `<div class="empty">해당 기간에 거래가 없어요.</div>`}
-  </div>`;
-}
+function setStatsGroupBy(g) { state.statsGroupBy = g; renderStats(); }
 
 /* ---------------- BUDGET ---------------- */
 function renderBudget() {
