@@ -106,6 +106,8 @@
   textarea { padding: 9px; min-height: 70px; resize: vertical; line-height: 1.6; }
   input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
   .form-note { font-size: 12px; color: var(--ink-faint); margin-bottom: 8px; }
+  .usage-link { cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
+  .usage-link:hover { color: var(--accent); }
   .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
   .field-lbl { font-size: 10px; color: var(--ink-faint); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.03em; display: block; }
   .field { margin-bottom: 12px; }
@@ -1200,6 +1202,13 @@ function statsCategoryTotals(period, mKey, type, groupBy) {
 }
 function categoryUsageCount(catId) { return DATA.transactions.filter(t => t.categoryId === catId).length; }
 function accountUsageCount(accId) { return DATA.transactions.filter(t => t.accountId === accId || t.toAccountId === accId || t.linkedLoanAccountId === accId).length; }
+function viewCategoryTransactions(catId) {
+  const cat = getCategory(catId);
+  if (!cat) return;
+  state.txFilter = { type: cat.type, categoryId: cat.id, accountId: '', q: '' };
+  state.txPeriod = 'all';
+  switchTab('transactions');
+}
 
 /* ---------------- toast ---------------- */
 function showToast(message, type = 'info', duration = 3800) {
@@ -1537,6 +1546,13 @@ function registerVendorIfNew(name) {
 }
 function payeeUsageCount(name) { return DATA.transactions.filter((t) => t.payee === name).length + DATA.recurring.filter((r) => r.payee === name).length; }
 function vendorUsageCount(name) { return DATA.transactions.filter((t) => t.vendor === name).length + DATA.recurring.filter((r) => r.vendor === name).length; }
+function viewPayeeVendorTransactions(kind, id) {
+  const item = payeeVendorList(kind).find((x) => x.id === id);
+  if (!item) return;
+  state.txFilter = { type: 'all', categoryId: '', accountId: '', q: item.name };
+  state.txPeriod = 'all';
+  switchTab('transactions');
+}
 function payeeVendorLabel(kind) { return kind === 'payee' ? '적용대상' : '거래처'; }
 function payeeVendorList(kind) { return (kind === 'payee' ? DATA.payees : DATA.vendors) || []; }
 function payeeVendorChipsHtml(kind, q) {
@@ -1545,7 +1561,7 @@ function payeeVendorChipsHtml(kind, q) {
   return list.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko')).map((item) => {
     const count = kind === 'payee' ? payeeUsageCount(item.name) : vendorUsageCount(item.name);
     return `<div class="cat-chip">
-      <span class="cat-chip-name">${escapeHtml(item.name)}${count ? ` <span class="form-note" style="margin:0;">(거래 ${count}건)</span>` : ''}</span>
+      <span class="cat-chip-name">${escapeHtml(item.name)}${count ? ` <span class="form-note usage-link" style="margin:0;" onclick="viewPayeeVendorTransactions('${kind}', '${item.id}')" title="이 ${payeeVendorLabel(kind)}이 쓰인 거래 보기">(거래 ${count}건)</span>` : ''}</span>
       <span>
         <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openPayeeVendorRenameModal('${kind}', '${item.id}')">수정</button>
         <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deletePayeeVendor('${kind}', '${item.id}')">삭제</button>
@@ -2282,7 +2298,7 @@ function renderTransactions() {
   if (f.q) { const q = f.q.toLowerCase(); list = list.filter(t => txSearchText(t).includes(q)); }
   list = state._txSort ? sortTxList(list, state._txSort) : list.sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id));
 
-  const catTypesForFilter = f.type === 'all' ? ['expense', 'income'] : (f.type === 'transfer' ? [] : [f.type]);
+  const catTypesForFilter = f.type === 'all' ? ['expense', 'income'] : [f.type];
   const catOptions = catTypesForFilter.map(type => {
     const groups = topCategories(type).map(p => {
       const children = childCategories(p.id);
@@ -4329,7 +4345,7 @@ function renderSettings() {
       </div>
       <div class="cat-child-list">
         ${children.length ? children.map((c) => `<div class="cat-chip" data-cat-id="${c.id}">
-          <span class="cat-chip-name">${dragHandle(c.id)} <span class="cat-swatch" style="background:${catColor(c)}"></span>${c.icon} ${escapeHtml(c.name)}${categoryUsageCount(c.id) ? ` <span class="form-note" style="margin:0;">(거래 ${categoryUsageCount(c.id)}건)</span>` : ''}</span>
+          <span class="cat-chip-name">${dragHandle(c.id)} <span class="cat-swatch" style="background:${catColor(c)}"></span>${c.icon} ${escapeHtml(c.name)}${categoryUsageCount(c.id) ? ` <span class="form-note usage-link" style="margin:0;" onclick="viewCategoryTransactions('${c.id}')" title="이 카테고리를 쓰는 거래 보기">(거래 ${categoryUsageCount(c.id)}건)</span>` : ''}</span>
           <span>
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReassignCategoryModal('${c.id}')" title="다른 카테고리로 일괄 변경">변경</button>
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openChildCategoryModal('${c.id}')">수정</button>
