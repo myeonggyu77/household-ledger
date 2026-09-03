@@ -354,6 +354,8 @@
     .stats-chart-col { flex: 0 0 300px; }
     .stats-legend-col { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 16px; align-content: start; }
     .stats-legend-col .pie-legend-row { min-width: 0; }
+    .budget-3col { display: flex; gap: 24px; align-items: flex-start; }
+    .budget-col { flex: 1; min-width: 0; }
   }
 
   .cat-manage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 24px; }
@@ -3256,33 +3258,44 @@ function renderBudget() {
 
   document.getElementById('panel-budget').innerHTML = `
     ${monthNavHtml('navMonth(-1)', 'navMonth(1)', mKey)}
-    <div class="kpi-row" style="margin-bottom:20px;">
-      <div class="kpi"><div class="lbl">총 예산</div><div class="val">${won(totalBudget)}</div></div>
-      <div class="kpi"><div class="lbl">총 지출</div><div class="val expense">${won(totalSpent)}</div></div>
-      <div class="kpi"><div class="lbl">남은 예산</div><div class="val ${totalBudget - totalSpent >= 0 ? 'income' : 'expense'}">${wonSigned(totalBudget - totalSpent)}</div></div>
+    <div class="budget-3col">
+      <div class="budget-col">
+        <div class="section-heading">지출 예산</div>
+        <div class="kpi-row" style="margin-bottom:20px;">
+          <div class="kpi"><div class="lbl">총 예산</div><div class="val">${won(totalBudget)}</div></div>
+          <div class="kpi"><div class="lbl">총 지출</div><div class="val expense">${won(totalSpent)}</div></div>
+          <div class="kpi"><div class="lbl">남은 예산</div><div class="val ${totalBudget - totalSpent >= 0 ? 'income' : 'expense'}">${wonSigned(totalBudget - totalSpent)}</div></div>
+        </div>
+        <div class="section-block">
+          <div class="section-heading">예산 설정된 카테고리</div>
+          ${expBudgeted.length ? expBudgeted.map(c => rowHtml(c, expSpentMap[c.id] || 0, DATA.budgets[c.id], false)).join('') : `<div class="empty">아직 예산을 설정하지 않았어요. 아래 목록에서 금액을 입력해보세요.</div>`}
+        </div>
+        <div class="section-block">
+          <div class="section-heading">예산 미설정 카테고리</div>
+          ${groupListHtml('expense', expSpentMap, false)}
+        </div>
+      </div>
+      <div class="budget-col">
+        <div class="section-heading">수입 목표</div>
+        <div class="kpi-row" style="margin-bottom:20px;">
+          <div class="kpi"><div class="lbl">총 수입 목표</div><div class="val">${won(totalGoal)}</div></div>
+          <div class="kpi"><div class="lbl">총 수입 실적</div><div class="val income">${won(totalEarned)}</div></div>
+          <div class="kpi"><div class="lbl">목표까지</div><div class="val ${totalEarned - totalGoal >= 0 ? 'income' : 'expense'}">${wonSigned(totalEarned - totalGoal)}</div></div>
+        </div>
+        <div class="section-block">
+          <div class="section-heading">수입 목표 설정된 카테고리</div>
+          ${incBudgeted.length ? incBudgeted.map(c => rowHtml(c, incSpentMap[c.id] || 0, DATA.budgets[c.id], true)).join('') : `<div class="empty">아직 수입 목표를 설정하지 않았어요. 아래 목록에서 금액을 입력해보세요.</div>`}
+        </div>
+        <div class="section-block">
+          <div class="section-heading">수입 목표 미설정 카테고리</div>
+          ${groupListHtml('income', incSpentMap, true)}
+        </div>
+      </div>
+      <div class="budget-col">
+        <div class="section-heading">기간제 예산</div>
+        ${renderPeriodBudgetSection()}
+      </div>
     </div>
-    <div class="section-block">
-      <div class="section-heading">예산 설정된 카테고리</div>
-      ${expBudgeted.length ? expBudgeted.map(c => rowHtml(c, expSpentMap[c.id] || 0, DATA.budgets[c.id], false)).join('') : `<div class="empty">아직 예산을 설정하지 않았어요. 아래 목록에서 금액을 입력해보세요.</div>`}
-    </div>
-    <div class="section-block">
-      <div class="section-heading">예산 미설정 카테고리</div>
-      ${groupListHtml('expense', expSpentMap, false)}
-    </div>
-    <div class="kpi-row" style="margin-bottom:20px;">
-      <div class="kpi"><div class="lbl">총 수입 목표</div><div class="val">${won(totalGoal)}</div></div>
-      <div class="kpi"><div class="lbl">총 수입 실적</div><div class="val income">${won(totalEarned)}</div></div>
-      <div class="kpi"><div class="lbl">목표까지</div><div class="val ${totalEarned - totalGoal >= 0 ? 'income' : 'expense'}">${wonSigned(totalEarned - totalGoal)}</div></div>
-    </div>
-    <div class="section-block">
-      <div class="section-heading">수입 목표 설정된 카테고리</div>
-      ${incBudgeted.length ? incBudgeted.map(c => rowHtml(c, incSpentMap[c.id] || 0, DATA.budgets[c.id], true)).join('') : `<div class="empty">아직 수입 목표를 설정하지 않았어요. 아래 목록에서 금액을 입력해보세요.</div>`}
-    </div>
-    <div class="section-block">
-      <div class="section-heading">수입 목표 미설정 카테고리</div>
-      ${groupListHtml('income', incSpentMap, true)}
-    </div>
-    ${renderPeriodBudgetSection()}
   `;
 }
 function accountPeriodProgress(acc) {
@@ -3344,12 +3357,12 @@ function renderPeriodBudgetSection() {
   };
   return `
     <div class="section-block">
-      <div class="section-heading">기간제 예산 · 할부/대출/적금</div>
+      <div class="section-heading">할부/대출/적금</div>
       <div class="form-note">자산 탭에서 계좌에 시작일·종료일(할부·대출·적금)과 목표 금액(적금)을 설정하면 여기 자동으로 나타나요.</div>
       ${accItems.length ? accItems.map(accCardHtml).join('') : `<div class="empty">표시할 계좌가 없어요.</div>`}
     </div>
     <div class="section-block">
-      <div class="section-heading">기간제 예산 · 목적성 예산<button class="ghost-btn" onclick="openPeriodBudgetModal()">+ 목적성 예산 추가</button></div>
+      <div class="section-heading">목적성 예산<button class="ghost-btn" onclick="openPeriodBudgetModal()">+ 목적성 예산 추가</button></div>
       ${pbItems.length ? pbItems.map(pbCardHtml).join('') : `<div class="empty">계좌와 상관없이 기간을 정해서 예산을 관리하고 싶을 때 추가해보세요. (예: 여행 경비, 3개월, 50만원)</div>`}
     </div>
   `;
