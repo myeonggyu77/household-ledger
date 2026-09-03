@@ -525,6 +525,7 @@ async function onAuthed(userId) {
       let cloudData = result.data;
       cloudData.transactions = cloudData.transactions || [];
       cloudData.budgets = cloudData.budgets || {};
+      cloudData.periodBudgets = cloudData.periodBudgets || [];
       cloudData.recurring = cloudData.recurring || [];
       cloudData = migrateCategoriesToHierarchy(cloudData);
       cloudData = migrateAccountTypes(cloudData);
@@ -695,7 +696,7 @@ function defaultData() {
     });
   });
   const accounts = [{ id: uid(), name: '현금', type: 'cash', icon: '💵', initialBalance: 0, includeInTotal: true, currency: 'KRW' }];
-  return { version: 1, categorySchema: 2, categoryTreeVersion: CATEGORY_TREE_VERSION, accounts, categories, transactions: [], budgets: {}, recurring: [], holidays: [], payees: [], vendors: [], settings: { usdKrwRate: null, rateUpdatedAt: null } };
+  return { version: 1, categorySchema: 2, categoryTreeVersion: CATEGORY_TREE_VERSION, accounts, categories, transactions: [], budgets: {}, periodBudgets: [], recurring: [], holidays: [], payees: [], vendors: [], settings: { usdKrwRate: null, rateUpdatedAt: null } };
 }
 
 /* 구버전(대/소분류 구분 없는 평평한 카테고리) 데이터를 대분류 트리 밑으로 옮겨요.
@@ -939,6 +940,7 @@ function loadData() {
     if (!d || !Array.isArray(d.categories) || !Array.isArray(d.accounts)) return defaultData();
     d.transactions = d.transactions || [];
     d.budgets = d.budgets || {};
+    d.periodBudgets = d.periodBudgets || [];
     d.recurring = d.recurring || [];
     d.holidays = (Array.isArray(d.holidays) ? d.holidays : []).filter(h => !krHolidaySetForYear(Number(h.slice(0, 4))).has(h));
     d.settings = d.settings || { usdKrwRate: null, rateUpdatedAt: null };
@@ -3280,11 +3282,135 @@ function renderBudget() {
       <div class="section-heading">수입 목표 미설정 카테고리</div>
       ${groupListHtml('income', incSpentMap, true)}
     </div>
+    ${renderPeriodBudgetSection()}
+  `;
+}
+function accountPeriodProgress(acc) {
+  if (!DATE_RANGE_TYPES.includes(acc.type) || !acc.startDate || !acc.endDate) return null;
+  if (acc.type === 'savings') {
+    const goal = Number(acc.goalAmount) || 0;
+    if (!goal) return null;
+    const current = Math.max(0, accountBalance(acc));
+    return { current, target: goal, pct: Math.min(100, Math.round(current / goal * 100)), label: '적립' };
+  }
+  const total = Math.abs(Number(acc.initialBalance) || 0);
+  if (!total) return null;
+  const remaining = Math.abs(accountBalance(acc));
+  const paid = Math.min(total, Math.max(0, total - remaining));
+  return { current: paid, target: total, pct: Math.min(100, Math.round(paid / total * 100)), label: '상환' };
+}
+function accountsWithPeriodProgress() {
+  return DATA.accounts.map(acc => ({ acc, progress: accountPeriodProgress(acc) })).filter(x => x.progress);
+}
+function periodBudgetSpent(pb) {
+  const [ey, em] = pb.endMonth.split('-').map(Number);
+  const start = pb.startMonth + '-01';
+  const end = pb.endMonth + '-' + pad2(daysInMonth(ey, em));
+  return DATA.transactions
+    .filter(t => t.categoryId === pb.categoryId && !t.excludeFromStats && t.date >= start && t.date <= end)
+    .reduce((s, t) => s + txAmountKRW(t), 0);
+}
+function renderPeriodBudgetSection() {
+  const accItems = accountsWithPeriodProgress();
+  const pbItems = DATA.periodBudgets || [];
+  const accCardHtml = ({ acc, progress }) => {
+    const cls = progress.pct >= 100 ? 'ok' : progress.pct >= 70 ? 'warn' : 'ok';
+    return `<div class="budget-item">
+      <div class="budget-head">
+        <span class="left">${acc.icon || ACC_TYPE_ICON[acc.type]} ${escapeHtml(acc.name)}</span>
+        <span class="budget-pct-tag ${cls}">${progress.pct}%</span>
+      </div>
+      <div class="budget-track"><div class="budget-fill ${cls}" style="width:${progress.pct}%"></div></div>
+      <div class="form-note" style="margin:6px 0 0;">${acc.startDate} ~ ${acc.endDate} · ${won(progress.current)} ${progress.label} / ${won(progress.target)}</div>
+    </div>`;
+  };
+  const pbCardHtml = (pb) => {
+    const spent = periodBudgetSpent(pb);
+    const pct = pb.amount ? Math.min(100, Math.round(spent / pb.amount * 100)) : 0;
+    const cls = pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok';
+    const cat = getCategory(pb.categoryId);
+    return `<div class="budget-item">
+      <div class="budget-head">
+        <span class="left">${escapeHtml(pb.name)} <span class="form-note" style="margin:0;">${cat ? cat.icon + ' ' + escapeHtml(cat.name) : ''}</span></span>
+        <span style="display:flex;align-items:center;gap:8px;">
+          <span class="budget-pct-tag ${cls}">${pct}%</span>
+          <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openPeriodBudgetModal('${pb.id}')">수정</button>
+          <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deletePeriodBudget('${pb.id}')">삭제</button>
+        </span>
+      </div>
+      <div class="budget-track"><div class="budget-fill ${cls}" style="width:${pct}%"></div></div>
+      <div class="form-note" style="margin:6px 0 0;">${monthLabel(pb.startMonth)} ~ ${monthLabel(pb.endMonth)} · ${won(spent)} 사용 / ${won(pb.amount)}</div>
+    </div>`;
+  };
+  return `
+    <div class="section-block">
+      <div class="section-heading">기간제 예산 · 할부/대출/적금</div>
+      <div class="form-note">자산 탭에서 계좌에 시작일·종료일(할부·대출·적금)과 목표 금액(적금)을 설정하면 여기 자동으로 나타나요.</div>
+      ${accItems.length ? accItems.map(accCardHtml).join('') : `<div class="empty">표시할 계좌가 없어요.</div>`}
+    </div>
+    <div class="section-block">
+      <div class="section-heading">기간제 예산 · 목적성 예산<button class="ghost-btn" onclick="openPeriodBudgetModal()">+ 목적성 예산 추가</button></div>
+      ${pbItems.length ? pbItems.map(pbCardHtml).join('') : `<div class="empty">계좌와 상관없이 기간을 정해서 예산을 관리하고 싶을 때 추가해보세요. (예: 여행 경비, 3개월, 50만원)</div>`}
+    </div>
   `;
 }
 function setBudget(catId, el) {
   const val = rawAmount(el);
   if (val > 0) DATA.budgets[catId] = val; else delete DATA.budgets[catId];
+  saveData();
+  renderBudget();
+}
+function openPeriodBudgetModal(id) {
+  const editing = id ? DATA.periodBudgets.find(p => p.id === id) : null;
+  const mKey = state.month;
+  const startMonth = editing ? editing.startMonth : mKey;
+  const endMonth = editing ? editing.endMonth : mKey;
+  const groups = ['expense', 'income'].map(type => topCategories(type).map(p => {
+    const children = childCategories(p.id);
+    if (!children.length) return '';
+    return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}" ${editing && editing.categoryId === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
+  }).join('')).join('');
+  openModal(`
+    <h3>${editing ? '목적성 예산 수정' : '목적성 예산 추가'}</h3>
+    <div class="field"><label class="field-lbl">이름</label><input type="text" id="pb-name" value="${escapeHtml(editing ? editing.name : '')}" placeholder="예: 여행 경비"></div>
+    <div class="field"><label class="field-lbl">연결 카테고리</label><select id="pb-category">${groups}</select></div>
+    <div class="form-grid">
+      <div><label class="field-lbl">시작월</label><input type="text" class="date-field" id="pb-start-month" value="${startMonth}" readonly onclick="openMonthPicker(this, this.value, 'onPickPeriodBudgetStart')"></div>
+      <div><label class="field-lbl">종료월</label><input type="text" class="date-field" id="pb-end-month" value="${endMonth}" readonly onclick="openMonthPicker(this, this.value, 'onPickPeriodBudgetEnd')"></div>
+    </div>
+    <div class="field"><label class="field-lbl">목표(예산) 금액</label><input type="text" inputmode="numeric" id="pb-amount" value="${editing ? Number(editing.amount).toLocaleString('ko-KR') : ''}" placeholder="0" oninput="formatAmountInput(this)"></div>
+    <div class="form-actions">
+      <button class="ghost-btn" onclick="closeModal()">취소</button>
+      <button class="primary-btn" onclick="submitPeriodBudget(${editing ? `'${editing.id}'` : 'null'})">${editing ? '저장' : '추가'}</button>
+    </div>
+  `);
+}
+function onPickPeriodBudgetStart(value) { document.getElementById('pb-start-month').value = value; }
+function onPickPeriodBudgetEnd(value) { document.getElementById('pb-end-month').value = value; }
+function submitPeriodBudget(editId) {
+  const name = document.getElementById('pb-name').value.trim();
+  const categoryId = document.getElementById('pb-category').value;
+  const startMonth = document.getElementById('pb-start-month').value;
+  const endMonth = document.getElementById('pb-end-month').value;
+  const amount = rawAmount(document.getElementById('pb-amount'));
+  if (!name) return showToast('이름을 입력해주세요.', 'error');
+  if (!categoryId) return showToast('연결할 카테고리를 선택해주세요.', 'error');
+  if (startMonth > endMonth) return showToast('종료월이 시작월보다 빠를 수 없어요.', 'error');
+  if (!amount || amount <= 0) return showToast('금액을 입력해주세요.', 'error');
+  if (editId) {
+    const pb = DATA.periodBudgets.find(p => p.id === editId);
+    Object.assign(pb, { name, categoryId, startMonth, endMonth, amount });
+  } else {
+    DATA.periodBudgets.push({ id: uid(), name, categoryId, startMonth, endMonth, amount });
+  }
+  saveData();
+  closeModal();
+  showToast(editId ? '목적성 예산을 수정했어요.' : '목적성 예산을 추가했어요.', 'success');
+  renderBudget();
+}
+function deletePeriodBudget(id) {
+  if (!confirm('이 목적성 예산을 삭제할까요?')) return;
+  DATA.periodBudgets = DATA.periodBudgets.filter(p => p.id !== id);
   saveData();
   renderBudget();
 }
@@ -3654,6 +3780,16 @@ function onAccTypeChangeInModal() {
   const amountAbs = cur ? Math.abs(rawCurrencyAmount(cur, currency, true)) : 0;
   document.getElementById('acc-balance-field').innerHTML = balanceFieldInnerHtml(type, currency, amountAbs, false);
   renderAccDateRangeField(type);
+  renderAccGoalField(type, currency);
+}
+function renderAccGoalField(type, currency, goalAmount) {
+  const el = document.getElementById('acc-goal-field');
+  if (!el) return;
+  const val = goalAmount ? (currency === 'USD' ? Number(goalAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(goalAmount).toLocaleString('ko-KR')) : '';
+  el.innerHTML = type === 'savings'
+    ? `<label class="field-lbl">목표 금액 (선택)</label><input type="text" inputmode="decimal" id="acc-goal" oninput="formatCurrencyAmountInput(this, '${currency}')" value="${val}" placeholder="0">
+      <div class="form-note" style="margin-top:6px;">시작일·종료일과 함께 설정하면 예산 탭에서 목표 대비 적립 진행률을 볼 수 있어요.</div>`
+    : '';
 }
 function renderAccDateRangeField(type, startDate, endDate) {
   const el = document.getElementById('acc-daterange-field');
@@ -3686,6 +3822,7 @@ function openAccountModal(id, presetType) {
     ${lockCurrency ? '<div class="form-note" style="margin-top:-6px;">이미 거래가 있는 자산은 통화를 바꿀 수 없어요.</div>' : ''}
     <div class="field" id="acc-balance-field">${balanceFieldInnerHtml(type, currency, editingAbs, editingNeg)}</div>
     <div class="field" id="acc-daterange-field"></div>
+    <div class="field" id="acc-goal-field"></div>
     <div class="field"><label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);"><input type="checkbox" id="acc-include" style="width:15px;height:15px;" ${!editing || editing.includeInTotal !== false ? 'checked' : ''}> 총 자산 합계에 포함</label></div>
     <div class="form-actions">
       <button class="ghost-btn" onclick="closeModal()">취소</button>
@@ -3693,6 +3830,7 @@ function openAccountModal(id, presetType) {
     </div>
   `);
   renderAccDateRangeField(type, editing ? editing.startDate : null, editing ? editing.endDate : null);
+  renderAccGoalField(type, currency, editing ? editing.goalAmount : null);
 }
 function submitAccount(editId) {
   const name = document.getElementById('acc-name').value.trim();
@@ -3703,12 +3841,14 @@ function submitAccount(editId) {
   const includeInTotal = document.getElementById('acc-include').checked;
   const startDate = DATE_RANGE_TYPES.includes(type) ? (document.getElementById('acc-start-date').value || null) : null;
   const endDate = DATE_RANGE_TYPES.includes(type) ? (document.getElementById('acc-end-date').value || null) : null;
+  const goalEl = document.getElementById('acc-goal');
+  const goalAmount = type === 'savings' && goalEl ? (rawCurrencyAmount(goalEl, currency, true) || null) : null;
   if (!name) return showToast('자산 이름을 입력해주세요.', 'error');
   if (editId) {
     const acc = DATA.accounts.find(a => a.id === editId);
-    Object.assign(acc, { name, type, currency, initialBalance, includeInTotal, icon: ACC_TYPE_ICON[type], startDate, endDate });
+    Object.assign(acc, { name, type, currency, initialBalance, includeInTotal, icon: ACC_TYPE_ICON[type], startDate, endDate, goalAmount });
   } else {
-    DATA.accounts.push({ id: uid(), name, type, currency, initialBalance, includeInTotal, icon: ACC_TYPE_ICON[type], startDate, endDate });
+    DATA.accounts.push({ id: uid(), name, type, currency, initialBalance, includeInTotal, icon: ACC_TYPE_ICON[type], startDate, endDate, goalAmount });
   }
   saveData();
   closeModal();
@@ -4675,7 +4815,7 @@ function onImportFileChange(e) {
       const parsed = JSON.parse(reader.result);
       if (!Array.isArray(parsed.categories) || !Array.isArray(parsed.accounts) || !Array.isArray(parsed.transactions)) throw new Error('invalid');
       if (!confirm('가져오기를 하면 현재 데이터를 덮어써요. 계속할까요?')) return;
-      DATA = { version: 1, categorySchema: parsed.categorySchema, accounts: parsed.accounts, categories: parsed.categories, transactions: parsed.transactions, budgets: parsed.budgets || {}, recurring: parsed.recurring || [], payees: parsed.payees || [], vendors: parsed.vendors || [], settings: parsed.settings || { usdKrwRate: null, rateUpdatedAt: null } };
+      DATA = { version: 1, categorySchema: parsed.categorySchema, accounts: parsed.accounts, categories: parsed.categories, transactions: parsed.transactions, budgets: parsed.budgets || {}, periodBudgets: parsed.periodBudgets || [], recurring: parsed.recurring || [], payees: parsed.payees || [], vendors: parsed.vendors || [], settings: parsed.settings || { usdKrwRate: null, rateUpdatedAt: null } };
       DATA = migrateCategoriesToHierarchy(DATA);
       DATA = migrateAccountTypes(DATA);
       DATA = migratePayeeVendorRegistry(DATA);
