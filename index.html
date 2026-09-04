@@ -441,7 +441,8 @@ const SUPABASE_URL = 'https://kcmqzinekvikpmlxkdxf.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_rZ6bmiQGScI6YewuRg_5aw_PijLpbkl';
 let sb = null;
 try {
-  if (window.supabase && window.supabase.createClient) sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  /* persistSession: false — 로그인 세션을 저장하지 않아서, 앱을 새로 열 때마다 매번 로그인하게 돼요. */
+  if (window.supabase && window.supabase.createClient) sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
 } catch (e) { console.error('Supabase init failed', e); }
 
 let authMode = 'login';
