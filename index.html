@@ -441,7 +441,8 @@ const SUPABASE_URL = 'https://kcmqzinekvikpmlxkdxf.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_rZ6bmiQGScI6YewuRg_5aw_PijLpbkl';
 let sb = null;
 try {
-  if (window.supabase && window.supabase.createClient) sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  /* persistSession: false — 로그인 세션을 저장하지 않아서, 앱을 새로 열 때마다 매번 로그인하게 돼요. */
+  if (window.supabase && window.supabase.createClient) sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false } });
 } catch (e) { console.error('Supabase init failed', e); }
 
 let authMode = 'login';
@@ -529,6 +530,8 @@ async function onAuthed(userId) {
       cloudData.budgets = cloudData.budgets || {};
       cloudData.periodBudgets = cloudData.periodBudgets || [];
       cloudData.recurring = cloudData.recurring || [];
+      cloudData.todoLists = Array.isArray(cloudData.todoLists) && cloudData.todoLists.length ? cloudData.todoLists : [{ id: uid(), name: '할 일', icon: '📋', type: 'simple', hideCompleted: false }];
+      cloudData.todos = Array.isArray(cloudData.todos) ? cloudData.todos : [];
       cloudData = migrateCategoriesToHierarchy(cloudData);
       cloudData = migrateAccountTypes(cloudData);
       const beforeVersion = cloudData.categoryTreeVersion;
@@ -698,7 +701,8 @@ function defaultData() {
     });
   });
   const accounts = [{ id: uid(), name: '현금', type: 'cash', icon: '💵', initialBalance: 0, includeInTotal: true, currency: 'KRW' }];
-  return { version: 1, categorySchema: 2, categoryTreeVersion: CATEGORY_TREE_VERSION, accounts, categories, transactions: [], budgets: {}, periodBudgets: [], recurring: [], holidays: [], payees: [], vendors: [], settings: { usdKrwRate: null, rateUpdatedAt: null } };
+  const todoLists = [{ id: uid(), name: '할 일', icon: '📋', type: 'simple', hideCompleted: false }];
+  return { version: 1, categorySchema: 2, categoryTreeVersion: CATEGORY_TREE_VERSION, accounts, categories, transactions: [], budgets: {}, periodBudgets: [], recurring: [], holidays: [], payees: [], vendors: [], todoLists, todos: [], settings: { usdKrwRate: null, rateUpdatedAt: null } };
 }
 
 /* 구버전(대/소분류 구분 없는 평평한 카테고리) 데이터를 대분류 트리 밑으로 옮겨요.
@@ -945,6 +949,8 @@ function loadData() {
     d.periodBudgets = d.periodBudgets || [];
     d.recurring = d.recurring || [];
     d.holidays = (Array.isArray(d.holidays) ? d.holidays : []).filter(h => !krHolidaySetForYear(Number(h.slice(0, 4))).has(h));
+    d.todoLists = Array.isArray(d.todoLists) && d.todoLists.length ? d.todoLists : [{ id: uid(), name: '할 일', icon: '📋', type: 'simple', hideCompleted: false }];
+    d.todos = Array.isArray(d.todos) ? d.todos : [];
     d.settings = d.settings || { usdKrwRate: null, rateUpdatedAt: null };
     d = migrateCategoriesToHierarchy(d);
     d = migrateAccountTypes(d);
@@ -982,6 +988,7 @@ let state = {
   acctSelectedId: null,
   acctMonth: monthKey(new Date()),
   acctPeriod: 'month',
+  todoListId: null,
 };
 
 /* ---------------- date helpers ---------------- */
