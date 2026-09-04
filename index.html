@@ -1275,7 +1275,11 @@ function openDatePicker(input) {
   positionDatePicker();
   setTimeout(() => document.addEventListener('mousedown', onDatePickerOutsideClick), 0);
   window.addEventListener('resize', positionDatePicker);
-  window.addEventListener('scroll', closeDatePicker, true);
+  window.addEventListener('scroll', onDatePickerScroll, true);
+}
+function onDatePickerScroll(e) {
+  if (dpState && dpState.pop.contains(e.target)) return;
+  closeDatePicker();
 }
 function positionDatePicker() {
   if (!dpState) return;
@@ -1342,7 +1346,7 @@ function closeDatePicker() {
   dpState.pop.remove();
   document.removeEventListener('mousedown', onDatePickerOutsideClick);
   window.removeEventListener('resize', positionDatePicker);
-  window.removeEventListener('scroll', closeDatePicker, true);
+  window.removeEventListener('scroll', onDatePickerScroll, true);
   dpState = null;
 }
 document.addEventListener('click', (e) => {
@@ -1400,7 +1404,11 @@ function openCategoryPicker(input, scope) {
   positionCategoryPicker();
   setTimeout(() => document.addEventListener('mousedown', onCategoryPickerOutsideClick), 0);
   window.addEventListener('resize', positionCategoryPicker);
-  window.addEventListener('scroll', closeCategoryPicker, true);
+  window.addEventListener('scroll', onCategoryPickerScroll, true);
+}
+function onCategoryPickerScroll(e) {
+  if (cpState && cpState.pop.contains(e.target)) return;
+  closeCategoryPicker();
 }
 function positionCategoryPicker() {
   if (!cpState) return;
@@ -1497,7 +1505,7 @@ function closeCategoryPicker() {
   cpState.pop.remove();
   document.removeEventListener('mousedown', onCategoryPickerOutsideClick);
   window.removeEventListener('resize', positionCategoryPicker);
-  window.removeEventListener('scroll', closeCategoryPicker, true);
+  window.removeEventListener('scroll', onCategoryPickerScroll, true);
   cpState = null;
 }
 
@@ -1514,7 +1522,11 @@ function openMonthPicker(el, mKey, onPickName) {
   positionMonthPicker();
   setTimeout(() => document.addEventListener('mousedown', onMonthPickerOutsideClick), 0);
   window.addEventListener('resize', positionMonthPicker);
-  window.addEventListener('scroll', closeMonthPicker, true);
+  window.addEventListener('scroll', onMonthPickerScroll, true);
+}
+function onMonthPickerScroll(e) {
+  if (mpState && mpState.pop.contains(e.target)) return;
+  closeMonthPicker();
 }
 function positionMonthPicker() {
   if (!mpState) return;
@@ -1560,7 +1572,7 @@ function closeMonthPicker() {
   mpState.pop.remove();
   document.removeEventListener('mousedown', onMonthPickerOutsideClick);
   window.removeEventListener('resize', positionMonthPicker);
-  window.removeEventListener('scroll', closeMonthPicker, true);
+  window.removeEventListener('scroll', onMonthPickerScroll, true);
   mpState = null;
 }
 
@@ -1695,7 +1707,11 @@ function openVendorSuggest(input, field, nextFieldId) {
   positionVendorSuggest();
   setTimeout(() => document.addEventListener('mousedown', onVendorSuggestOutsideClick), 0);
   window.addEventListener('resize', positionVendorSuggest);
-  window.addEventListener('scroll', closeVendorSuggest, true);
+  window.addEventListener('scroll', onVendorSuggestScroll, true);
+}
+function onVendorSuggestScroll(e) {
+  if (vsState && vsState.pop.contains(e.target)) return;
+  closeVendorSuggest();
 }
 function onVendorInput(input) {
   if (!vsState || vsState.input !== input) { openVendorSuggest(input); return; }
@@ -1785,7 +1801,7 @@ function closeVendorSuggest() {
   vsState.pop.remove();
   document.removeEventListener('mousedown', onVendorSuggestOutsideClick);
   window.removeEventListener('resize', positionVendorSuggest);
-  window.removeEventListener('scroll', closeVendorSuggest, true);
+  window.removeEventListener('scroll', onVendorSuggestScroll, true);
   vsState = null;
 }
 
@@ -1803,7 +1819,11 @@ function openMemoSuggest(input) {
   positionMemoSuggest();
   setTimeout(() => document.addEventListener('mousedown', onMemoSuggestOutsideClick), 0);
   window.addEventListener('resize', positionMemoSuggest);
-  window.addEventListener('scroll', closeMemoSuggest, true);
+  window.addEventListener('scroll', onMemoSuggestScroll, true);
+}
+function onMemoSuggestScroll(e) {
+  if (msState && msState.pop.contains(e.target)) return;
+  closeMemoSuggest();
 }
 function onMemoInput(input) {
   if (!msState || msState.input !== input) { openMemoSuggest(input); return; }
@@ -1881,7 +1901,7 @@ function closeMemoSuggest() {
   msState.pop.remove();
   document.removeEventListener('mousedown', onMemoSuggestOutsideClick);
   window.removeEventListener('resize', positionMemoSuggest);
-  window.removeEventListener('scroll', closeMemoSuggest, true);
+  window.removeEventListener('scroll', onMemoSuggestScroll, true);
   msState = null;
 }
 
