@@ -542,6 +542,12 @@ async function onAuthed(userId) {
       cloudData.recurring = cloudData.recurring || [];
       cloudData.todoLists = Array.isArray(cloudData.todoLists) && cloudData.todoLists.length ? cloudData.todoLists : [{ id: uid(), name: '할 일', icon: '📋', type: 'simple', hideCompleted: false }];
       cloudData.todos = Array.isArray(cloudData.todos) ? cloudData.todos : [];
+      cloudData.insuranceClaims = Array.isArray(cloudData.insuranceClaims) ? cloudData.insuranceClaims : [];
+      cloudData.insTargets = Array.isArray(cloudData.insTargets) ? cloudData.insTargets : [];
+      cloudData.insTypes = Array.isArray(cloudData.insTypes) ? cloudData.insTypes : [];
+      cloudData.insCompanies = Array.isArray(cloudData.insCompanies) ? cloudData.insCompanies : [];
+      cloudData.insApplyTypes = Array.isArray(cloudData.insApplyTypes) ? cloudData.insApplyTypes : [];
+      cloudData.insProgresses = Array.isArray(cloudData.insProgresses) ? cloudData.insProgresses : [];
       cloudData = migrateCategoriesToHierarchy(cloudData);
       cloudData = migrateAccountTypes(cloudData);
       const beforeVersion = cloudData.categoryTreeVersion;
@@ -559,6 +565,8 @@ async function onAuthed(userId) {
       cloudData = migrateTossBankDefaultPayee(cloudData);
       const payeeVendorRegistrySeededBefore = !!(cloudData.settings && cloudData.settings.payeeVendorRegistrySeeded);
       cloudData = migratePayeeVendorRegistry(cloudData);
+      cloudData = migrateSeedInsuranceTagLists(cloudData);
+      cloudData = migrateSeedInsuranceExtraTagLists(cloudData);
       const categoriesChanged = cloudData.categories.length !== catCountBefore || (!stockMigratedBefore && cloudData.settings.stockTransferCategoryMigrated);
       delete cloudData.receiptsById;
       DATA = cloudData;
@@ -1655,7 +1663,7 @@ function payeeUsageCount(name) { return DATA.transactions.filter((t) => t.payee 
 function vendorUsageCount(name) { return DATA.transactions.filter((t) => t.vendor === name).length + DATA.recurring.filter((r) => r.vendor === name).length; }
 function insTagUsageCount(kind, name) {
   const field = insuranceClaimFieldForKind(kind);
-  return DATA.insuranceClaims.filter((c) => tagNameTokens(c[field]).includes(name)).length;
+  return (DATA.insuranceClaims || []).filter((c) => tagNameTokens(c[field]).includes(name)).length;
 }
 function tagUsageCount(kind, name) {
   if (kind === 'payee') return payeeUsageCount(name);
@@ -4581,6 +4589,7 @@ function renderInsurance() {
   state._insPanelMode = null;
   state._insFilter = state._insFilter || { q: '' };
   const q = (state._insFilter.q || '').trim().toLowerCase();
+  DATA.insuranceClaims = DATA.insuranceClaims || [];
   const allItems = DATA.insuranceClaims;
   const rows = allItems.map((c, i) => ({ c, seq: i + 1 }))
     .filter(({ c }) => !q || insSearchText(c).includes(q))
@@ -5242,10 +5251,12 @@ function onImportFileChange(e) {
       const parsed = JSON.parse(reader.result);
       if (!Array.isArray(parsed.categories) || !Array.isArray(parsed.accounts) || !Array.isArray(parsed.transactions)) throw new Error('invalid');
       if (!confirm('가져오기를 하면 현재 데이터를 덮어써요. 계속할까요?')) return;
-      DATA = { version: 1, categorySchema: parsed.categorySchema, accounts: parsed.accounts, categories: parsed.categories, transactions: parsed.transactions, budgets: parsed.budgets || {}, periodBudgets: parsed.periodBudgets || [], recurring: parsed.recurring || [], payees: parsed.payees || [], vendors: parsed.vendors || [], settings: parsed.settings || { usdKrwRate: null, rateUpdatedAt: null } };
+      DATA = { version: 1, categorySchema: parsed.categorySchema, accounts: parsed.accounts, categories: parsed.categories, transactions: parsed.transactions, budgets: parsed.budgets || {}, periodBudgets: parsed.periodBudgets || [], recurring: parsed.recurring || [], payees: parsed.payees || [], vendors: parsed.vendors || [], insuranceClaims: parsed.insuranceClaims || [], insTargets: parsed.insTargets || [], insTypes: parsed.insTypes || [], insCompanies: parsed.insCompanies || [], insApplyTypes: parsed.insApplyTypes || [], insProgresses: parsed.insProgresses || [], settings: parsed.settings || { usdKrwRate: null, rateUpdatedAt: null } };
       DATA = migrateCategoriesToHierarchy(DATA);
       DATA = migrateAccountTypes(DATA);
       DATA = migratePayeeVendorRegistry(DATA);
+      DATA = migrateSeedInsuranceTagLists(DATA);
+      DATA = migrateSeedInsuranceExtraTagLists(DATA);
       if (parsed.receiptsById) {
         for (const [txId, dataUrl] of Object.entries(parsed.receiptsById)) {
           try { await putReceipt(txId, dataUrl); } catch (err) { console.error('receipt import failed', txId, err); }
