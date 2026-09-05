@@ -182,6 +182,8 @@
   .rec-list .overflow-x { border: 1px solid var(--line); border-radius: 12px; }
   #panel-recurring tbody td { padding: 7px 8px; }
   #panel-recurring thead th { padding: 6px 8px; }
+  #panel-insurance thead th { padding: 6px 8px; white-space: normal; }
+  #panel-insurance thead tr:last-child th { top: 28px; z-index: 3; }
   .dp-pop { position: fixed; z-index: 10000; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 10px; width: 250px; }
   .dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
   .dp-head .dp-label { font-family: var(--mono); font-size: 13px; font-weight: 600; cursor: pointer; }
@@ -342,6 +344,12 @@
     #panel-recurring .tx-split-main > .toolbar { flex-shrink: 0; }
     #panel-recurring .rec-list { flex: 1; min-height: 0; }
     #panel-recurring .rec-list .overflow-x { flex: 1; min-height: 0; max-height: none; overflow-y: auto; height: 100%; }
+    #panel-insurance.active { display: flex; flex-direction: column; }
+    #panel-insurance .tx-split { flex: 1; min-height: 0; }
+    #panel-insurance .tx-split-main { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+    #panel-insurance .tx-split-main > .toolbar { flex-shrink: 0; }
+    #panel-insurance .ins-list { flex: 1; min-height: 0; }
+    #panel-insurance .ins-list .overflow-x { flex: 1; min-height: 0; max-height: none; overflow-y: auto; height: 100%; }
     .dcol { display: table-cell; }
     table.tx-table-balance .dcol-balance { display: table-cell; }
     .cal-layout { display: flex; flex-direction: column; gap: 20px; max-width: 70%; margin: 0 auto; }
@@ -414,6 +422,7 @@
     <button class="tab" data-tab="budget"><i>💰</i><span>예산</span></button>
     <button class="tab" data-tab="accounts"><i>🏦</i><span>자산</span></button>
     <button class="tab" data-tab="recurring"><i>🔁</i><span>정기거래</span></button>
+    <button class="tab" data-tab="insurance"><i>🏥</i><span>보험신청</span></button>
     <button class="tab" data-tab="settings"><i>⚙️</i><span>설정</span></button>
   </nav>
   <div class="main-content">
@@ -428,6 +437,7 @@
     <div class="panel" id="panel-budget"></div>
     <div class="panel" id="panel-accounts"></div>
     <div class="panel" id="panel-recurring"></div>
+    <div class="panel" id="panel-insurance"></div>
     <div class="panel" id="panel-settings"></div>
   </div>
 </div>
@@ -702,7 +712,10 @@ function defaultData() {
   });
   const accounts = [{ id: uid(), name: '현금', type: 'cash', icon: '💵', initialBalance: 0, includeInTotal: true, currency: 'KRW' }];
   const todoLists = [{ id: uid(), name: '할 일', icon: '📋', type: 'simple', hideCompleted: false }];
-  return { version: 1, categorySchema: 2, categoryTreeVersion: CATEGORY_TREE_VERSION, accounts, categories, transactions: [], budgets: {}, periodBudgets: [], recurring: [], holidays: [], payees: [], vendors: [], todoLists, todos: [], settings: { usdKrwRate: null, rateUpdatedAt: null } };
+  const insTargets = ['아빠', '엄마', '현승'].map((name) => ({ id: uid(), name }));
+  const insTypes = ['사고', '질병', '교통'].map((name) => ({ id: uid(), name }));
+  const insCompanies = ['교보생명', '동부생명', '현대해상', 'DB손해', 'KB손해'].map((name) => ({ id: uid(), name }));
+  return { version: 1, categorySchema: 2, categoryTreeVersion: CATEGORY_TREE_VERSION, accounts, categories, transactions: [], budgets: {}, periodBudgets: [], recurring: [], holidays: [], payees: [], vendors: [], insuranceClaims: [], insTargets, insTypes, insCompanies, todoLists, todos: [], settings: { usdKrwRate: null, rateUpdatedAt: null } };
 }
 
 /* 구버전(대/소분류 구분 없는 평평한 카테고리) 데이터를 대분류 트리 밑으로 옮겨요.
@@ -938,6 +951,16 @@ function migratePayeeVendorRegistry(d) {
   return d;
 }
 
+/* 보험신청 탭에서 쓰는 대상/구분/보험회사 목록에 기본값을 한 번만 채워요(기존 사용자용, 새 데이터는 defaultData()에서 이미 채워짐). */
+function migrateSeedInsuranceTagLists(d) {
+  d.settings = d.settings || {};
+  if (d.settings.insuranceTagListsSeeded) return d;
+  if (!d.insTargets.length) d.insTargets = ['아빠', '엄마', '현승'].map((name) => ({ id: uid(), name }));
+  if (!d.insTypes.length) d.insTypes = ['사고', '질병', '교통'].map((name) => ({ id: uid(), name }));
+  if (!d.insCompanies.length) d.insCompanies = ['교보생명', '동부생명', '현대해상', 'DB손해', 'KB손해'].map((name) => ({ id: uid(), name }));
+  d.settings.insuranceTagListsSeeded = true;
+  return d;
+}
 function loadData() {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -951,6 +974,10 @@ function loadData() {
     d.holidays = (Array.isArray(d.holidays) ? d.holidays : []).filter(h => !krHolidaySetForYear(Number(h.slice(0, 4))).has(h));
     d.todoLists = Array.isArray(d.todoLists) && d.todoLists.length ? d.todoLists : [{ id: uid(), name: '할 일', icon: '📋', type: 'simple', hideCompleted: false }];
     d.todos = Array.isArray(d.todos) ? d.todos : [];
+    d.insuranceClaims = Array.isArray(d.insuranceClaims) ? d.insuranceClaims : [];
+    d.insTargets = Array.isArray(d.insTargets) ? d.insTargets : [];
+    d.insTypes = Array.isArray(d.insTypes) ? d.insTypes : [];
+    d.insCompanies = Array.isArray(d.insCompanies) ? d.insCompanies : [];
     d.settings = d.settings || { usdKrwRate: null, rateUpdatedAt: null };
     d = migrateCategoriesToHierarchy(d);
     d = migrateAccountTypes(d);
@@ -964,6 +991,7 @@ function loadData() {
     d = migrateReceiptIdsArray(d);
     d = migrateTossBankDefaultPayee(d);
     d = migratePayeeVendorRegistry(d);
+    d = migrateSeedInsuranceTagLists(d);
     return d;
   } catch (e) { console.error(e); return defaultData(); }
 }
@@ -1583,7 +1611,14 @@ function closeMonthPicker() {
   mpState = null;
 }
 
-/* ---------------- 적용대상/거래처 관리 목록 ---------------- */
+/* ---------------- 적용대상/거래처/보험신청 태그(대상·구분·보험회사) 관리 목록 ----------------
+   payee/vendor는 거래·정기거래 필드가 값 하나를 그대로 담고, insTarget/insType/insCompany는
+   보험신청 필드가 쉼표(,)로 여러 값을 담을 수 있어 사용횟수 집계·이름변경 시 토큰 단위로 다뤄요. */
+const TAG_KIND_STORE = { payee: 'payees', vendor: 'vendors', insTarget: 'insTargets', insType: 'insTypes', insCompany: 'insCompanies' };
+const TAG_KIND_LABEL = { payee: '적용대상', vendor: '거래처', insTarget: '대상', insType: '구분', insCompany: '보험회사' };
+const TAG_KIND_MULTI = { insTarget: true, insType: true, insCompany: true };
+function tagNameTokens(value) { return String(value || '').split(',').map((s) => s.trim()).filter(Boolean); }
+function insuranceClaimFieldForKind(kind) { return kind === 'insTarget' ? 'target' : kind === 'insType' ? 'claimType' : 'company'; }
 function registerPayeeIfNew(name) {
   if (!name) return;
   DATA.payees = DATA.payees || [];
@@ -1594,24 +1629,46 @@ function registerVendorIfNew(name) {
   DATA.vendors = DATA.vendors || [];
   if (!DATA.vendors.some((v) => v.name === name)) DATA.vendors.push({ id: uid(), name });
 }
+function registerInsTagIfNew(kind, value) {
+  const store = TAG_KIND_STORE[kind];
+  DATA[store] = DATA[store] || [];
+  tagNameTokens(value).forEach((name) => {
+    if (!DATA[store].some((p) => p.name === name)) DATA[store].push({ id: uid(), name });
+  });
+}
 function payeeUsageCount(name) { return DATA.transactions.filter((t) => t.payee === name).length + DATA.recurring.filter((r) => r.payee === name).length; }
 function vendorUsageCount(name) { return DATA.transactions.filter((t) => t.vendor === name).length + DATA.recurring.filter((r) => r.vendor === name).length; }
+function insTagUsageCount(kind, name) {
+  const field = insuranceClaimFieldForKind(kind);
+  return DATA.insuranceClaims.filter((c) => tagNameTokens(c[field]).includes(name)).length;
+}
+function tagUsageCount(kind, name) {
+  if (kind === 'payee') return payeeUsageCount(name);
+  if (kind === 'vendor') return vendorUsageCount(name);
+  return insTagUsageCount(kind, name);
+}
+function tagUsageNounLabel(kind) { return TAG_KIND_MULTI[kind] ? '보험신청' : '거래'; }
 function viewPayeeVendorTransactions(kind, id) {
   const item = payeeVendorList(kind).find((x) => x.id === id);
   if (!item) return;
+  if (TAG_KIND_MULTI[kind]) {
+    state._insFilter = { q: item.name };
+    switchTab('insurance');
+    return;
+  }
   state.txFilter = { type: 'all', categoryId: '', parentCategoryId: '', accountId: '', q: item.name };
   state.txPeriod = 'all';
   switchTab('transactions');
 }
-function payeeVendorLabel(kind) { return kind === 'payee' ? '적용대상' : '거래처'; }
-function payeeVendorList(kind) { return (kind === 'payee' ? DATA.payees : DATA.vendors) || []; }
+function payeeVendorLabel(kind) { return TAG_KIND_LABEL[kind] || kind; }
+function payeeVendorList(kind) { return DATA[TAG_KIND_STORE[kind]] || []; }
 function payeeVendorChipsHtml(kind, q) {
   const list = payeeVendorList(kind).filter((item) => !q || item.name.toLowerCase().includes(q));
   if (!list.length) return `<div class="form-note" style="margin:2px 0 8px;">${q ? '검색 결과가 없어요.' : '등록된 항목이 없어요.'}</div>`;
   return list.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko')).map((item) => {
-    const count = kind === 'payee' ? payeeUsageCount(item.name) : vendorUsageCount(item.name);
+    const count = tagUsageCount(kind, item.name);
     return `<div class="cat-chip">
-      <span class="cat-chip-name">${escapeHtml(item.name)}${count ? ` <span class="form-note usage-link" style="margin:0;" onclick="viewPayeeVendorTransactions('${kind}', '${item.id}')" title="이 ${payeeVendorLabel(kind)}이 쓰인 거래 보기">(거래 ${count}건)</span>` : ''}</span>
+      <span class="cat-chip-name">${escapeHtml(item.name)}${count ? ` <span class="form-note usage-link" style="margin:0;" onclick="viewPayeeVendorTransactions('${kind}', '${item.id}')" title="이 ${payeeVendorLabel(kind)}이 쓰인 ${tagUsageNounLabel(kind)} 보기">(${tagUsageNounLabel(kind)} ${count}건)</span>` : ''}</span>
       <span>
         <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openPayeeVendorRenameModal('${kind}', '${item.id}')">수정</button>
         <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deletePayeeVendor('${kind}', '${item.id}')">삭제</button>
@@ -1619,11 +1676,12 @@ function payeeVendorChipsHtml(kind, q) {
     </div>`;
   }).join('');
 }
+const TAG_KIND_ADD_PLACEHOLDER = { payee: '아빠', vendor: '스타벅스', insTarget: '아빠', insType: '사고', insCompany: '교보생명' };
 function openPayeeVendorAddModal(kind) {
   const label = payeeVendorLabel(kind);
   openModal(`
     <h3>${label} 추가</h3>
-    <div class="field"><label class="field-lbl">${label} 이름</label><input type="text" id="pv-name" placeholder="예: ${kind === 'payee' ? '아빠' : '스타벅스'}"></div>
+    <div class="field"><label class="field-lbl">${label} 이름</label><input type="text" id="pv-name" placeholder="예: ${TAG_KIND_ADD_PLACEHOLDER[kind] || ''}"></div>
     <div class="form-actions">
       <button class="ghost-btn" onclick="closeModal()">취소</button>
       <button class="primary-btn" onclick="submitPayeeVendorAdd('${kind}')">추가</button>
@@ -1636,7 +1694,7 @@ function submitPayeeVendorAdd(kind) {
   const list = payeeVendorList(kind);
   if (list.some((p) => p.name === name)) return showToast('이미 등록된 이름이에요.', 'error');
   list.push({ id: uid(), name });
-  if (kind === 'payee') DATA.payees = list; else DATA.vendors = list;
+  DATA[TAG_KIND_STORE[kind]] = list;
   saveData();
   closeModal();
   showToast(`${payeeVendorLabel(kind)}을 추가했어요.`, 'success');
@@ -1649,7 +1707,7 @@ function openPayeeVendorRenameModal(kind, id) {
   openModal(`
     <h3>${label} 수정</h3>
     <div class="field"><label class="field-lbl">${label} 이름</label><input type="text" id="pv-name" value="${escapeHtml(item.name)}"></div>
-    <div class="form-note">이름을 바꾸면 이 ${label}으로 등록된 기존 거래·정기거래에도 함께 반영돼요.</div>
+    <div class="form-note">이름을 바꾸면 이 ${label}으로 등록된 기존 ${TAG_KIND_MULTI[kind] ? '보험신청' : '거래·정기거래'}에도 함께 반영돼요.</div>
     <div class="form-actions">
       <button class="ghost-btn" onclick="closeModal()">취소</button>
       <button class="primary-btn" onclick="submitPayeeVendorRename('${kind}', '${id}')">저장</button>
@@ -1666,9 +1724,18 @@ function submitPayeeVendorRename(kind, id) {
   const oldName = item.name;
   item.name = name;
   if (oldName !== name) {
-    const field = kind;
-    DATA.transactions.forEach((t) => { if (t[field] === oldName) t[field] = name; });
-    DATA.recurring.forEach((r) => { if (r[field] === oldName) r[field] = name; });
+    if (TAG_KIND_MULTI[kind]) {
+      const field = insuranceClaimFieldForKind(kind);
+      DATA.insuranceClaims.forEach((c) => {
+        const tokens = tagNameTokens(c[field]);
+        if (!tokens.includes(oldName)) return;
+        c[field] = tokens.map((t) => (t === oldName ? name : t)).join(', ');
+      });
+    } else {
+      const field = kind;
+      DATA.transactions.forEach((t) => { if (t[field] === oldName) t[field] = name; });
+      DATA.recurring.forEach((r) => { if (r[field] === oldName) r[field] = name; });
+    }
   }
   saveData();
   closeModal();
@@ -1681,9 +1748,9 @@ function deletePayeeVendor(kind, id) {
   if (idx < 0) return;
   const item = list[idx];
   const label = payeeVendorLabel(kind);
-  const count = kind === 'payee' ? payeeUsageCount(item.name) : vendorUsageCount(item.name);
+  const count = tagUsageCount(kind, item.name);
   const msg = count > 0
-    ? `'${item.name}' ${label}을 목록에서 삭제할까요? 이미 ${count}건의 거래에 쓰였지만, 그 거래들의 값은 그대로 남아요.`
+    ? `'${item.name}' ${label}을 목록에서 삭제할까요? 이미 ${count}건의 ${tagUsageNounLabel(kind)}에 쓰였지만, 그 기록들의 값은 그대로 남아요.`
     : `'${item.name}' ${label}을 삭제할까요?`;
   if (!confirm(msg)) return;
   list.splice(idx, 1);
@@ -1697,6 +1764,14 @@ function onPvSearchKeydown(e) {
 function runPvSearch() {
   state._pvFilter = state._pvFilter || { q: '' };
   state._pvFilter.q = document.getElementById('pv-f-q').value;
+  renderSettings();
+}
+function onPvInsSearchKeydown(e) {
+  if (e.key === 'Enter') { e.preventDefault(); runPvInsSearch(); }
+}
+function runPvInsSearch() {
+  state._pvInsFilter = state._pvInsFilter || { q: '' };
+  state._pvInsFilter.q = document.getElementById('pv-ins-f-q').value;
   renderSettings();
 }
 
@@ -1742,7 +1817,9 @@ function renderVendorSuggest() {
   if (!vsState) return;
   const q = vsState.input.value.trim().toLowerCase();
   const registryNames = payeeVendorList(vsState.field).map((x) => x.name);
-  const historyNames = DATA.transactions.map(t => t[vsState.field]).filter(Boolean);
+  const historyNames = TAG_KIND_MULTI[vsState.field]
+    ? DATA.insuranceClaims.map(c => c[insuranceClaimFieldForKind(vsState.field)]).filter(Boolean)
+    : DATA.transactions.map(t => t[vsState.field]).filter(Boolean);
   const all = Array.from(new Set([...registryNames, ...historyNames]));
   const matches = all.filter(v => !q || v.toLowerCase().includes(q)).slice(0, 8);
   vsState.items = matches;
@@ -2014,6 +2091,7 @@ function renderPanel() {
     case 'budget': renderBudget(); break;
     case 'accounts': renderAccounts(); break;
     case 'recurring': renderRecurring(); break;
+    case 'insurance': renderInsurance(); break;
     case 'settings': renderSettings(); break;
   }
 }
@@ -4468,6 +4546,255 @@ function notifyDueRecurringToday() {
   showToast(`오늘 정기거래 ${due.length}건이 있어요: ${summary}`, 'info');
 }
 
+/* ---------------- INSURANCE (보험신청) ---------------- */
+function insClaimableAmount(c) {
+  return (Number(c.hospitalCopay) || 0) - (Number(c.hospitalNonCovered) || 0) + (Number(c.pharmacyCopay) || 0) - (Number(c.pharmacyNonCovered) || 0);
+}
+function insSearchText(c) {
+  return [c.memo, c.target, c.hospitalName, c.pharmacyName, c.claimType, c.reason, c.applyType, c.company, c.note].filter(Boolean).join(' ').toLowerCase();
+}
+function renderInsurance() {
+  state._insPanelMode = null;
+  state._insFilter = state._insFilter || { q: '' };
+  const q = (state._insFilter.q || '').trim().toLowerCase();
+  const allItems = DATA.insuranceClaims;
+  const rows = allItems.map((c, i) => ({ c, seq: i + 1 })).filter(({ c }) => !q || insSearchText(c).includes(q));
+  const amtCell = (n) => n ? `<td class="num">${Number(n).toLocaleString('ko-KR')}</td>` : `<td class="num"></td>`;
+  const colHtml = rows.length ? `<div class="overflow-x"><table>
+      <thead>
+        <tr>
+          <th rowspan="2" style="width:44px;">연번</th>
+          <th rowspan="2" class="name-cell">메모</th>
+          <th rowspan="2" style="width:110px;">대상</th>
+          <th rowspan="2" style="width:88px;">진료일</th>
+          <th colspan="3" style="text-align:center;">병원비</th>
+          <th colspan="3" style="text-align:center;">약제비</th>
+          <th rowspan="2" class="num">보험금대상액</th>
+          <th rowspan="2" style="width:100px;">구분</th>
+          <th rowspan="2" class="name-cell">경위</th>
+          <th rowspan="2" style="width:90px;">신청구분</th>
+          <th rowspan="2" style="width:88px;">보험신청일</th>
+          <th rowspan="2" style="width:120px;">보험회사</th>
+          <th rowspan="2" style="width:88px;">보험수령일</th>
+          <th rowspan="2" class="num">수령금액</th>
+          <th rowspan="2" class="name-cell">비고</th>
+          <th rowspan="2" class="actions-cell">관리</th>
+        </tr>
+        <tr>
+          <th style="width:90px;">병원명</th>
+          <th class="num">본인부담금</th>
+          <th class="num">비급여</th>
+          <th style="width:90px;">약국명</th>
+          <th class="num">본인부담금</th>
+          <th class="num">비급여</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(({ c, seq }) => {
+          const isEditing = state._insPanelMode === 'inline' && state._insEditingId === c.id;
+          return `<tr class="tx-row-clickable ${isEditing ? 'row-editing' : ''}" data-insid="${c.id}" onclick="onInsRowClick(event, '${c.id}')">
+            <td class="num">${seq}</td>
+            <td class="name-cell">${escapeHtml(c.memo || '')}</td>
+            <td title="${escapeHtml(c.target || '')}">${escapeHtml(c.target || '')}</td>
+            <td>${escapeHtml(c.examDate || '')}</td>
+            <td title="${escapeHtml(c.hospitalName || '')}">${escapeHtml(c.hospitalName || '')}</td>
+            ${amtCell(c.hospitalCopay)}
+            ${amtCell(c.hospitalNonCovered)}
+            <td title="${escapeHtml(c.pharmacyName || '')}">${escapeHtml(c.pharmacyName || '')}</td>
+            ${amtCell(c.pharmacyCopay)}
+            ${amtCell(c.pharmacyNonCovered)}
+            <td class="num">${insClaimableAmount(c).toLocaleString('ko-KR')}</td>
+            <td title="${escapeHtml(c.claimType || '')}">${escapeHtml(c.claimType || '')}</td>
+            <td class="name-cell">${escapeHtml(c.reason || '')}</td>
+            <td>${escapeHtml(c.applyType || '')}</td>
+            <td>${escapeHtml(c.applyDate || '')}</td>
+            <td title="${escapeHtml(c.company || '')}">${escapeHtml(c.company || '')}</td>
+            <td>${escapeHtml(c.receiveDate || '')}</td>
+            ${amtCell(c.receivedAmount)}
+            <td class="name-cell">${escapeHtml(c.note || '')}</td>
+            <td class="actions-cell">
+              <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openInsuranceModal('${c.id}')">수정</button>
+              <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteInsurance('${c.id}')">삭제</button>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div>` : `<div class="empty">${q ? '검색 결과가 없어요.' : '등록된 보험신청이 없어요.'}</div>`;
+  document.getElementById('panel-insurance').innerHTML = `
+    <div class="tx-split">
+      <div class="tx-split-main" onclick="onInsMainClick(event)">
+        <div class="toolbar">
+          <div class="search-wrap" style="max-width:320px;display:flex;gap:6px;">
+            <input class="search-input" id="ins-f-q" placeholder="보험신청 전체 검색" value="${escapeHtml(state._insFilter.q)}" onkeydown="onInsSearchKeydown(event)" style="flex:1;min-width:0;">
+            <button class="ghost-btn" onclick="runInsSearch()" style="flex-shrink:0;">검색</button>
+          </div>
+          <button class="primary-btn" onclick="openInsuranceModal()">+ 보험신청 추가</button>
+        </div>
+        <div class="form-note">${q ? `검색 결과 ${rows.length}건` : `전체 ${allItems.length}건`}</div>
+        <div class="ins-list">${colHtml}</div>
+      </div>
+      <div class="tx-inline-panel" id="tx-inline-slot-insurance"></div>
+    </div>
+  `;
+}
+function insInlineSlot() {
+  if (!window.matchMedia('(min-width: 860px)').matches) return null;
+  return state.tab === 'insurance' ? document.getElementById('tx-inline-slot-insurance') : null;
+}
+function renderInsPanel(formHtml) {
+  const inlineSlot = insInlineSlot();
+  if (inlineSlot) {
+    document.querySelectorAll('.tx-inline-panel').forEach(el => { if (el !== inlineSlot) { el.classList.remove('active'); el.innerHTML = ''; } });
+    inlineSlot.innerHTML = `<div class="modal-card tx-inline-card">${formHtml}</div>`;
+    inlineSlot.classList.add('active');
+    return 'inline';
+  }
+  openModal(formHtml, { sidePanel: true });
+  return 'overlay';
+}
+function onInsRowClick(e, id) {
+  if (e.target.closest('button, a, input, select, textarea')) return;
+  if (state._insPanelMode === 'inline' && state._insEditingId === id) { closeInsPanel(); return; }
+  openInsuranceModal(id);
+}
+function onInsMainClick(e) {
+  if (state._insPanelMode !== 'inline') return;
+  const slot = document.getElementById('tx-inline-slot-insurance');
+  if (!slot || !slot.classList.contains('active')) return;
+  if (e.target.closest('tr')) return;
+  if (e.target.closest('button, a, input, select, textarea, label, .search-wrap')) return;
+  closeInsPanel();
+}
+function setInsRowEditing(id) {
+  state._insEditingId = id || null;
+  document.querySelectorAll('#panel-insurance tr.row-editing').forEach(tr => tr.classList.remove('row-editing'));
+  if (id) { const tr = document.querySelector(`#panel-insurance tr[data-insid="${id}"]`); if (tr) tr.classList.add('row-editing'); }
+}
+function closeInsPanel() {
+  const mode = state._insPanelMode;
+  state._insPanelMode = null;
+  state._insEditingId = null;
+  if (mode === 'inline') renderInsurance(); else closeModal();
+}
+function onInsSearchKeydown(e) { if (e.key === 'Enter') { e.preventDefault(); runInsSearch(); } }
+function runInsSearch() {
+  state._insFilter = state._insFilter || { q: '' };
+  state._insFilter.q = document.getElementById('ins-f-q').value;
+  renderInsurance();
+}
+function updateInsClaimablePreview() {
+  const el = document.getElementById('ins-claimable-preview');
+  if (!el) return;
+  const hc = rawAmount(document.getElementById('ins-hospital-copay'));
+  const hn = rawAmount(document.getElementById('ins-hospital-noncovered'));
+  const pc = rawAmount(document.getElementById('ins-pharmacy-copay'));
+  const pn = rawAmount(document.getElementById('ins-pharmacy-noncovered'));
+  el.value = won(hc - hn + pc - pn);
+}
+function openInsuranceModal(id) {
+  const editing = id ? DATA.insuranceClaims.find((c) => c.id === id) : null;
+  const modalTitle = editing ? '보험신청 수정' : '보험신청 추가';
+  const submitLabel = editing ? '저장' : '추가';
+  const amtStr = (n) => n ? Number(n).toLocaleString('ko-KR') : '';
+  const g = (key) => editing ? (editing[key] || '') : '';
+  const claimable = editing ? insClaimableAmount(editing) : 0;
+  const formHtml = `
+    <h3>${modalTitle}</h3>
+    <div class="field"><label class="field-lbl">메모</label><input type="text" id="ins-memo" value="${escapeHtml(g('memo'))}"></div>
+    <div class="field">
+      <label class="field-lbl">대상</label>
+      <input type="text" id="ins-target" autocomplete="off" placeholder="예: 아빠, 엄마, 현승" value="${escapeHtml(g('target'))}" onfocus="openVendorSuggest(this, 'insTarget', 'ins-exam-date')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="closeVendorSuggest()">
+    </div>
+    <div class="field"><label class="field-lbl">진료일</label><input type="text" class="date-field" id="ins-exam-date" value="${escapeHtml(g('examDate'))}" readonly></div>
+    <div class="section-heading" style="border-bottom:none;margin:14px 0 8px;padding-bottom:0;font-size:13px;">병원비</div>
+    <div class="field"><label class="field-lbl">병원명</label><input type="text" id="ins-hospital-name" value="${escapeHtml(g('hospitalName'))}"></div>
+    <div style="display:flex;gap:8px;">
+      <div class="field" style="flex:1;"><label class="field-lbl">본인부담금</label><input type="text" inputmode="numeric" autocomplete="off" id="ins-hospital-copay" oninput="formatAmountInput(this); updateInsClaimablePreview();" value="${amtStr(g('hospitalCopay'))}"></div>
+      <div class="field" style="flex:1;"><label class="field-lbl">비급여</label><input type="text" inputmode="numeric" autocomplete="off" id="ins-hospital-noncovered" oninput="formatAmountInput(this); updateInsClaimablePreview();" value="${amtStr(g('hospitalNonCovered'))}"></div>
+    </div>
+    <div class="section-heading" style="border-bottom:none;margin:14px 0 8px;padding-bottom:0;font-size:13px;">약제비</div>
+    <div class="field"><label class="field-lbl">약국명</label><input type="text" id="ins-pharmacy-name" value="${escapeHtml(g('pharmacyName'))}"></div>
+    <div style="display:flex;gap:8px;">
+      <div class="field" style="flex:1;"><label class="field-lbl">본인부담금</label><input type="text" inputmode="numeric" autocomplete="off" id="ins-pharmacy-copay" oninput="formatAmountInput(this); updateInsClaimablePreview();" value="${amtStr(g('pharmacyCopay'))}"></div>
+      <div class="field" style="flex:1;"><label class="field-lbl">비급여</label><input type="text" inputmode="numeric" autocomplete="off" id="ins-pharmacy-noncovered" oninput="formatAmountInput(this); updateInsClaimablePreview();" value="${amtStr(g('pharmacyNonCovered'))}"></div>
+    </div>
+    <div class="field">
+      <label class="field-lbl">보험금대상액 <span style="color:var(--ink-faint);font-weight:400;text-transform:none;">(자동 계산)</span></label>
+      <input type="text" id="ins-claimable-preview" value="${won(claimable)}" readonly style="background:var(--paper);color:var(--ink-soft);">
+    </div>
+    <div class="field">
+      <label class="field-lbl">구분</label>
+      <input type="text" id="ins-claim-type" autocomplete="off" placeholder="예: 사고, 질병, 교통" value="${escapeHtml(g('claimType'))}" onfocus="openVendorSuggest(this, 'insType', 'ins-reason')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="closeVendorSuggest()">
+    </div>
+    <div class="field"><label class="field-lbl">경위</label><textarea id="ins-reason" rows="2" style="min-height:34px;padding:8px 9px;resize:vertical;">${escapeHtml(g('reason'))}</textarea></div>
+    <div class="field"><label class="field-lbl">신청구분</label><input type="text" id="ins-apply-type" value="${escapeHtml(g('applyType'))}"></div>
+    <div class="field"><label class="field-lbl">보험신청일</label><input type="text" class="date-field" id="ins-apply-date" value="${escapeHtml(g('applyDate'))}" readonly></div>
+    <div class="field">
+      <label class="field-lbl">보험회사</label>
+      <input type="text" id="ins-company" autocomplete="off" placeholder="예: 교보생명, 동부생명" value="${escapeHtml(g('company'))}" onfocus="openVendorSuggest(this, 'insCompany', 'ins-receive-date')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="closeVendorSuggest()">
+    </div>
+    <div class="field"><label class="field-lbl">보험수령일</label><input type="text" class="date-field" id="ins-receive-date" value="${escapeHtml(g('receiveDate'))}" readonly></div>
+    <div class="field"><label class="field-lbl">수령금액</label><input type="text" inputmode="numeric" autocomplete="off" id="ins-received-amount" oninput="formatAmountInput(this)" value="${amtStr(g('receivedAmount'))}"></div>
+    <div class="field"><label class="field-lbl">비고</label><input type="text" id="ins-note" value="${escapeHtml(g('note'))}"></div>
+    <div class="form-actions">
+      <button class="ghost-btn" onclick="closeInsPanel()">취소</button>
+      <button class="primary-btn" onclick="submitInsurance(${editing ? `'${editing.id}'` : 'null'})">${submitLabel}</button>
+    </div>
+    ${editing ? `<div class="panel-footer-actions">
+      <button class="ghost-btn danger-btn" onclick="if (deleteInsurance('${editing.id}')) closeInsPanel();">삭제</button>
+    </div>` : ''}
+  `;
+  state._insPanelMode = renderInsPanel(formHtml);
+  setInsRowEditing(editing ? editing.id : null);
+}
+function submitInsurance(editId) {
+  const memo = document.getElementById('ins-memo').value.trim();
+  if (!memo) return showToast('메모를 입력해주세요.', 'error');
+  const target = document.getElementById('ins-target').value.trim();
+  const claimType = document.getElementById('ins-claim-type').value.trim();
+  const company = document.getElementById('ins-company').value.trim();
+  const payload = {
+    memo,
+    target,
+    examDate: document.getElementById('ins-exam-date').value,
+    hospitalName: document.getElementById('ins-hospital-name').value.trim(),
+    hospitalCopay: rawAmount(document.getElementById('ins-hospital-copay')),
+    hospitalNonCovered: rawAmount(document.getElementById('ins-hospital-noncovered')),
+    pharmacyName: document.getElementById('ins-pharmacy-name').value.trim(),
+    pharmacyCopay: rawAmount(document.getElementById('ins-pharmacy-copay')),
+    pharmacyNonCovered: rawAmount(document.getElementById('ins-pharmacy-noncovered')),
+    claimType,
+    reason: document.getElementById('ins-reason').value.trim(),
+    applyType: document.getElementById('ins-apply-type').value.trim(),
+    applyDate: document.getElementById('ins-apply-date').value,
+    company,
+    receiveDate: document.getElementById('ins-receive-date').value,
+    receivedAmount: rawAmount(document.getElementById('ins-received-amount')),
+    note: document.getElementById('ins-note').value.trim(),
+  };
+  if (editId) {
+    Object.assign(DATA.insuranceClaims.find((c) => c.id === editId), payload);
+  } else {
+    payload.id = uid();
+    DATA.insuranceClaims.push(payload);
+  }
+  registerInsTagIfNew('insTarget', target);
+  registerInsTagIfNew('insType', claimType);
+  registerInsTagIfNew('insCompany', company);
+  saveData();
+  closeInsPanel();
+  showToast(editId ? '보험신청 내역을 수정했어요.' : '보험신청 내역을 추가했어요.', 'success');
+  renderInsurance();
+}
+function deleteInsurance(id) {
+  if (!confirm('이 보험신청 내역을 삭제할까요?')) return false;
+  DATA.insuranceClaims = DATA.insuranceClaims.filter((c) => c.id !== id);
+  saveData();
+  showToast('삭제했어요.', 'info');
+  renderInsurance();
+  return true;
+}
+
 /* ---------------- SETTINGS (categories / backup) ---------------- */
 let catDrag = null;
 function startCatDrag(ev, id) {
@@ -4569,6 +4896,8 @@ function renderSettings() {
   const transferHtml = transferParents.map(parentGroupHtml).filter(Boolean).join('');
   state._pvFilter = state._pvFilter || { q: '' };
   const pvQ = (state._pvFilter.q || '').trim().toLowerCase();
+  state._pvInsFilter = state._pvInsFilter || { q: '' };
+  const pvInsQ = (state._pvInsFilter.q || '').trim().toLowerCase();
 
   document.getElementById('panel-settings').innerHTML = `
     <div class="section-block">
@@ -4599,6 +4928,25 @@ function renderSettings() {
       <div class="cat-manage-grid">
         <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">적용대상</h4>${payeeVendorChipsHtml('payee', pvQ)}</div>
         <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">거래처</h4>${payeeVendorChipsHtml('vendor', pvQ)}</div>
+      </div>
+    </div>
+    <div class="section-block">
+      <div class="section-heading">보험신청 대상/구분/보험회사 관리
+        <span style="display:flex;gap:6px;">
+          <button class="ghost-btn" onclick="openPayeeVendorAddModal('insTarget')">+ 대상 추가</button>
+          <button class="ghost-btn" onclick="openPayeeVendorAddModal('insType')">+ 구분 추가</button>
+          <button class="ghost-btn" onclick="openPayeeVendorAddModal('insCompany')">+ 보험회사 추가</button>
+        </span>
+      </div>
+      <div class="form-note">여기 등록해두면 보험신청 추가 시 검색 목록에 바로 나타나고, 이름을 바꾸면 기존 보험신청에도 함께 반영돼요. 등록하지 않아도 보험신청에 입력한 값은 자동으로 이 목록에 추가돼요.</div>
+      <div class="search-wrap" style="max-width:320px;display:flex;gap:6px;margin:10px 0;">
+        <input class="search-input" id="pv-ins-f-q" placeholder="대상/구분/보험회사 검색" value="${escapeHtml(state._pvInsFilter.q)}" onkeydown="onPvInsSearchKeydown(event)" style="flex:1;min-width:0;">
+        <button class="ghost-btn" onclick="runPvInsSearch()" style="flex-shrink:0;">검색</button>
+      </div>
+      <div class="cat-manage-grid">
+        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">대상</h4>${payeeVendorChipsHtml('insTarget', pvInsQ)}</div>
+        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">구분</h4>${payeeVendorChipsHtml('insType', pvInsQ)}</div>
+        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">보험회사</h4>${payeeVendorChipsHtml('insCompany', pvInsQ)}</div>
       </div>
     </div>
     <div class="section-block">
