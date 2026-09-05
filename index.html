@@ -182,7 +182,7 @@
   .rec-list .overflow-x { border: 1px solid var(--line); border-radius: 12px; }
   #panel-recurring tbody td { padding: 7px 8px; }
   #panel-recurring thead th { padding: 6px 8px; }
-  #panel-insurance thead th { padding: 6px 8px; white-space: normal; }
+  #panel-insurance thead th { padding: 6px 8px; white-space: normal; text-align: center; font-family: var(--sans); background: #E9967A; }
   #panel-insurance thead tr:last-child th { top: 28px; z-index: 3; }
   #panel-insurance td.name-cell { white-space: pre-line; }
   #panel-insurance table { border-left: 1px solid #9a9a93; border-top: 1px solid #9a9a93; }
@@ -4633,10 +4633,10 @@ function renderInsurance() {
           <th rowspan="2">진료일</th>
           <th colspan="3" style="text-align:center;">병원비</th>
           <th colspan="3" style="text-align:center;">약제비</th>
-          <th rowspan="2" class="num">보험금대상액</th>
+          <th rowspan="2" class="num">보험금<br>대상액</th>
           <th rowspan="2">구분</th>
           <th rowspan="2" class="name-cell">경위</th>
-          <th rowspan="2">신청구분</th>
+          <th rowspan="2">신청<br>구분</th>
           <th rowspan="2">보험신청일</th>
           <th rowspan="2">보험회사</th>
           <th rowspan="2">진행여부</th>
@@ -4646,10 +4646,10 @@ function renderInsurance() {
         </tr>
         <tr>
           <th>병원명</th>
-          <th class="num">본인부담금</th>
+          <th class="num">본인<br>부담금</th>
           <th class="num">비급여</th>
           <th>약국명</th>
-          <th class="num">본인부담금</th>
+          <th class="num">본인<br>부담금</th>
           <th class="num">비급여</th>
         </tr>
       </thead>
@@ -4657,10 +4657,10 @@ function renderInsurance() {
         ${rows.map(({ c, seq }) => {
           const isEditing = state._insPanelMode === 'inline' && state._insEditingId === c.id;
           return `<tr class="tx-row-clickable ${isEditing ? 'row-editing' : ''}" data-insid="${c.id}" onclick="onInsRowClick(event, '${c.id}')">
-            <td style="text-align:right;font-family:var(--mono);">${seq}</td>
+            <td style="text-align:center;font-family:var(--mono);">${seq}</td>
             <td class="name-cell">${escapeHtml(c.memo || '')}</td>
-            <td title="${escapeHtml(c.target || '')}">${escapeHtml(c.target || '')}</td>
-            <td>${escapeHtml(c.examDate || '')}</td>
+            <td style="text-align:center;" title="${escapeHtml(c.target || '')}">${escapeHtml(c.target || '')}</td>
+            <td style="text-align:center;">${escapeHtml(c.examDate || '')}</td>
             <td title="${escapeHtml(c.hospitalName || '')}">${escapeHtml(c.hospitalName || '')}</td>
             ${amtCell(c.hospitalCopay)}
             ${amtCell(c.hospitalNonCovered)}
@@ -4668,13 +4668,13 @@ function renderInsurance() {
             ${amtCell(c.pharmacyCopay)}
             ${amtCell(c.pharmacyNonCovered)}
             <td class="num">${insClaimableAmount(c).toLocaleString('ko-KR')}</td>
-            <td title="${escapeHtml(c.claimType || '')}">${escapeHtml(c.claimType || '')}</td>
+            <td style="text-align:center;" title="${escapeHtml(c.claimType || '')}">${escapeHtml(c.claimType || '')}</td>
             <td class="name-cell">${escapeHtml(c.reason || '')}</td>
-            <td>${escapeHtml(c.applyType || '')}</td>
-            <td>${escapeHtml(c.applyDate || '')}</td>
-            <td title="${escapeHtml(c.company || '')}">${escapeHtml(c.company || '')}</td>
+            <td style="text-align:center;">${escapeHtml(c.applyType || '')}</td>
+            <td style="text-align:center;">${escapeHtml(c.applyDate || '')}</td>
+            <td style="text-align:center;" title="${escapeHtml(c.company || '')}">${escapeHtml(c.company || '')}</td>
             <td title="${escapeHtml(c.progress || '')}">${escapeHtml(c.progress || '')}</td>
-            <td>${escapeHtml(c.receiveDate || '')}</td>
+            <td style="text-align:center;">${escapeHtml(c.receiveDate || '')}</td>
             ${amtCell(c.receivedAmount)}
             <td class="name-cell">${escapeHtml(c.note || '')}</td>
           </tr>`;
