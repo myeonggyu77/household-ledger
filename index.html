@@ -182,7 +182,7 @@
   .rec-list .overflow-x { border: 1px solid var(--line); border-radius: 12px; }
   #panel-recurring tbody td { padding: 7px 8px; }
   #panel-recurring thead th { padding: 6px 8px; }
-  #panel-insurance thead th { padding: 6px 8px; white-space: normal; text-align: center; font-family: var(--sans); background: #E9967A; }
+  #panel-insurance thead th { padding: 6px 8px; white-space: normal; text-align: center; font-family: var(--sans); background: #FFFACD; color: #000; }
   #panel-insurance thead tr:last-child th { top: 28px; z-index: 3; }
   #panel-insurance td.name-cell { white-space: pre-line; }
   #panel-insurance table { border-left: 1px solid #9a9a93; border-top: 1px solid #9a9a93; }
@@ -191,6 +191,10 @@
   #panel-insurance th.num, #panel-insurance td.num { min-width: 0; }
   #panel-insurance .overflow-x table { table-layout: fixed; width: 100%; min-width: 0; }
   #panel-insurance td, #panel-insurance th { overflow: hidden; text-overflow: ellipsis; }
+  #panel-insurance .toolbar { display: grid; grid-template-columns: 1fr auto 1fr; }
+  #panel-insurance .toolbar > .search-wrap { justify-self: start; }
+  #panel-insurance .toolbar > .primary-btn { justify-self: end; }
+  #panel-insurance .toolbar > .kpi-row { justify-self: center; display: flex; }
   .dp-pop { position: fixed; z-index: 10000; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 10px; width: 250px; }
   .dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
   .dp-head .dp-label { font-family: var(--mono); font-size: 13px; font-weight: 600; cursor: pointer; }
@@ -4673,7 +4677,7 @@ function renderInsurance() {
             <td style="text-align:center;">${escapeHtml(c.applyType || '')}</td>
             <td style="text-align:center;">${escapeHtml(c.applyDate || '')}</td>
             <td style="text-align:center;" title="${escapeHtml(c.company || '')}">${escapeHtml(c.company || '')}</td>
-            <td title="${escapeHtml(c.progress || '')}">${escapeHtml(c.progress || '')}</td>
+            <td style="text-align:center;" title="${escapeHtml(c.progress || '')}">${escapeHtml(c.progress || '')}</td>
             <td style="text-align:center;">${escapeHtml(c.receiveDate || '')}</td>
             ${amtCell(c.receivedAmount)}
             <td class="name-cell">${escapeHtml(c.note || '')}</td>
@@ -4681,6 +4685,16 @@ function renderInsurance() {
         }).join('')}
       </tbody>
     </table></div>` : `<div class="empty">${q ? '검색 결과가 없어요.' : '등록된 보험신청이 없어요.'}</div>`;
+  const claimTotal = rows.reduce((sum, { c }) => sum + insClaimableAmount(c), 0);
+  const receivedTotal = rows.reduce((sum, { c }) => sum + (Number(c.receivedAmount) || 0), 0);
+  const receiveRate = claimTotal ? (receivedTotal / claimTotal * 100).toFixed(1) : '0.0';
+  const summaryHtml = `
+    <div class="kpi-row" style="margin-bottom:0;">
+      <div class="kpi"><div class="lbl">보험금 청구액</div><div class="val">${won(claimTotal)}</div></div>
+      <div class="kpi"><div class="lbl">보험금 수령액</div><div class="val">${won(receivedTotal)}</div></div>
+      <div class="kpi"><div class="lbl">수령율</div><div class="val">${receiveRate}%</div></div>
+    </div>
+  `;
   document.getElementById('panel-insurance').innerHTML = `
     <div class="tx-split">
       <div class="tx-split-main">
@@ -4689,6 +4703,7 @@ function renderInsurance() {
             <input class="search-input" id="ins-f-q" placeholder="보험신청 전체 검색" value="${escapeHtml(state._insFilter.q)}" onkeydown="onInsSearchKeydown(event)" style="flex:1;min-width:0;">
             <button class="ghost-btn" onclick="runInsSearch()" style="flex-shrink:0;">검색</button>
           </div>
+          ${summaryHtml}
           <button class="primary-btn" onclick="openInsuranceModal()">+ 보험신청 추가</button>
         </div>
         <div class="form-note">${q ? `검색 결과 ${rows.length}건` : `전체 ${allItems.length}건`}</div>
