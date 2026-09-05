@@ -191,10 +191,11 @@
   #panel-insurance th.num, #panel-insurance td.num { min-width: 0; }
   #panel-insurance .overflow-x table { table-layout: fixed; width: 100%; min-width: 0; }
   #panel-insurance td, #panel-insurance th { overflow: hidden; text-overflow: ellipsis; }
-  #panel-insurance .toolbar { display: grid; grid-template-columns: 1fr auto 1fr; }
+  #panel-insurance .toolbar { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(0, 1060px) minmax(150px, 1fr); }
   #panel-insurance .toolbar > .search-wrap { justify-self: start; }
   #panel-insurance .toolbar > .primary-btn { justify-self: end; }
-  #panel-insurance .toolbar > .kpi-row { justify-self: center; display: flex; }
+  #panel-insurance .toolbar > .kpi-row { justify-self: center; display: flex; width: 100%; }
+  #panel-insurance .toolbar > .kpi-row .kpi { flex: 1; }
   .dp-pop { position: fixed; z-index: 10000; background: var(--paper-raised); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.22); padding: 10px; width: 250px; }
   .dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
   .dp-head .dp-label { font-family: var(--mono); font-size: 13px; font-weight: 600; cursor: pointer; }
