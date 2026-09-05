@@ -715,7 +715,9 @@ function defaultData() {
   const insTargets = ['아빠', '엄마', '현승'].map((name) => ({ id: uid(), name }));
   const insTypes = ['사고', '질병', '교통'].map((name) => ({ id: uid(), name }));
   const insCompanies = ['교보생명', '동부생명', '현대해상', 'DB손해', 'KB손해'].map((name) => ({ id: uid(), name }));
-  return { version: 1, categorySchema: 2, categoryTreeVersion: CATEGORY_TREE_VERSION, accounts, categories, transactions: [], budgets: {}, periodBudgets: [], recurring: [], holidays: [], payees: [], vendors: [], insuranceClaims: [], insTargets, insTypes, insCompanies, todoLists, todos: [], settings: { usdKrwRate: null, rateUpdatedAt: null } };
+  const insApplyTypes = ['신규', '추가'].map((name) => ({ id: uid(), name }));
+  const insProgresses = ['진행중', '보상완료'].map((name) => ({ id: uid(), name }));
+  return { version: 1, categorySchema: 2, categoryTreeVersion: CATEGORY_TREE_VERSION, accounts, categories, transactions: [], budgets: {}, periodBudgets: [], recurring: [], holidays: [], payees: [], vendors: [], insuranceClaims: [], insTargets, insTypes, insCompanies, insApplyTypes, insProgresses, todoLists, todos: [], settings: { usdKrwRate: null, rateUpdatedAt: null } };
 }
 
 /* 구버전(대/소분류 구분 없는 평평한 카테고리) 데이터를 대분류 트리 밑으로 옮겨요.
@@ -961,6 +963,15 @@ function migrateSeedInsuranceTagLists(d) {
   d.settings.insuranceTagListsSeeded = true;
   return d;
 }
+/* 신청구분(신규/추가)·진행여부(진행중/보상완료) 목록에 기본값을 한 번만 채워요(추가 기능, 기존 사용자용). */
+function migrateSeedInsuranceExtraTagLists(d) {
+  d.settings = d.settings || {};
+  if (d.settings.insuranceExtraTagListsSeeded) return d;
+  if (!d.insApplyTypes.length) d.insApplyTypes = ['신규', '추가'].map((name) => ({ id: uid(), name }));
+  if (!d.insProgresses.length) d.insProgresses = ['진행중', '보상완료'].map((name) => ({ id: uid(), name }));
+  d.settings.insuranceExtraTagListsSeeded = true;
+  return d;
+}
 function loadData() {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -978,6 +989,8 @@ function loadData() {
     d.insTargets = Array.isArray(d.insTargets) ? d.insTargets : [];
     d.insTypes = Array.isArray(d.insTypes) ? d.insTypes : [];
     d.insCompanies = Array.isArray(d.insCompanies) ? d.insCompanies : [];
+    d.insApplyTypes = Array.isArray(d.insApplyTypes) ? d.insApplyTypes : [];
+    d.insProgresses = Array.isArray(d.insProgresses) ? d.insProgresses : [];
     d.settings = d.settings || { usdKrwRate: null, rateUpdatedAt: null };
     d = migrateCategoriesToHierarchy(d);
     d = migrateAccountTypes(d);
@@ -992,6 +1005,7 @@ function loadData() {
     d = migrateTossBankDefaultPayee(d);
     d = migratePayeeVendorRegistry(d);
     d = migrateSeedInsuranceTagLists(d);
+    d = migrateSeedInsuranceExtraTagLists(d);
     return d;
   } catch (e) { console.error(e); return defaultData(); }
 }
@@ -1614,11 +1628,12 @@ function closeMonthPicker() {
 /* ---------------- 적용대상/거래처/보험신청 태그(대상·구분·보험회사) 관리 목록 ----------------
    payee/vendor는 거래·정기거래 필드가 값 하나를 그대로 담고, insTarget/insType/insCompany는
    보험신청 필드가 쉼표(,)로 여러 값을 담을 수 있어 사용횟수 집계·이름변경 시 토큰 단위로 다뤄요. */
-const TAG_KIND_STORE = { payee: 'payees', vendor: 'vendors', insTarget: 'insTargets', insType: 'insTypes', insCompany: 'insCompanies' };
-const TAG_KIND_LABEL = { payee: '적용대상', vendor: '거래처', insTarget: '대상', insType: '구분', insCompany: '보험회사' };
-const TAG_KIND_MULTI = { insTarget: true, insType: true, insCompany: true };
+const TAG_KIND_STORE = { payee: 'payees', vendor: 'vendors', insTarget: 'insTargets', insType: 'insTypes', insCompany: 'insCompanies', insApplyType: 'insApplyTypes', insProgress: 'insProgresses' };
+const TAG_KIND_LABEL = { payee: '적용대상', vendor: '거래처', insTarget: '대상', insType: '구분', insCompany: '보험회사', insApplyType: '신청구분', insProgress: '진행여부' };
+const TAG_KIND_MULTI = { insTarget: true, insType: true, insCompany: true, insApplyType: true, insProgress: true };
+const INS_CLAIM_FIELD_BY_KIND = { insTarget: 'target', insType: 'claimType', insCompany: 'company', insApplyType: 'applyType', insProgress: 'progress' };
 function tagNameTokens(value) { return String(value || '').split(',').map((s) => s.trim()).filter(Boolean); }
-function insuranceClaimFieldForKind(kind) { return kind === 'insTarget' ? 'target' : kind === 'insType' ? 'claimType' : 'company'; }
+function insuranceClaimFieldForKind(kind) { return INS_CLAIM_FIELD_BY_KIND[kind]; }
 function registerPayeeIfNew(name) {
   if (!name) return;
   DATA.payees = DATA.payees || [];
@@ -1676,7 +1691,7 @@ function payeeVendorChipsHtml(kind, q) {
     </div>`;
   }).join('');
 }
-const TAG_KIND_ADD_PLACEHOLDER = { payee: '아빠', vendor: '스타벅스', insTarget: '아빠', insType: '사고', insCompany: '교보생명' };
+const TAG_KIND_ADD_PLACEHOLDER = { payee: '아빠', vendor: '스타벅스', insTarget: '아빠', insType: '사고', insCompany: '교보생명', insApplyType: '신규', insProgress: '진행중' };
 function openPayeeVendorAddModal(kind) {
   const label = payeeVendorLabel(kind);
   openModal(`
@@ -4551,14 +4566,25 @@ function insClaimableAmount(c) {
   return (Number(c.hospitalCopay) || 0) - (Number(c.hospitalNonCovered) || 0) + (Number(c.pharmacyCopay) || 0) - (Number(c.pharmacyNonCovered) || 0);
 }
 function insSearchText(c) {
-  return [c.memo, c.target, c.hospitalName, c.pharmacyName, c.claimType, c.reason, c.applyType, c.company, c.note].filter(Boolean).join(' ').toLowerCase();
+  return [c.memo, c.target, c.hospitalName, c.pharmacyName, c.claimType, c.reason, c.applyType, c.company, c.progress, c.note].filter(Boolean).join(' ').toLowerCase();
+}
+/* 보험신청일이 늦은(최신) 순으로 정렬하고, 보험신청일을 아직 입력하지 않은 항목은 맨 뒤로 보내요. */
+function compareInsByApplyDate(a, b) {
+  const ad = a.c.applyDate || '';
+  const bd = b.c.applyDate || '';
+  if (!ad && !bd) return 0;
+  if (!ad) return 1;
+  if (!bd) return -1;
+  return bd.localeCompare(ad);
 }
 function renderInsurance() {
   state._insPanelMode = null;
   state._insFilter = state._insFilter || { q: '' };
   const q = (state._insFilter.q || '').trim().toLowerCase();
   const allItems = DATA.insuranceClaims;
-  const rows = allItems.map((c, i) => ({ c, seq: i + 1 })).filter(({ c }) => !q || insSearchText(c).includes(q));
+  const rows = allItems.map((c, i) => ({ c, seq: i + 1 }))
+    .filter(({ c }) => !q || insSearchText(c).includes(q))
+    .sort(compareInsByApplyDate);
   const amtCell = (n) => n ? `<td class="num">${Number(n).toLocaleString('ko-KR')}</td>` : `<td class="num"></td>`;
   const colHtml = rows.length ? `<div class="overflow-x"><table>
       <thead>
@@ -4575,6 +4601,7 @@ function renderInsurance() {
           <th rowspan="2" style="width:90px;">신청구분</th>
           <th rowspan="2" style="width:88px;">보험신청일</th>
           <th rowspan="2" style="width:120px;">보험회사</th>
+          <th rowspan="2" style="width:90px;">진행여부</th>
           <th rowspan="2" style="width:88px;">보험수령일</th>
           <th rowspan="2" class="num">수령금액</th>
           <th rowspan="2" class="name-cell">비고</th>
@@ -4609,6 +4636,7 @@ function renderInsurance() {
             <td>${escapeHtml(c.applyType || '')}</td>
             <td>${escapeHtml(c.applyDate || '')}</td>
             <td title="${escapeHtml(c.company || '')}">${escapeHtml(c.company || '')}</td>
+            <td title="${escapeHtml(c.progress || '')}">${escapeHtml(c.progress || '')}</td>
             <td>${escapeHtml(c.receiveDate || '')}</td>
             ${amtCell(c.receivedAmount)}
             <td class="name-cell">${escapeHtml(c.note || '')}</td>
@@ -4727,11 +4755,18 @@ function openInsuranceModal(id) {
       <input type="text" id="ins-claim-type" autocomplete="off" placeholder="예: 사고, 질병, 교통" value="${escapeHtml(g('claimType'))}" onfocus="openVendorSuggest(this, 'insType', 'ins-reason')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="closeVendorSuggest()">
     </div>
     <div class="field"><label class="field-lbl">경위</label><textarea id="ins-reason" rows="2" style="min-height:34px;padding:8px 9px;resize:vertical;">${escapeHtml(g('reason'))}</textarea></div>
-    <div class="field"><label class="field-lbl">신청구분</label><input type="text" id="ins-apply-type" value="${escapeHtml(g('applyType'))}"></div>
+    <div class="field">
+      <label class="field-lbl">신청구분</label>
+      <input type="text" id="ins-apply-type" autocomplete="off" placeholder="예: 신규, 추가" value="${escapeHtml(g('applyType'))}" onfocus="openVendorSuggest(this, 'insApplyType', 'ins-apply-date')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="closeVendorSuggest()">
+    </div>
     <div class="field"><label class="field-lbl">보험신청일</label><input type="text" class="date-field" id="ins-apply-date" value="${escapeHtml(g('applyDate'))}" readonly></div>
     <div class="field">
       <label class="field-lbl">보험회사</label>
-      <input type="text" id="ins-company" autocomplete="off" placeholder="예: 교보생명, 동부생명" value="${escapeHtml(g('company'))}" onfocus="openVendorSuggest(this, 'insCompany', 'ins-receive-date')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="closeVendorSuggest()">
+      <input type="text" id="ins-company" autocomplete="off" placeholder="예: 교보생명, 동부생명" value="${escapeHtml(g('company'))}" onfocus="openVendorSuggest(this, 'insCompany', 'ins-progress')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="closeVendorSuggest()">
+    </div>
+    <div class="field">
+      <label class="field-lbl">진행여부</label>
+      <input type="text" id="ins-progress" autocomplete="off" placeholder="예: 진행중, 보상완료" value="${escapeHtml(g('progress'))}" onfocus="openVendorSuggest(this, 'insProgress', 'ins-receive-date')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="closeVendorSuggest()">
     </div>
     <div class="field"><label class="field-lbl">보험수령일</label><input type="text" class="date-field" id="ins-receive-date" value="${escapeHtml(g('receiveDate'))}" readonly></div>
     <div class="field"><label class="field-lbl">수령금액</label><input type="text" inputmode="numeric" autocomplete="off" id="ins-received-amount" oninput="formatAmountInput(this)" value="${amtStr(g('receivedAmount'))}"></div>
@@ -4752,7 +4787,9 @@ function submitInsurance(editId) {
   if (!memo) return showToast('메모를 입력해주세요.', 'error');
   const target = document.getElementById('ins-target').value.trim();
   const claimType = document.getElementById('ins-claim-type').value.trim();
+  const applyType = document.getElementById('ins-apply-type').value.trim();
   const company = document.getElementById('ins-company').value.trim();
+  const progress = document.getElementById('ins-progress').value.trim();
   const payload = {
     memo,
     target,
@@ -4765,9 +4802,10 @@ function submitInsurance(editId) {
     pharmacyNonCovered: rawAmount(document.getElementById('ins-pharmacy-noncovered')),
     claimType,
     reason: document.getElementById('ins-reason').value.trim(),
-    applyType: document.getElementById('ins-apply-type').value.trim(),
+    applyType,
     applyDate: document.getElementById('ins-apply-date').value,
     company,
+    progress,
     receiveDate: document.getElementById('ins-receive-date').value,
     receivedAmount: rawAmount(document.getElementById('ins-received-amount')),
     note: document.getElementById('ins-note').value.trim(),
@@ -4780,7 +4818,9 @@ function submitInsurance(editId) {
   }
   registerInsTagIfNew('insTarget', target);
   registerInsTagIfNew('insType', claimType);
+  registerInsTagIfNew('insApplyType', applyType);
   registerInsTagIfNew('insCompany', company);
+  registerInsTagIfNew('insProgress', progress);
   saveData();
   closeInsPanel();
   showToast(editId ? '보험신청 내역을 수정했어요.' : '보험신청 내역을 추가했어요.', 'success');
@@ -4931,22 +4971,26 @@ function renderSettings() {
       </div>
     </div>
     <div class="section-block">
-      <div class="section-heading">보험신청 대상/구분/보험회사 관리
-        <span style="display:flex;gap:6px;">
+      <div class="section-heading">보험신청 필드 목록 관리
+        <span style="display:flex;gap:6px;flex-wrap:wrap;">
           <button class="ghost-btn" onclick="openPayeeVendorAddModal('insTarget')">+ 대상 추가</button>
           <button class="ghost-btn" onclick="openPayeeVendorAddModal('insType')">+ 구분 추가</button>
+          <button class="ghost-btn" onclick="openPayeeVendorAddModal('insApplyType')">+ 신청구분 추가</button>
           <button class="ghost-btn" onclick="openPayeeVendorAddModal('insCompany')">+ 보험회사 추가</button>
+          <button class="ghost-btn" onclick="openPayeeVendorAddModal('insProgress')">+ 진행여부 추가</button>
         </span>
       </div>
       <div class="form-note">여기 등록해두면 보험신청 추가 시 검색 목록에 바로 나타나고, 이름을 바꾸면 기존 보험신청에도 함께 반영돼요. 등록하지 않아도 보험신청에 입력한 값은 자동으로 이 목록에 추가돼요.</div>
       <div class="search-wrap" style="max-width:320px;display:flex;gap:6px;margin:10px 0;">
-        <input class="search-input" id="pv-ins-f-q" placeholder="대상/구분/보험회사 검색" value="${escapeHtml(state._pvInsFilter.q)}" onkeydown="onPvInsSearchKeydown(event)" style="flex:1;min-width:0;">
+        <input class="search-input" id="pv-ins-f-q" placeholder="대상/구분/신청구분/보험회사/진행여부 검색" value="${escapeHtml(state._pvInsFilter.q)}" onkeydown="onPvInsSearchKeydown(event)" style="flex:1;min-width:0;">
         <button class="ghost-btn" onclick="runPvInsSearch()" style="flex-shrink:0;">검색</button>
       </div>
       <div class="cat-manage-grid">
         <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">대상</h4>${payeeVendorChipsHtml('insTarget', pvInsQ)}</div>
         <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">구분</h4>${payeeVendorChipsHtml('insType', pvInsQ)}</div>
+        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">신청구분</h4>${payeeVendorChipsHtml('insApplyType', pvInsQ)}</div>
         <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">보험회사</h4>${payeeVendorChipsHtml('insCompany', pvInsQ)}</div>
+        <div><h4 style="font-size:12px;color:var(--ink-faint);margin:0 0 8px;">진행여부</h4>${payeeVendorChipsHtml('insProgress', pvInsQ)}</div>
       </div>
     </div>
     <div class="section-block">
