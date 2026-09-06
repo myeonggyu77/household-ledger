@@ -3142,31 +3142,25 @@ async function openReceiptLightboxForTx(id) {
   state._txReceiptsView = receiptIds.map((rid, i) => ({ name: metas[i].name, mime: metas[i].mime, url: dataUrls[i] }));
   const found = state._txReceiptsView.filter(d => d.url);
   if (!found.length) return showToast('이 기기에서는 첨부 파일을 찾을 수 없어요.', 'error');
-  const singleIdx = found.length === 1 ? state._txReceiptsView.findIndex(d => d.url) : -1;
+  let dlNum = 0;
+  const downloadBtnsHtml = state._txReceiptsView.map((d, i) => {
+    if (!d.url) return '';
+    dlNum++;
+    const label = found.length > 1 ? `다운로드${dlNum}` : '다운로드';
+    return `<button class="ghost-btn" onclick="downloadTxReceiptViewAt(${i})">${label}</button>`;
+  }).join('');
   openModal(`
     <h3>영수증/서류 ${found.length > 1 ? `(${found.length}건)` : ''}</h3>
     <div style="overflow-y:auto;max-height:65vh;display:flex;flex-direction:column;gap:10px;">
-      ${state._txReceiptsView.map((d, i) => {
+      ${state._txReceiptsView.map((d) => {
         if (!d.url) return '';
-        if (singleIdx >= 0) {
-          return d.mime === 'application/pdf'
-            ? `<div class="due-row"><div class="due-main" style="display:flex;align-items:center;gap:8px;min-width:0;">📄<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(d.name || 'PDF')}</span></div></div>`
-            : `<img src="${d.url}" style="width:100%;display:block;border-radius:12px;" alt="영수증">`;
-        }
-        if (d.mime === 'application/pdf') {
-          return `<div class="due-row">
-            <div class="due-main" style="display:flex;align-items:center;gap:8px;min-width:0;">📄<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(d.name || 'PDF')}</span></div>
-            <button class="ghost-btn" onclick="downloadTxReceiptViewAt(${i})">다운로드</button>
-          </div>`;
-        }
-        return `<div style="position:relative;">
-          <img src="${d.url}" style="width:100%;display:block;border-radius:12px;" alt="영수증">
-          <button class="ghost-btn" style="position:absolute;top:8px;right:8px;" onclick="downloadTxReceiptViewAt(${i})">다운로드</button>
-        </div>`;
+        return d.mime === 'application/pdf'
+          ? `<div class="due-row"><div class="due-main" style="display:flex;align-items:center;gap:8px;min-width:0;">📄<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(d.name || 'PDF')}</span></div></div>`
+          : `<img src="${d.url}" style="width:100%;display:block;border-radius:12px;" alt="영수증">`;
       }).join('')}
     </div>
-    <div class="form-actions">
-      ${singleIdx >= 0 ? `<button class="ghost-btn" onclick="downloadTxReceiptViewAt(${singleIdx})">다운로드</button>` : ''}
+    <div class="form-actions" style="flex-wrap:wrap;">
+      ${downloadBtnsHtml}
       <button class="ghost-btn" onclick="closeModal()">닫기</button>
     </div>
   `);
