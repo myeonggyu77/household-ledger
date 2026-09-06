@@ -4885,11 +4885,14 @@ function renderInsurance() {
     </table></div>` : `<div class="empty">${q ? '검색 결과가 없어요.' : '등록된 보험신청이 없어요.'}</div>`;
   const claimTotal = rows.reduce((sum, { c }) => sum + insClaimableAmount(c), 0);
   const receivedTotal = rows.reduce((sum, { c }) => sum + (Number(c.receivedAmount) || 0), 0);
+  const diffTotal = claimTotal - receivedTotal;
+  const diffColor = diffTotal > 0 ? '#a32d2d' : diffTotal < 0 ? '#2a78d6' : 'inherit';
   const receiveRate = claimTotal ? (receivedTotal / claimTotal * 100).toFixed(1) : '0.0';
   const summaryHtml = `
     <div class="kpi-row" style="margin-bottom:0;">
       <div class="kpi"><div class="lbl">보험금 청구액</div><div class="val">${won(claimTotal)}</div></div>
       <div class="kpi"><div class="lbl">보험금 수령액</div><div class="val">${won(receivedTotal)}</div></div>
+      <div class="kpi"><div class="lbl">차액</div><div class="val" style="color:${diffColor};">${won(diffTotal)}</div></div>
       <div class="kpi"><div class="lbl">수령율</div><div class="val">${receiveRate}%</div></div>
     </div>
   `;
