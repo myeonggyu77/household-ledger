@@ -191,6 +191,7 @@
   #panel-recurring tbody td { padding: 7px 8px; }
   #panel-recurring thead th { padding: 6px 8px; }
   #panel-insurance thead th { padding: 6px 8px; white-space: normal; text-align: center; font-family: var(--sans); background: #FFFACD; color: #000; }
+  #panel-insurance tbody tr.ins-row-done { background: #DDDDDD; }
   #panel-insurance thead tr:last-child th { top: 28px; z-index: 3; }
   #panel-insurance td.name-cell { white-space: pre-line; }
   #panel-insurance table { border-left: 1px solid #9a9a93; border-top: 1px solid #9a9a93; }
@@ -4782,6 +4783,17 @@ function compareInsByApplyDate(a, b) {
   if (!bd) return -1;
   return bd.localeCompare(ad);
 }
+const INS_PROGRESS_SORT_RANK = { '진행중': 0, '보상완료': 1 };
+function insProgressSortRank(progress) {
+  if (!progress) return 3;
+  if (progress in INS_PROGRESS_SORT_RANK) return INS_PROGRESS_SORT_RANK[progress];
+  return 2;
+}
+function compareInsByProgressThenApplyDate(a, b) {
+  const rankDiff = insProgressSortRank(a.c.progress) - insProgressSortRank(b.c.progress);
+  if (rankDiff !== 0) return rankDiff;
+  return compareInsByApplyDate(a, b);
+}
 function renderInsurance() {
   state._insPanelMode = null;
   state._insFilter = state._insFilter || { q: '' };
@@ -4790,7 +4802,7 @@ function renderInsurance() {
   const allItems = DATA.insuranceClaims;
   const rows = allItems.map((c, i) => ({ c, seq: i + 1 }))
     .filter(({ c }) => !q || insSearchText(c).includes(q))
-    .sort(compareInsByApplyDate);
+    .sort(compareInsByProgressThenApplyDate);
   const amtCell = (n) => n ? `<td class="num">${Number(n).toLocaleString('ko-KR')}</td>` : `<td class="num"></td>`;
   const colHtml = rows.length ? `<div class="overflow-x"><table>
       <colgroup>
@@ -4846,7 +4858,7 @@ function renderInsurance() {
       <tbody>
         ${rows.map(({ c, seq }) => {
           const isEditing = state._insPanelMode === 'inline' && state._insEditingId === c.id;
-          return `<tr class="tx-row-clickable ${isEditing ? 'row-editing' : ''}" data-insid="${c.id}" onclick="onInsRowClick(event, '${c.id}')">
+          return `<tr class="tx-row-clickable ${isEditing ? 'row-editing' : ''} ${c.progress === '보상완료' ? 'ins-row-done' : ''}" data-insid="${c.id}" onclick="onInsRowClick(event, '${c.id}')">
             <td style="text-align:center;font-family:var(--mono);">${seq}</td>
             <td class="name-cell">${escapeHtml(c.memo || '')}${insDocBadge(c)}</td>
             <td style="text-align:center;" title="${escapeHtml(c.target || '')}">${escapeHtml(c.target || '')}</td>
