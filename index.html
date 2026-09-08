@@ -198,7 +198,7 @@
   #panel-insurance th, #panel-insurance td { border-right: 1px solid #a5a5a0; }
   #panel-insurance tbody td { border-bottom: 2px solid #a5a5a0; }
   #panel-insurance th.num, #panel-insurance td.num { min-width: 0; }
-  #panel-insurance .overflow-x table { table-layout: fixed; width: 100%; min-width: 0; }
+  #panel-insurance .overflow-x table { table-layout: fixed; width: auto; min-width: 0; }
   #panel-insurance td, #panel-insurance th { overflow: hidden; text-overflow: ellipsis; }
   #panel-insurance .toolbar { display: grid; grid-template-columns: minmax(200px, 1fr) minmax(0, 1060px) minmax(150px, 1fr); }
   #panel-insurance .toolbar > .search-wrap { justify-self: start; }
@@ -4806,26 +4806,26 @@ function renderInsurance() {
   const amtCell = (n) => n ? `<td class="num">${Number(n).toLocaleString('ko-KR')}</td>` : `<td class="num"></td>`;
   const colHtml = rows.length ? `<div class="overflow-x"><table>
       <colgroup>
-        <col style="width:2.3%;">
-        <col style="width:10%;">
-        <col style="width:2.3%;">
-        <col style="width:4.5%;">
-        <col style="width:6.5%;">
-        <col style="width:3.7%;">
-        <col style="width:3.7%;">
-        <col style="width:6.5%;">
-        <col style="width:3.7%;">
-        <col style="width:3.7%;">
-        <col style="width:3.7%;">
-        <col style="width:2.3%;">
-        <col style="width:12%;">
-        <col style="width:2.4%;">
-        <col style="width:4.5%;">
-        <col style="width:4%;">
-        <col style="width:4%;">
-        <col style="width:4.5%;">
-        <col style="width:3.7%;">
-        <col style="width:12%;">
+        <col style="width:34px;">
+        <col style="width:148px;">
+        <col style="width:34px;">
+        <col style="width:66px;">
+        <col style="width:96px;">
+        <col style="width:55px;">
+        <col style="width:55px;">
+        <col style="width:96px;">
+        <col style="width:55px;">
+        <col style="width:55px;">
+        <col style="width:55px;">
+        <col style="width:34px;">
+        <col style="width:177px;">
+        <col style="width:35px;">
+        <col style="width:66px;">
+        <col style="width:59px;">
+        <col style="width:59px;">
+        <col style="width:66px;">
+        <col style="width:55px;">
+        <col style="width:177px;">
       </colgroup>
       <thead>
         <tr>
