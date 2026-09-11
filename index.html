@@ -293,19 +293,6 @@
   .legend-row { display: flex; gap: 16px; font-size: 12px; color: var(--ink-soft); margin-bottom: 14px; }
   .legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 4px; margin-right: 5px; vertical-align: 1px; }
 
-  .budget-item { padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
-  .budget-group { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px; overflow: hidden; }
-  .budget-group summary { list-style: none; cursor: pointer; padding: 10px 12px; background: var(--line-soft); font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .budget-group summary::-webkit-details-marker { display: none; }
-  .budget-group .budget-group-meta { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 400; color: var(--ink-faint); }
-  .budget-group .budget-group-meta::after { content: '▸'; transition: transform 0.15s; }
-  .budget-group[open] .budget-group-meta::after { transform: rotate(90deg); }
-  .budget-group .budget-item { padding: 12px; }
-  .budget-group .budget-item:last-child { border-bottom: none; }
-  .budget-item .budget-head { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; gap: 8px; }
-  .budget-item .budget-head .left { display: flex; align-items: center; gap: 6px; }
-  .budget-item .budget-track { height: 10px; background: var(--line-soft); border-radius: 10px; overflow: hidden; }
-  .budget-item .budget-fill { height: 100%; border-radius: 10px; }
   .due-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
   .due-row:last-child { border-bottom: none; }
   .due-row .due-main { min-width: 0; }
@@ -313,14 +300,10 @@
   .due-row .due-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
   .due-row .due-amt { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
   .badge-done { font-size: 11px; color: var(--ink-faint); font-family: var(--mono); }
-  .budget-fill.ok { background: var(--status-good); }
-  .budget-fill.warn { background: var(--status-warn); }
-  .budget-fill.over { background: var(--status-crit); }
   .budget-pct-tag { font-family: var(--mono); font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 6px; }
   .budget-pct-tag.ok { color: var(--status-good); background: #eaf7ea; }
   .budget-pct-tag.warn { color: var(--status-warn); background: #fbf0e0; }
   .budget-pct-tag.over { color: var(--status-crit); background: var(--down-soft); }
-  .budget-edit-input { width: 110px; height: 28px; font-size: 12px; display: inline-block; }
 
   .acct-master-detail { display: flex; gap: 16px; align-items: flex-start; }
   .acct-list-pane { width: 260px; flex-shrink: 0; }
@@ -389,8 +372,6 @@
     .stats-chart-col { flex: 0 0 300px; }
     .stats-legend-col { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 16px; align-content: start; }
     .stats-legend-col .pie-legend-row { min-width: 0; }
-    .budget-3col { display: flex; gap: 24px; align-items: flex-start; }
-    .budget-col { flex: 1; min-width: 0; }
   }
 
   .cat-manage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 24px; }
@@ -443,7 +424,6 @@
     <button class="tab" data-tab="calendar"><i>📅</i><span>달력</span></button>
     <button class="tab" data-tab="transactions"><i>📋</i><span>내역</span></button>
     <button class="tab" data-tab="stats"><i>📊</i><span>통계</span></button>
-    <button class="tab" data-tab="budget"><i>💰</i><span>예산</span></button>
     <button class="tab" data-tab="accounts"><i>🏦</i><span>자산</span></button>
     <button class="tab" data-tab="recurring"><i>🔁</i><span>정기거래</span></button>
     <button class="tab" data-tab="insurance"><i>🏥</i><span>보험신청</span></button>
@@ -458,7 +438,6 @@
     <div class="panel" id="panel-calendar"></div>
     <div class="panel" id="panel-transactions"></div>
     <div class="panel" id="panel-stats"></div>
-    <div class="panel" id="panel-budget"></div>
     <div class="panel" id="panel-accounts"></div>
     <div class="panel" id="panel-recurring"></div>
     <div class="panel" id="panel-insurance"></div>
@@ -2135,7 +2114,6 @@ function renderPanel() {
     case 'calendar': renderCalendar(); break;
     case 'transactions': renderTransactions(); break;
     case 'stats': renderStats(); break;
-    case 'budget': renderBudget(); break;
     case 'accounts': renderAccounts(); break;
     case 'recurring': renderRecurring(); break;
     case 'insurance': renderInsurance(); break;
@@ -2433,7 +2411,7 @@ function receiptBadge(t) {
 }
 function excludeFromStatsBadge(t) {
   if (!t.excludeFromStats) return '';
-  return ' <input type="checkbox" checked disabled title="통계/예산 계산에서 제외" style="accent-color:#2a78d6;width:13px;height:13px;vertical-align:middle;">';
+  return ' <input type="checkbox" checked disabled title="통계 계산에서 제외" style="accent-color:#2a78d6;width:13px;height:13px;vertical-align:middle;">';
 }
 function txSearchText(t) {
   const acc = getAccount(t.accountId);
@@ -2753,13 +2731,12 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
       return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}" ${presetCat === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
     }).join('');
     catField.innerHTML = `<label class="field-lbl">카테고리</label>
-      <select id="tx-category" onchange="renderBudgetQuickRow()" style="display:none;">${groups}</select>
-      <input type="text" class="cat-field" id="tx-category-display" autocomplete="off" placeholder="카테고리 선택" onfocus="this.select(); openCategoryPicker(this)" oninput="onCategoryInput(this)" onkeydown="onCategoryKeydown(event)" onblur="closeCategoryPicker()">
-      <div id="budget-quick-row" style="margin-top:6px;"></div>`;
+      <select id="tx-category" style="display:none;">${groups}</select>
+      <input type="text" class="cat-field" id="tx-category-display" autocomplete="off" placeholder="카테고리 선택" onfocus="this.select(); openCategoryPicker(this)" oninput="onCategoryInput(this)" onkeydown="onCategoryKeydown(event)" onblur="closeCategoryPicker()">`;
     syncCategoryDisplay();
     accField.innerHTML = `<label class="field-lbl">${type === 'income' ? '입금 자산' : '지출 자산'}</label><select id="tx-account" onchange="updateTxAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
     toAccField.innerHTML = '';
-    excludeField.innerHTML = `<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);"><input type="checkbox" id="tx-exclude" style="width:15px;height:15px;" ${presetExclude ? 'checked' : ''}> 통계/예산 계산에서 제외 (예: 환급받은 금액)</label>`;
+    excludeField.innerHTML = `<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-soft);"><input type="checkbox" id="tx-exclude" style="width:15px;height:15px;" ${presetExclude ? 'checked' : ''}> 통계 계산에서 제외 (예: 환급받은 금액)</label>`;
     if (type === 'expense') {
       receiptField.innerHTML = `<label class="field-lbl">영수증/서류 (사진·PDF)</label>
         <input type="file" id="tx-receipt-camera" accept="image/*" capture="environment" style="display:none" onchange="onReceiptFileChange(this)">
@@ -2780,7 +2757,6 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     } else {
       loanField.innerHTML = '';
     }
-    renderBudgetQuickRow();
   }
   vendorField.innerHTML = `<label class="field-lbl">적용대상</label>
     <input type="text" id="tx-payee" autocomplete="off" placeholder="예: 아빠, 엄마, 회사" value="${escapeHtml(presetPayee || '')}" onfocus="openVendorSuggest(this, 'payee', 'tx-vendor')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="closeVendorSuggest()" style="margin-bottom:8px;">
@@ -2796,42 +2772,6 @@ function currentTxCurrency() {
 function updateTxAmountCurrencyBadge() {
   const badge = document.getElementById('tx-amount-currency');
   if (badge) badge.textContent = currentTxCurrency() === 'USD' ? '(USD $)' : '(KRW ₩)';
-}
-function renderBudgetQuickRow() {
-  const row = document.getElementById('budget-quick-row');
-  if (!row) return;
-  const sel = document.getElementById('tx-category');
-  const catId = sel ? sel.value : null;
-  if (!catId) { row.innerHTML = ''; return; }
-  const isIncome = getCategory(catId).type === 'income';
-  const label = isIncome ? '목표' : '예산';
-  const budget = DATA.budgets[catId];
-  row.innerHTML = budget > 0
-    ? `<div class="form-note">이 카테고리 ${label} ${won(budget)} 설정됨 <button class="ghost-btn" style="font-size:11px;padding:3px 7px;margin-left:4px;" onclick="startBudgetQuickEdit()">수정</button></div>`
-    : `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="startBudgetQuickEdit()">+ ${label}편성 추가</button>`;
-}
-function startBudgetQuickEdit() {
-  const row = document.getElementById('budget-quick-row');
-  const sel = document.getElementById('tx-category');
-  if (!row || !sel) return;
-  const isIncome = getCategory(sel.value).type === 'income';
-  const current = DATA.budgets[sel.value] || 0;
-  row.innerHTML = `<div style="display:flex;gap:6px;">
-    <input type="text" inputmode="numeric" id="budget-quick-amount" placeholder="${isIncome ? '목표' : '예산'} 금액" value="${current ? current.toLocaleString('ko-KR') : ''}" oninput="formatAmountInput(this)" style="flex:1;">
-    <button class="ghost-btn" style="font-size:12px;padding:6px 10px;" onclick="saveBudgetQuickAmount()">저장</button>
-  </div>`;
-  document.getElementById('budget-quick-amount').focus();
-}
-function saveBudgetQuickAmount() {
-  const sel = document.getElementById('tx-category');
-  const el = document.getElementById('budget-quick-amount');
-  if (!sel || !el) return;
-  const isIncome = getCategory(sel.value).type === 'income';
-  const val = rawAmount(el);
-  if (val > 0) DATA.budgets[sel.value] = val; else delete DATA.budgets[sel.value];
-  saveData();
-  showToast(val > 0 ? `${isIncome ? '목표' : '예산'}을 등록했어요.` : `${isIncome ? '목표' : '예산'}을 삭제했어요.`, 'success');
-  renderBudgetQuickRow();
 }
 function onAmountInputDynamic(el) {
   formatCurrencyAmountInput(el, currentTxCurrency());
@@ -3532,223 +3472,6 @@ function setStatsType(t) { state.statsType = t; renderStats(); }
 function setStatsPeriod(p) { state.statsPeriod = p; renderStats(); }
 function setStatsGroupBy(g) { state.statsGroupBy = g; renderStats(); }
 
-/* ---------------- BUDGET ---------------- */
-function renderBudget() {
-  const mKey = state.month;
-  const expSpentMap = Object.fromEntries(categoryTotals(mKey, 'expense').map(c => [c.categoryId, c.amount]));
-  const incSpentMap = Object.fromEntries(categoryTotals(mKey, 'income').map(c => [c.categoryId, c.amount]));
-  const expenseCats = leafCategories('expense');
-  const incomeCats = leafCategories('income');
-
-  const expBudgeted = expenseCats.filter(c => (DATA.budgets[c.id] || 0) > 0);
-  const incBudgeted = incomeCats.filter(c => (DATA.budgets[c.id] || 0) > 0);
-
-  const totalBudget = expBudgeted.reduce((s, c) => s + (DATA.budgets[c.id] || 0), 0);
-  const totalSpent = expBudgeted.reduce((s, c) => s + (expSpentMap[c.id] || 0), 0);
-  const totalGoal = incBudgeted.reduce((s, c) => s + (DATA.budgets[c.id] || 0), 0);
-  const totalEarned = incBudgeted.reduce((s, c) => s + (incSpentMap[c.id] || 0), 0);
-
-  const rowHtml = (cat, spent, budget, isIncome) => {
-    const pct = budget ? Math.round(spent / budget * 100) : 0;
-    const cls = isIncome
-      ? (pct >= 100 ? 'ok' : pct >= 50 ? 'warn' : 'over')
-      : (pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok');
-    const remain = isIncome
-      ? (spent >= budget ? '목표 달성' : '남은 ' + won(budget - spent))
-      : '남은 ' + wonSigned(budget - spent);
-    return `<div class="budget-item">
-      <div class="budget-head">
-        <span class="left">${cat.icon} ${escapeHtml(cat.name)}</span>
-        <span style="display:flex;align-items:center;gap:8px;">
-          <span class="budget-pct-tag ${cls}">${pct}%</span>
-          <input type="text" class="budget-edit-input" inputmode="numeric" value="${budget ? budget.toLocaleString('ko-KR') : ''}" placeholder="${isIncome ? '목표 없음' : '예산 없음'}" oninput="formatAmountInput(this)" onchange="setBudget('${cat.id}', this)">
-        </span>
-      </div>
-      <div class="budget-track"><div class="budget-fill ${cls}" style="width:${Math.min(100, pct)}%"></div></div>
-      <div class="form-note" style="margin:6px 0 0;">${won(spent)} ${isIncome ? '달성' : '사용'}${budget ? ' / ' + won(budget) + (isIncome ? ' 목표 · ' + remain : ' · ' + remain) : ''}</div>
-    </div>`;
-  };
-  const groupListHtml = (type, spentMap, isIncome) => topCategories(type).map(p => {
-    const children = childCategories(p.id).filter(c => !(DATA.budgets[c.id] > 0));
-    if (!children.length) return '';
-    return `<details class="budget-group">
-      <summary><span class="cat-chip-name">${p.icon} ${escapeHtml(p.name)}</span><span class="budget-group-meta">${children.length}개</span></summary>
-      ${children.map(c => rowHtml(c, spentMap[c.id] || 0, 0, isIncome)).join('')}
-    </details>`;
-  }).join('');
-
-  document.getElementById('panel-budget').innerHTML = `
-    ${monthNavHtml('navMonth(-1)', 'navMonth(1)', mKey)}
-    <div class="budget-3col">
-      <div class="budget-col">
-        <div class="section-heading">지출 예산</div>
-        <div class="kpi-row" style="margin-bottom:20px;">
-          <div class="kpi"><div class="lbl">총 예산</div><div class="val">${won(totalBudget)}</div></div>
-          <div class="kpi"><div class="lbl">총 지출</div><div class="val expense">${won(totalSpent)}</div></div>
-          <div class="kpi"><div class="lbl">남은 예산</div><div class="val ${totalBudget - totalSpent >= 0 ? 'income' : 'expense'}">${wonSigned(totalBudget - totalSpent)}</div></div>
-        </div>
-        <div class="section-block">
-          <div class="section-heading">예산 설정된 카테고리</div>
-          ${expBudgeted.length ? expBudgeted.map(c => rowHtml(c, expSpentMap[c.id] || 0, DATA.budgets[c.id], false)).join('') : `<div class="empty">아직 예산을 설정하지 않았어요. 아래 목록에서 금액을 입력해보세요.</div>`}
-        </div>
-        <div class="section-block">
-          <div class="section-heading">예산 미설정 카테고리</div>
-          ${groupListHtml('expense', expSpentMap, false)}
-        </div>
-      </div>
-      <div class="budget-col">
-        <div class="section-heading">수입 목표</div>
-        <div class="kpi-row" style="margin-bottom:20px;">
-          <div class="kpi"><div class="lbl">총 수입 목표</div><div class="val">${won(totalGoal)}</div></div>
-          <div class="kpi"><div class="lbl">총 수입 실적</div><div class="val income">${won(totalEarned)}</div></div>
-          <div class="kpi"><div class="lbl">목표까지</div><div class="val ${totalEarned - totalGoal >= 0 ? 'income' : 'expense'}">${wonSigned(totalEarned - totalGoal)}</div></div>
-        </div>
-        <div class="section-block">
-          <div class="section-heading">수입 목표 설정된 카테고리</div>
-          ${incBudgeted.length ? incBudgeted.map(c => rowHtml(c, incSpentMap[c.id] || 0, DATA.budgets[c.id], true)).join('') : `<div class="empty">아직 수입 목표를 설정하지 않았어요. 아래 목록에서 금액을 입력해보세요.</div>`}
-        </div>
-        <div class="section-block">
-          <div class="section-heading">수입 목표 미설정 카테고리</div>
-          ${groupListHtml('income', incSpentMap, true)}
-        </div>
-      </div>
-      <div class="budget-col">
-        <div class="section-heading">기간제 예산</div>
-        ${renderPeriodBudgetSection()}
-      </div>
-    </div>
-  `;
-}
-function accountPeriodProgress(acc) {
-  if (!DATE_RANGE_TYPES.includes(acc.type) || !acc.startDate || !acc.endDate) return null;
-  if (acc.type === 'savings') {
-    const goal = Number(acc.goalAmount) || 0;
-    if (!goal) return null;
-    const current = Math.max(0, accountBalance(acc));
-    return { current, target: goal, pct: Math.min(100, Math.round(current / goal * 100)), label: '적립' };
-  }
-  const total = Math.abs(Number(acc.initialBalance) || 0);
-  if (!total) return null;
-  const remaining = Math.abs(accountBalance(acc));
-  const paid = Math.min(total, Math.max(0, total - remaining));
-  return { current: paid, target: total, pct: Math.min(100, Math.round(paid / total * 100)), label: '상환' };
-}
-function accountsWithPeriodProgress() {
-  return DATA.accounts.map(acc => ({ acc, progress: accountPeriodProgress(acc) })).filter(x => x.progress);
-}
-function periodBudgetSpent(pb) {
-  const [ey, em] = pb.endMonth.split('-').map(Number);
-  const start = pb.startMonth + '-01';
-  const end = pb.endMonth + '-' + pad2(daysInMonth(ey, em));
-  return DATA.transactions
-    .filter(t => t.categoryId === pb.categoryId && !t.excludeFromStats && t.date >= start && t.date <= end)
-    .reduce((s, t) => s + txAmountKRW(t), 0);
-}
-function renderPeriodBudgetSection() {
-  const accItems = accountsWithPeriodProgress();
-  const pbItems = DATA.periodBudgets || [];
-  const accCardHtml = ({ acc, progress }) => {
-    const cls = progress.pct >= 100 ? 'ok' : progress.pct >= 70 ? 'warn' : 'ok';
-    return `<div class="budget-item">
-      <div class="budget-head">
-        <span class="left">${acc.icon || ACC_TYPE_ICON[acc.type]} ${escapeHtml(acc.name)}</span>
-        <span class="budget-pct-tag ${cls}">${progress.pct}%</span>
-      </div>
-      <div class="budget-track"><div class="budget-fill ${cls}" style="width:${progress.pct}%"></div></div>
-      <div class="form-note" style="margin:6px 0 0;">${acc.startDate} ~ ${acc.endDate} · ${won(progress.current)} ${progress.label} / ${won(progress.target)}</div>
-    </div>`;
-  };
-  const pbCardHtml = (pb) => {
-    const spent = periodBudgetSpent(pb);
-    const pct = pb.amount ? Math.min(100, Math.round(spent / pb.amount * 100)) : 0;
-    const cls = pct >= 100 ? 'over' : pct >= 80 ? 'warn' : 'ok';
-    const cat = getCategory(pb.categoryId);
-    return `<div class="budget-item">
-      <div class="budget-head">
-        <span class="left">${escapeHtml(pb.name)} <span class="form-note" style="margin:0;">${cat ? cat.icon + ' ' + escapeHtml(cat.name) : ''}</span></span>
-        <span style="display:flex;align-items:center;gap:8px;">
-          <span class="budget-pct-tag ${cls}">${pct}%</span>
-          <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openPeriodBudgetModal('${pb.id}')">수정</button>
-          <button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deletePeriodBudget('${pb.id}')">삭제</button>
-        </span>
-      </div>
-      <div class="budget-track"><div class="budget-fill ${cls}" style="width:${pct}%"></div></div>
-      <div class="form-note" style="margin:6px 0 0;">${monthLabel(pb.startMonth)} ~ ${monthLabel(pb.endMonth)} · ${won(spent)} 사용 / ${won(pb.amount)}</div>
-    </div>`;
-  };
-  return `
-    <div class="section-block">
-      <div class="section-heading">할부/대출/적금</div>
-      <div class="form-note">자산 탭에서 계좌에 시작일·종료일(할부·대출·적금)과 목표 금액(적금)을 설정하면 여기 자동으로 나타나요.</div>
-      ${accItems.length ? accItems.map(accCardHtml).join('') : `<div class="empty">표시할 계좌가 없어요.</div>`}
-    </div>
-    <div class="section-block">
-      <div class="section-heading">목적성 예산<button class="ghost-btn" onclick="openPeriodBudgetModal()">+ 목적성 예산 추가</button></div>
-      ${pbItems.length ? pbItems.map(pbCardHtml).join('') : `<div class="empty">계좌와 상관없이 기간을 정해서 예산을 관리하고 싶을 때 추가해보세요. (예: 여행 경비, 3개월, 50만원)</div>`}
-    </div>
-  `;
-}
-function setBudget(catId, el) {
-  const val = rawAmount(el);
-  if (val > 0) DATA.budgets[catId] = val; else delete DATA.budgets[catId];
-  saveData();
-  renderBudget();
-}
-function openPeriodBudgetModal(id) {
-  const editing = id ? DATA.periodBudgets.find(p => p.id === id) : null;
-  const mKey = state.month;
-  const startMonth = editing ? editing.startMonth : mKey;
-  const endMonth = editing ? editing.endMonth : mKey;
-  const groups = ['expense', 'income'].map(type => topCategories(type).map(p => {
-    const children = childCategories(p.id);
-    if (!children.length) return '';
-    return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}" ${editing && editing.categoryId === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
-  }).join('')).join('');
-  openModal(`
-    <h3>${editing ? '목적성 예산 수정' : '목적성 예산 추가'}</h3>
-    <div class="field"><label class="field-lbl">이름</label><input type="text" id="pb-name" value="${escapeHtml(editing ? editing.name : '')}" placeholder="예: 여행 경비"></div>
-    <div class="field"><label class="field-lbl">연결 카테고리</label><select id="pb-category">${groups}</select></div>
-    <div class="form-grid">
-      <div><label class="field-lbl">시작월</label><input type="text" class="date-field" id="pb-start-month" value="${startMonth}" readonly onclick="openMonthPicker(this, this.value, 'onPickPeriodBudgetStart')"></div>
-      <div><label class="field-lbl">종료월</label><input type="text" class="date-field" id="pb-end-month" value="${endMonth}" readonly onclick="openMonthPicker(this, this.value, 'onPickPeriodBudgetEnd')"></div>
-    </div>
-    <div class="field"><label class="field-lbl">목표(예산) 금액</label><input type="text" inputmode="numeric" id="pb-amount" value="${editing ? Number(editing.amount).toLocaleString('ko-KR') : ''}" placeholder="0" oninput="formatAmountInput(this)"></div>
-    <div class="form-actions">
-      <button class="ghost-btn" onclick="closeModal()">취소</button>
-      <button class="primary-btn" onclick="submitPeriodBudget(${editing ? `'${editing.id}'` : 'null'})">${editing ? '저장' : '추가'}</button>
-    </div>
-  `);
-}
-function onPickPeriodBudgetStart(value) { document.getElementById('pb-start-month').value = value; }
-function onPickPeriodBudgetEnd(value) { document.getElementById('pb-end-month').value = value; }
-function submitPeriodBudget(editId) {
-  const name = document.getElementById('pb-name').value.trim();
-  const categoryId = document.getElementById('pb-category').value;
-  const startMonth = document.getElementById('pb-start-month').value;
-  const endMonth = document.getElementById('pb-end-month').value;
-  const amount = rawAmount(document.getElementById('pb-amount'));
-  if (!name) return showToast('이름을 입력해주세요.', 'error');
-  if (!categoryId) return showToast('연결할 카테고리를 선택해주세요.', 'error');
-  if (startMonth > endMonth) return showToast('종료월이 시작월보다 빠를 수 없어요.', 'error');
-  if (!amount || amount <= 0) return showToast('금액을 입력해주세요.', 'error');
-  if (editId) {
-    const pb = DATA.periodBudgets.find(p => p.id === editId);
-    Object.assign(pb, { name, categoryId, startMonth, endMonth, amount });
-  } else {
-    DATA.periodBudgets.push({ id: uid(), name, categoryId, startMonth, endMonth, amount });
-  }
-  saveData();
-  closeModal();
-  showToast(editId ? '목적성 예산을 수정했어요.' : '목적성 예산을 추가했어요.', 'success');
-  renderBudget();
-}
-function deletePeriodBudget(id) {
-  if (!confirm('이 목적성 예산을 삭제할까요?')) return;
-  DATA.periodBudgets = DATA.periodBudgets.filter(p => p.id !== id);
-  saveData();
-  renderBudget();
-}
-
 /* ---------------- ACCOUNTS ---------------- */
 function accountMonthFlow(acc, mKey, period) {
   let inflow = 0, outflow = 0;
@@ -4121,8 +3844,7 @@ function renderAccGoalField(type, currency, goalAmount) {
   if (!el) return;
   const val = goalAmount ? (currency === 'USD' ? Number(goalAmount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(goalAmount).toLocaleString('ko-KR')) : '';
   el.innerHTML = type === 'savings'
-    ? `<label class="field-lbl">목표 금액 (선택)</label><input type="text" inputmode="decimal" id="acc-goal" oninput="formatCurrencyAmountInput(this, '${currency}')" value="${val}" placeholder="0">
-      <div class="form-note" style="margin-top:6px;">시작일·종료일과 함께 설정하면 예산 탭에서 목표 대비 적립 진행률을 볼 수 있어요.</div>`
+    ? `<label class="field-lbl">목표 금액 (선택)</label><input type="text" inputmode="decimal" id="acc-goal" oninput="formatCurrencyAmountInput(this, '${currency}')" value="${val}" placeholder="0">`
     : '';
 }
 function renderAccDateRangeField(type, startDate, endDate) {
