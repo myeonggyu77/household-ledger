@@ -400,6 +400,37 @@
     .trend-bar-line .trend-num { width: 76px; }
     input, select, textarea { font-size: 16px; }
   }
+
+  /* ---------------- REPORT (재무보고서) ---------------- */
+  table.stmt { width: 100%; border-collapse: collapse; }
+  table.stmt td { padding: 7px 4px; font-size: 13px; border: none; white-space: normal; }
+  table.stmt td.indent { padding-left: 14px; color: var(--ink-soft); }
+  table.stmt td.num { text-align: right; font-family: var(--mono); }
+  table.stmt tr.stmt-group td { font-weight: 600; padding-top: 14px; }
+  table.stmt tr.stmt-group:first-child td { padding-top: 4px; }
+  table.stmt tr.stmt-sub td { border-top: 1px solid var(--line); font-weight: 600; padding-top: 8px; }
+  table.stmt tr.stmt-total td { border-top: 1px solid var(--ink); border-bottom: 3px double var(--ink); font-weight: 700; font-size: 14.5px; padding: 10px 4px; }
+  table.stmt tr.stmt-total td.positive { color: var(--accent); }
+  table.stmt tr.stmt-total td.negative { color: var(--down); }
+  .freq-tag { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 6px; white-space: nowrap; }
+  .freq-tag.recur { background: var(--accent-soft); color: var(--accent); }
+  .freq-tag.installment, .freq-tag.loan { background: #fdeecd; color: #a3690a; }
+  .freq-tag.oneoff { background: var(--down-soft); color: var(--down); }
+  .remain-tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
+  .remain-tag.ongoing { color: var(--ink-faint); }
+  .remain-tag.ending-soon { background: var(--down-soft); color: var(--down); }
+  .remain-tag.later { color: var(--ink-soft); }
+  svg.cf-chart text { font-family: var(--sans); }
+  svg.cf-chart .cf-axis { fill: var(--ink-faint); font-size: 10px; }
+  svg.cf-chart .cf-month { fill: var(--ink-soft); font-size: 11px; }
+  svg.cf-chart .cf-month.now { fill: var(--accent); font-weight: 700; }
+  svg.cf-chart .cf-grid { stroke: var(--line-soft); stroke-width: 1; }
+  svg.cf-chart .cf-line { fill: none; stroke: var(--ink); stroke-width: 2; }
+  svg.cf-chart .cf-area { fill: var(--accent-tint); }
+  svg.cf-chart .cf-drop { fill: var(--down); }
+  svg.cf-chart .cf-bar { fill: var(--accent); }
+  svg.cf-chart .cf-bar-label { fill: var(--ink); font-size: 11.5px; font-weight: 700; }
+  svg.cf-chart .cf-bar-delta { fill: var(--down); font-size: 10.5px; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -424,6 +455,7 @@
     <button class="tab" data-tab="calendar"><i>📅</i><span>달력</span></button>
     <button class="tab" data-tab="transactions"><i>📋</i><span>내역</span></button>
     <button class="tab" data-tab="stats"><i>📊</i><span>통계</span></button>
+    <button class="tab" data-tab="report"><i>📑</i><span>보고서</span></button>
     <button class="tab" data-tab="accounts"><i>🏦</i><span>자산</span></button>
     <button class="tab" data-tab="recurring"><i>🔁</i><span>정기거래</span></button>
     <button class="tab" data-tab="insurance"><i>🏥</i><span>보험신청</span></button>
@@ -438,6 +470,7 @@
     <div class="panel" id="panel-calendar"></div>
     <div class="panel" id="panel-transactions"></div>
     <div class="panel" id="panel-stats"></div>
+    <div class="panel" id="panel-report"></div>
     <div class="panel" id="panel-accounts"></div>
     <div class="panel" id="panel-recurring"></div>
     <div class="panel" id="panel-insurance"></div>
@@ -1042,6 +1075,8 @@ let state = {
   acctMonth: monthKey(new Date()),
   acctPeriod: 'month',
   todoListId: null,
+  reportMonth: monthKey(new Date()),
+  reportPeriod: 'month',
 };
 
 /* ---------------- date helpers ---------------- */
@@ -1075,6 +1110,9 @@ function prevBusinessDay(d) {
 }
 function isRecurringDueOn(r, d) {
   const freq = r.frequency || 'monthly';
+  if (freq === 'once') return r.date === ymd(d);
+  if (r.startDate && ymd(d) < r.startDate) return false;
+  if (r.endDate && ymd(d) > r.endDate) return false;
   if (freq === 'daily') {
     return (r.dailyMode || 'weekdaysOnly') === 'everyday' || !isHolidayDate(d);
   }
@@ -1098,6 +1136,9 @@ function isRecurringDueOn(r, d) {
 }
 function recurringAlreadyAppliedForPeriod(r, d) {
   const freq = r.frequency || 'monthly';
+  if (freq === 'once') {
+    return DATA.transactions.some(t => t.fromRecurringId === r.id);
+  }
   if (freq === 'daily') {
     return DATA.transactions.some(t => t.fromRecurringId === r.id && t.date === ymd(d));
   }
@@ -2114,6 +2155,7 @@ function renderPanel() {
     case 'calendar': renderCalendar(); break;
     case 'transactions': renderTransactions(); break;
     case 'stats': renderStats(); break;
+    case 'report': renderReport(); break;
     case 'accounts': renderAccounts(); break;
     case 'recurring': renderRecurring(); break;
     case 'insurance': renderInsurance(); break;
@@ -3472,6 +3514,268 @@ function setStatsType(t) { state.statsType = t; renderStats(); }
 function setStatsPeriod(p) { state.statsPeriod = p; renderStats(); }
 function setStatsGroupBy(g) { state.statsGroupBy = g; renderStats(); }
 
+/* ---------------- REPORT (재무보고서) ---------------- */
+function reportSummary(period, mKey) {
+  let income = 0, expense = 0;
+  txInPeriod(period, mKey).forEach(t => {
+    if (t.excludeFromStats) return;
+    if (t.type === 'income') income += txAmountKRW(t);
+    else if (t.type === 'expense') expense += txAmountKRW(t);
+  });
+  return { income, expense, net: income - expense };
+}
+function monthsBetween(mKeyA, mKeyB) {
+  const [ay, am] = mKeyA.split('-').map(Number);
+  const [by, bm] = mKeyB.split('-').map(Number);
+  return (by - ay) * 12 + (bm - am);
+}
+function installmentMonthlyAmount(acc) {
+  const months = monthsBetween(acc.startDate.slice(0, 7), acc.endDate.slice(0, 7)) + 1;
+  return months > 0 ? Math.abs(acc.initialBalance) / months : 0;
+}
+function remainingLabel(dateStr) {
+  if (!dateStr) return { cls: 'ongoing', text: '무기한 · 상시' };
+  const today = todayStr();
+  const diffDays = Math.round((new Date(dateStr) - new Date(today)) / 86400000);
+  if (diffDays <= 31) return { cls: 'ending-soon', text: diffDays <= 0 ? '오늘 종료' : `D-${diffDays}` };
+  const months = monthsBetween(monthKey(new Date()), dateStr.slice(0, 7));
+  return { cls: months <= 3 ? 'ending-soon' : 'later', text: `종료까지 ${months}개월` };
+}
+function fixedMonthlyExpenseTotal(mKey) {
+  const [y, m] = mKey.split('-').map(Number);
+  const monthStart = mKey + '-01', monthEnd = mKey + '-' + pad2(daysInMonth(y, m));
+  let total = 0;
+  DATA.recurring.forEach(r => {
+    if (r.type !== 'expense' || (r.frequency || 'monthly') === 'once') return;
+    if (r.startDate && r.startDate > monthEnd) return;
+    if (r.endDate && r.endDate < monthStart) return;
+    total += toKRW(r.amount, (getAccount(r.accountId).currency || 'KRW'));
+  });
+  DATA.accounts.forEach(a => {
+    if (!LIABILITY_TYPES.includes(a.type) || !DATE_RANGE_TYPES.includes(a.type) || !a.startDate || !a.endDate) return;
+    if (a.startDate > monthEnd || a.endDate < monthStart) return;
+    total += toKRW(installmentMonthlyAmount(a), a.currency || 'KRW');
+  });
+  return total;
+}
+function reportRecurringSchedule() {
+  const today = todayStr();
+  const rows = [];
+  DATA.recurring.filter(r => r.type === 'expense').forEach(r => {
+    const freq = r.frequency || 'monthly';
+    if (freq === 'once' ? r.date < today : (r.endDate && r.endDate < today)) return;
+    const currency = getAccount(r.accountId).currency || 'KRW';
+    const endForRemain = freq === 'once' ? r.date : r.endDate;
+    rows.push({
+      name: r.name,
+      kindClass: freq === 'once' ? 'oneoff' : 'recur',
+      kindLabel: freq === 'once' ? '1회성' : '정기',
+      amountLabel: fmtCurrency(r.amount, currency),
+      freqLabel: freq === 'once' ? `특정일 ${r.date}` : recurringScheduleLabel(r).replace(/\s*\(~.*종료\)$/, ''),
+      startDate: freq === 'once' ? null : (r.startDate || null),
+      endDate: freq === 'once' ? r.date : (r.endDate || null),
+      remain: remainingLabel(endForRemain),
+      sortKey: endForRemain || '9999-99-99',
+    });
+  });
+  DATA.accounts.forEach(a => {
+    if (!LIABILITY_TYPES.includes(a.type) || !DATE_RANGE_TYPES.includes(a.type) || !a.startDate || !a.endDate) return;
+    if (a.endDate < today) return;
+    rows.push({
+      name: a.name,
+      kindClass: a.type,
+      kindLabel: a.type === 'installment' ? '할부' : '대출',
+      amountLabel: fmtCurrency(installmentMonthlyAmount(a), a.currency || 'KRW') + '/월',
+      freqLabel: '매월 (환산)',
+      startDate: a.startDate,
+      endDate: a.endDate,
+      remain: remainingLabel(a.endDate),
+      sortKey: a.endDate,
+    });
+  });
+  rows.sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+  return rows;
+}
+function reportBalanceSheet() {
+  const assets = [], liabilities = [];
+  DATA.accounts.filter(a => a.includeInTotal !== false).forEach(a => {
+    const balanceKRW = toKRW(accountBalance(a), a.currency || 'KRW');
+    if (LIABILITY_TYPES.includes(a.type)) liabilities.push({ name: a.name, icon: a.icon, balanceKRW: Math.abs(balanceKRW) });
+    else assets.push({ name: a.name, icon: a.icon, balanceKRW });
+  });
+  const totalAssets = assets.reduce((s, a) => s + a.balanceKRW, 0);
+  const totalLiabilities = liabilities.reduce((s, a) => s + a.balanceKRW, 0);
+  return { assets, liabilities, totalAssets, totalLiabilities, netWorth: totalAssets - totalLiabilities };
+}
+function reportChartGridSvg(padL, W, padR, y, topVal) {
+  let s = '';
+  for (let g = 0; g <= 3; g++) {
+    const v = Math.round(topVal / 3 * g);
+    const gy = y(v);
+    s += `<line x1="${padL}" x2="${W - padR}" y1="${gy}" y2="${gy}" class="cf-grid"/><text x="2" y="${gy + 3}" class="cf-axis">${v}</text>`;
+  }
+  return s;
+}
+function reportCashflowMonthlySvg() {
+  const startKey = monthKey(new Date());
+  const months = Array.from({ length: 12 }, (_, i) => shiftMonth(startKey, i));
+  const values = months.map(mk => fixedMonthlyExpenseTotal(mk) / 10000);
+  const W = 720, H = 190, padL = 34, padR = 14, padT = 20, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const topVal = Math.ceil(Math.max(...values, 1) / 20) * 20 || 20;
+  const colW = plotW / values.length;
+  const y = (v) => padT + plotH - (v / topVal) * plotH;
+  const x = (i) => padL + i * colW + colW / 2;
+  let d = `M ${x(0)} ${y(values[0])}`;
+  let areaD = `M ${padL} ${padT + plotH} L ${x(0)} ${y(values[0])}`;
+  for (let i = 1; i < values.length; i++) {
+    const midX = padL + i * colW;
+    d += ` L ${midX} ${y(values[i - 1])} L ${midX} ${y(values[i])} L ${x(i)} ${y(values[i])}`;
+    areaD += ` L ${midX} ${y(values[i - 1])} L ${midX} ${y(values[i])} L ${x(i)} ${y(values[i])}`;
+  }
+  areaD += ` L ${W - padR} ${padT + plotH} Z`;
+  let dropsSvg = '';
+  for (let i = 1; i < values.length; i++) {
+    if (values[i] < values[i - 1] - 0.5) dropsSvg += `<circle cx="${padL + i * colW}" cy="${y(values[i])}" r="3.5" class="cf-drop"/>`;
+  }
+  const labelsSvg = months.map((mk, i) => `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" class="cf-month${i === 0 ? ' now' : ''}">${Number(mk.slice(5, 7))}월</text>`).join('');
+  return `<svg class="cf-chart" viewBox="0 0 ${W} ${H}" style="width:100%;max-width:760px;">
+    ${reportChartGridSvg(padL, W, padR, y, topVal)}
+    <path d="${areaD}" class="cf-area"/>
+    <path d="${d}" class="cf-line"/>
+    ${dropsSvg}
+    ${labelsSvg}
+  </svg>`;
+}
+function reportCashflowYearlySvg() {
+  const curYear = Number(monthKey(new Date()).slice(0, 4));
+  const years = [curYear, curYear + 1, curYear + 2, curYear + 3];
+  const values = years.map(yr => {
+    let total = 0;
+    for (let m = 1; m <= 12; m++) total += fixedMonthlyExpenseTotal(yr + '-' + pad2(m));
+    return total / 10000;
+  });
+  const W = 720, H = 190, padL = 34, padR = 14, padT = 34, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const topVal = Math.ceil(Math.max(...values, 1) / 200) * 200 || 200;
+  const colW = plotW / values.length;
+  const barW = colW * 0.42;
+  const y = (v) => padT + plotH - (v / topVal) * plotH;
+  let barsSvg = '';
+  values.forEach((v, i) => {
+    const cx = padL + i * colW + colW / 2;
+    const bx = cx - barW / 2;
+    const delta = i > 0 ? Math.round(values[i] - values[i - 1]) : 0;
+    barsSvg += `<rect x="${bx}" y="${y(v)}" width="${barW}" height="${plotH - (y(v) - padT)}" rx="4" class="cf-bar"/>
+      <text x="${cx}" y="${y(v) - 8}" text-anchor="middle" class="cf-bar-label">${Math.round(v).toLocaleString('ko-KR')}만원</text>
+      ${delta < 0 ? `<text x="${cx}" y="${y(v) - 22}" text-anchor="middle" class="cf-bar-delta">${delta}만원</text>` : ''}
+      <text x="${cx}" y="${H - 8}" text-anchor="middle" class="cf-month${i === 0 ? ' now' : ''}">${years[i]}년</text>`;
+  });
+  return `<svg class="cf-chart" viewBox="0 0 ${W} ${H}" style="width:100%;max-width:760px;">${reportChartGridSvg(padL, W, padR, y, topVal)}${barsSvg}</svg>`;
+}
+function navReportPeriod(delta) {
+  if (state.reportPeriod === 'year') {
+    const [y, m] = state.reportMonth.split('-');
+    state.reportMonth = (Number(y) + delta) + '-' + m;
+  } else {
+    state.reportMonth = shiftMonth(state.reportMonth, delta);
+  }
+  renderReport();
+}
+function navReportToMonth(value) { if (!value) return; state.reportMonth = value; renderReport(); }
+function jumpReportToday() { state.reportMonth = monthKey(new Date()); renderReport(); }
+function setReportPeriod(p) { state.reportPeriod = p; renderReport(); }
+function reportNavHtml() {
+  if (state.reportPeriod === 'year') {
+    const year = state.reportMonth.slice(0, 4);
+    return `<div class="month-nav">
+      <button class="icon-btn" onclick="navReportPeriod(-1)" aria-label="이전 해">&lt;</button>
+      <div class="m-label">${year}년</div>
+      <button class="icon-btn" onclick="navReportPeriod(1)" aria-label="다음 해">&gt;</button>
+      <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="jumpReportToday()">올해</button>
+    </div>`;
+  }
+  return monthNavHtml('navReportPeriod(-1)', 'navReportPeriod(1)', state.reportMonth, { onToday: 'jumpReportToday()', onPick: 'navReportToMonth' });
+}
+function reportStmtRows(cats) {
+  return cats.length
+    ? cats.map(c => `<tr><td class="indent">${c.category.icon || ''} ${escapeHtml(c.category.name)}</td><td class="num">${won(c.amount)}</td></tr>`).join('')
+    : `<tr><td class="indent" style="color:var(--ink-faint);">내역 없음</td><td class="num"></td></tr>`;
+}
+function renderReport() {
+  const period = state.reportPeriod || 'month';
+  const mKey = state.reportMonth;
+  const periodLabel = period === 'year' ? `${mKey.slice(0, 4)}년` : monthLabel(mKey);
+  const sum = reportSummary(period, mKey);
+  const incomeCats = statsCategoryTotals(period, mKey, 'income', 'parent');
+  const expenseCats = statsCategoryTotals(period, mKey, 'expense', 'parent');
+  const schedule = reportRecurringSchedule();
+  const bs = reportBalanceSheet();
+
+  document.getElementById('panel-report').innerHTML = `
+    <div class="seg" id="report-period-seg" style="margin-bottom:12px;">
+      <button type="button" class="${period === 'month' ? 'active' : ''}" onclick="setReportPeriod('month')">월간</button>
+      <button type="button" class="${period === 'year' ? 'active' : ''}" onclick="setReportPeriod('year')">연간</button>
+    </div>
+    ${reportNavHtml()}
+
+    <div class="section-block">
+      <div class="section-heading">손익 요약</div>
+      <div class="kpi-row" style="margin-bottom:16px;">
+        <div class="kpi"><div class="lbl">${periodLabel} 수입</div><div class="val income">${won(sum.income)}</div></div>
+        <div class="kpi"><div class="lbl">${periodLabel} 지출</div><div class="val expense">${won(sum.expense)}</div></div>
+        <div class="kpi"><div class="lbl">순이익</div><div class="val ${sum.net >= 0 ? 'income' : 'expense'}">${wonSigned(sum.net)}</div></div>
+      </div>
+      <table class="stmt">
+        <tr class="stmt-group"><td>수입</td><td></td></tr>
+        ${reportStmtRows(incomeCats)}
+        <tr class="stmt-sub"><td>수입 합계</td><td class="num">${won(sum.income)}</td></tr>
+        <tr class="stmt-group"><td>지출</td><td></td></tr>
+        ${reportStmtRows(expenseCats)}
+        <tr class="stmt-sub"><td>지출 합계</td><td class="num">${won(sum.expense)}</td></tr>
+        <tr class="stmt-total"><td>${periodLabel} 순이익</td><td class="num ${sum.net >= 0 ? 'positive' : 'negative'}">${wonSigned(sum.net)}</td></tr>
+      </table>
+    </div>
+
+    <div class="section-block">
+      <div class="section-heading">정기지출 상세 목록</div>
+      <div class="form-note">정기거래·할부·대출을 한 목록에서 확인해요. 기간이 정해진 항목은 종료일과 남은 기간을 함께 보여줘요.</div>
+      ${schedule.length ? `<div class="overflow-x"><table>
+        <thead><tr><th>항목</th><th>유형</th><th class="num">금액</th><th>주기</th><th class="num">시작일</th><th class="num">종료일</th><th>잔여</th></tr></thead>
+        <tbody>${schedule.map(row => `<tr>
+          <td>${escapeHtml(row.name)}</td>
+          <td><span class="freq-tag ${row.kindClass}">${row.kindLabel}</span></td>
+          <td class="num">${row.amountLabel}</td>
+          <td>${escapeHtml(row.freqLabel)}</td>
+          <td class="num">${row.startDate || '–'}</td>
+          <td class="num">${row.endDate || '–'}</td>
+          <td><span class="remain-tag ${row.remain.cls}">${row.remain.text}</span></td>
+        </tr>`).join('')}</tbody>
+      </table></div>` : `<div class="empty">등록된 정기지출이 없어요.</div>`}
+    </div>
+
+    <div class="section-block">
+      <div class="section-heading">현금흐름 전망</div>
+      <div class="form-note">${period === 'year' ? '할부·대출이 끝나는 해마다 연간 고정지출이 얼마나 줄어드는지 비교해요.' : '정기지출·할부·대출의 종료일을 반영해서 앞으로 매월 고정지출이 얼마로 바뀌는지 보여줘요.'} (단위: 만원)</div>
+      ${period === 'year' ? reportCashflowYearlySvg() : reportCashflowMonthlySvg()}
+    </div>
+
+    <div class="section-block">
+      <div class="section-heading">재무상태 스냅샷</div>
+      <div class="form-note">자산 탭 데이터를 그대로 가져와 자산·부채·순자산을 정리해요. 기준일: ${todayStr()}</div>
+      <table class="stmt">
+        <tr class="stmt-group"><td>자산</td><td></td></tr>
+        ${bs.assets.length ? bs.assets.map(a => `<tr><td class="indent">${a.icon || ''} ${escapeHtml(a.name)}</td><td class="num">${won(a.balanceKRW)}</td></tr>`).join('') : `<tr><td class="indent" style="color:var(--ink-faint);">없음</td><td class="num"></td></tr>`}
+        <tr class="stmt-sub"><td>자산 합계</td><td class="num">${won(bs.totalAssets)}</td></tr>
+        <tr class="stmt-group"><td>부채</td><td></td></tr>
+        ${bs.liabilities.length ? bs.liabilities.map(a => `<tr><td class="indent">${a.icon || ''} ${escapeHtml(a.name)}</td><td class="num">${won(a.balanceKRW)}</td></tr>`).join('') : `<tr><td class="indent" style="color:var(--ink-faint);">없음</td><td class="num"></td></tr>`}
+        <tr class="stmt-sub"><td>부채 합계</td><td class="num">${won(bs.totalLiabilities)}</td></tr>
+        <tr class="stmt-total"><td>순자산</td><td class="num ${bs.netWorth >= 0 ? 'positive' : 'negative'}">${bs.netWorth < 0 ? `(${won(Math.abs(bs.netWorth))})` : won(bs.netWorth)}</td></tr>
+      </table>
+    </div>
+  `;
+}
+
 /* ---------------- ACCOUNTS ---------------- */
 function accountMonthFlow(acc, mKey, period) {
   let inflow = 0, outflow = 0;
@@ -3931,14 +4235,17 @@ function recFieldLabels(type) {
 }
 function recurringScheduleLabel(r) {
   const freq = r.frequency || 'monthly';
-  if (freq === 'weekly') return `매주 ${['일', '월', '화', '수', '목', '금', '토'][r.weekday != null ? r.weekday : 1]}요일`;
-  if (freq === 'daily') return (r.dailyMode || 'weekdaysOnly') === 'everyday' ? '매일 (휴일포함)' : '매일 (평일만)';
-  if (freq === 'yearly') return r.day === 'last' ? `매년 ${r.month}월 말일` : `매년 ${r.month}월 ${r.day}일`;
-  return r.day === 'last' ? '매월 말일' : `매월 ${r.day}일`;
+  let base;
+  if (freq === 'once') base = `1회성 (${r.date || '-'})`;
+  else if (freq === 'weekly') base = `매주 ${['일', '월', '화', '수', '목', '금', '토'][r.weekday != null ? r.weekday : 1]}요일`;
+  else if (freq === 'daily') base = (r.dailyMode || 'weekdaysOnly') === 'everyday' ? '매일 (휴일포함)' : '매일 (평일만)';
+  else if (freq === 'yearly') base = r.day === 'last' ? `매년 ${r.month}월 말일` : `매년 ${r.month}월 ${r.day}일`;
+  else base = r.day === 'last' ? '매월 말일' : `매월 ${r.day}일`;
+  return (freq !== 'once' && r.endDate) ? `${base} (~${r.endDate} 종료)` : base;
 }
 const REC_TYPE_ORDER = ['income', 'expense', 'transfer'];
 const REC_TYPE_LABEL = { income: '수입', expense: '지출', transfer: '이체' };
-const REC_FREQ_ORDER = { daily: 0, weekly: 1, monthly: 2, yearly: 3 };
+const REC_FREQ_ORDER = { daily: 0, weekly: 1, monthly: 2, yearly: 3, once: 4 };
 function recurringDayNum(d) { return d === 'last' ? 32 : (Number(d) || 1); }
 function recurringSortKey(r) {
   const freq = r.frequency || 'monthly';
@@ -4280,15 +4587,17 @@ function openRecurringModal(id, presetTemplate) {
         <button type="button" data-v="weekly" class="${freq === 'weekly' ? 'active' : ''}" onclick="setRecFreq('weekly')">매주</button>
         <button type="button" data-v="yearly" class="${freq === 'yearly' ? 'active' : ''}" onclick="setRecFreq('yearly')">매년</button>
         <button type="button" data-v="daily" class="${freq === 'daily' ? 'active' : ''}" onclick="setRecFreq('daily')">매일</button>
+        <button type="button" data-v="once" class="${freq === 'once' ? 'active' : ''}" onclick="setRecFreq('once')">1회성</button>
       </div>
       <div id="rec-freq-detail"></div>
     </div>
-    <div class="field" id="rec-holiday-field" style="display:${(type !== 'transfer' && freq !== 'daily') ? '' : 'none'};">
+    <div class="field" id="rec-holiday-field" style="display:${(type !== 'transfer' && freq !== 'daily' && freq !== 'once') ? '' : 'none'};">
       <label style="display:flex;align-items:center;gap:8px;font-weight:400;cursor:pointer;">
         <input type="checkbox" id="rec-holiday-adjust" ${seed && (seed.noHolidayShift || seed.payBeforeHoliday) ? 'checked' : ''} style="width:16px;height:16px;">
         <span id="rec-holiday-label">${type === 'income' ? '휴일이면 전 평일에 표시 (월급 등)' : '휴일이어도 해당일에 표시 (월세 등)'}</span>
       </label>
     </div>
+    <div class="field" id="rec-end-field"></div>
     <div id="rec-cat-field" class="field"></div>
     <div id="rec-acc-field" class="field"></div>
     <div id="rec-toacc-field" class="field"></div>
@@ -4301,8 +4610,17 @@ function openRecurringModal(id, presetTemplate) {
   state._recPanelMode = renderRecPanel(formHtml);
   setRecRowEditing(editing ? editing.id : null);
   state._recModal = { type, freq };
-  renderRecFreqDetail(freq, seed ? seed.day : 1, seed ? seed.weekday : null, seed ? seed.dailyMode : null, seed ? seed.month : null);
+  renderRecFreqDetail(freq, seed ? seed.day : 1, seed ? seed.weekday : null, seed ? seed.dailyMode : null, seed ? seed.month : null, seed ? seed.date : null);
+  renderRecEndField(freq, seed ? seed.startDate : null, seed ? seed.endDate : null);
   renderRecModalFields(seed ? seed.categoryId : null, seed ? seed.accountId : null, seed ? seed.toAccountId : null, seed ? (seed.payee || '') : '', seed ? (seed.vendor || '') : '');
+}
+function renderRecEndField(freq, startDate, endDate) {
+  const el = document.getElementById('rec-end-field');
+  if (!el) return;
+  el.innerHTML = freq === 'once' ? '' : `<div class="form-grid">
+      <div><label class="field-lbl">시작일 (선택)</label><input type="text" class="date-field" id="rec-start-date" value="${startDate || ''}" readonly placeholder="없으면 계속 반복"></div>
+      <div><label class="field-lbl">종료일 (선택)</label><input type="text" class="date-field" id="rec-end-date" value="${endDate || ''}" readonly placeholder="없으면 계속 반복"></div>
+    </div>`;
 }
 function setRecType(t) {
   state._recModal.type = t;
@@ -4315,14 +4633,16 @@ function setRecType(t) {
   const labels = recFieldLabels(t);
   document.getElementById('rec-name-label').textContent = labels.name;
   document.getElementById('rec-day-label').textContent = labels.day;
-  document.getElementById('rec-holiday-field').style.display = (t !== 'transfer' && state._recModal.freq !== 'daily') ? '' : 'none';
+  document.getElementById('rec-holiday-field').style.display = (t !== 'transfer' && state._recModal.freq !== 'daily' && state._recModal.freq !== 'once') ? '' : 'none';
   document.getElementById('rec-holiday-label').textContent = t === 'income' ? '휴일이면 전 평일에 표시 (월급 등)' : '휴일이어도 해당일에 표시 (월세 등)';
   document.getElementById('rec-holiday-adjust').checked = false;
   renderRecModalFields();
 }
-function renderRecFreqDetail(freq, presetDay, presetWeekday, presetDailyMode, presetMonth) {
+function renderRecFreqDetail(freq, presetDay, presetWeekday, presetDailyMode, presetMonth, presetDate) {
   const el = document.getElementById('rec-freq-detail');
-  if (freq === 'weekly') {
+  if (freq === 'once') {
+    el.innerHTML = `<input type="text" class="date-field" id="rec-once-date" value="${presetDate || todayStr()}" readonly>`;
+  } else if (freq === 'weekly') {
     const wLabels = ['일', '월', '화', '수', '목', '금', '토'];
     const wd = presetWeekday != null ? presetWeekday : 1;
     el.innerHTML = `<select id="rec-weekday">${wLabels.map((w, i) => `<option value="${i}" ${wd === i ? 'selected' : ''}>${w}요일</option>`).join('')}</select>`;
@@ -4358,8 +4678,9 @@ function setRecDailyMode(m, btn) {
 function setRecFreq(f) {
   state._recModal.freq = f;
   document.querySelectorAll('#rec-freq-seg button').forEach(b => b.classList.toggle('active', b.dataset.v === f));
-  document.getElementById('rec-holiday-field').style.display = (state._recModal.type !== 'transfer' && f !== 'daily') ? '' : 'none';
+  document.getElementById('rec-holiday-field').style.display = (state._recModal.type !== 'transfer' && f !== 'daily' && f !== 'once') ? '' : 'none';
   renderRecFreqDetail(f);
+  renderRecEndField(f);
 }
 function renderRecModalFields(presetCat, presetAcc, presetToAcc, presetPayee, presetVendor) {
   const type = state._recModal.type;
@@ -4419,13 +4740,17 @@ function submitRecurring(editId) {
   if (!name) return showToast('이름을 입력해주세요.', 'error');
   if (!amount || amount <= 0) return showToast('금액을 입력해주세요.', 'error');
 
-  const holidayAdjustChecked = document.getElementById('rec-holiday-adjust').checked;
+  const holidayAdjustChecked = freq !== 'once' && document.getElementById('rec-holiday-adjust').checked;
   let payload = {
     type, name, amount, frequency: freq,
-    noHolidayShift: type === 'expense' && freq !== 'daily' && holidayAdjustChecked,
-    payBeforeHoliday: type === 'income' && freq !== 'daily' && holidayAdjustChecked,
+    noHolidayShift: type === 'expense' && freq !== 'daily' && freq !== 'once' && holidayAdjustChecked,
+    payBeforeHoliday: type === 'income' && freq !== 'daily' && freq !== 'once' && holidayAdjustChecked,
   };
-  if (freq === 'weekly') {
+  if (freq === 'once') {
+    const onceDate = document.getElementById('rec-once-date').value;
+    if (!onceDate) return showToast('날짜를 선택해주세요.', 'error');
+    payload.date = onceDate;
+  } else if (freq === 'weekly') {
     payload.weekday = Number(document.getElementById('rec-weekday').value);
   } else if (freq === 'daily') {
     payload.dailyMode = document.getElementById('rec-daily-mode').value === 'everyday' ? 'everyday' : 'weekdaysOnly';
@@ -4436,6 +4761,10 @@ function submitRecurring(editId) {
   } else {
     const dayRaw = document.getElementById('rec-day').value;
     payload.day = dayRaw === 'last' ? 'last' : Math.min(31, Math.max(1, Number(dayRaw) || 1));
+  }
+  if (freq !== 'once') {
+    payload.startDate = document.getElementById('rec-start-date').value || null;
+    payload.endDate = document.getElementById('rec-end-date').value || null;
   }
   if (type === 'transfer') {
     payload.categoryId = document.getElementById('rec-category').value;
