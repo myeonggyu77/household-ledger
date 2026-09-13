@@ -2285,7 +2285,7 @@ function renderCalendar() {
   const dayRecurMarkers = {};
   cells.forEach(cell => {
     const list = recurringDueList(dateFromYmd(cell.date));
-    dayRecurMarkers[cell.date] = cell.date < today ? list.filter(r => r.alreadyApplied) : list;
+    dayRecurMarkers[cell.date] = cell.date < today ? list.filter(r => !r.alreadyApplied) : list;
   });
 
   const gridHtml = `<div class="cal-grid">
@@ -2295,6 +2295,7 @@ function renderCalendar() {
       const d = Number(date.slice(-2));
       const totals = dayTotals[date];
       const recurMarkers = dayRecurMarkers[date];
+      const isPastCell = date < today;
       const cls = ['cal-cell'];
       if (!inMonth) cls.push('adjacent');
       if (date === today) cls.push('today');
@@ -2304,7 +2305,7 @@ function renderCalendar() {
         ${totals && totals.income ? `<div class="cal-amt inc">+${Math.round(totals.income).toLocaleString('ko-KR')}</div>` : ''}
         ${totals && totals.expense ? `<div class="cal-amt exp">-${Math.round(totals.expense).toLocaleString('ko-KR')}</div>` : ''}
         ${recurMarkers.length ? `<div class="cal-recur">
-          ${recurMarkers.slice(0, 2).map(r => `<div class="cal-recur-item ${r.alreadyApplied ? 'applied' : 'pending'}" title="${escapeHtml(r.name)} · ${r.alreadyApplied ? '적용됨' : '예정'}">${escapeHtml(r.name)}</div>`).join('')}
+          ${recurMarkers.slice(0, 2).map(r => `<div class="cal-recur-item ${r.alreadyApplied ? 'applied' : 'pending'}" title="${escapeHtml(r.name)} · ${r.alreadyApplied ? '적용됨' : (isPastCell ? '미등록' : '예정')}">${escapeHtml(r.name)}</div>`).join('')}
           ${recurMarkers.length > 2 ? `<div class="cal-recur-more">+${recurMarkers.length - 2}</div>` : ''}
         </div>` : ''}
       </div>`;
