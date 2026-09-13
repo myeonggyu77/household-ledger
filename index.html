@@ -268,6 +268,11 @@
   .cal-cell .cal-amt { font-family: var(--mono); font-size: 10.5px; line-height: 1.5; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; }
   .cal-amt.inc { color: var(--accent); }
   .cal-amt.exp { color: var(--down); }
+  .cal-recur { margin-top: 3px; display: flex; flex-direction: column; gap: 1px; }
+  .cal-recur-item { font-size: 9px; line-height: 1.4; padding: 0 3px; border-radius: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cal-recur-item.applied { background: var(--accent-tint); color: var(--ink-soft); }
+  .cal-recur-item.pending { border: 1px dashed var(--line); color: var(--ink-faint); }
+  .cal-recur-more { font-size: 9px; color: var(--ink-faint); }
 
   .bar-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; }
   .bar-row .bar-lbl { width: 130px; font-size: 12.5px; flex-shrink: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -367,6 +372,7 @@
     .cal-main .cal-cell { min-height: 92px; padding: 8px; }
     .cal-main .cal-cell .date-num { font-size: 13px; }
     .cal-main .cal-cell .cal-amt { font-size: 12.5px; }
+    .cal-main .cal-cell .cal-recur-item, .cal-main .cal-cell .cal-recur-more { font-size: 10.5px; }
     .cal-layout .day-list-card { margin-bottom: 0; }
     .stats-chart-layout { display: flex; gap: 28px; align-items: flex-start; }
     .stats-chart-col { flex: 0 0 300px; }
@@ -1083,6 +1089,7 @@ let state = {
 function pad2(n) { return String(n).padStart(2, '0'); }
 function ymd(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
 function monthKey(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1); }
+function dateFromYmd(s) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); }
 function shiftMonth(mKey, delta) {
   const [y, m] = mKey.split('-').map(Number);
   const d = new Date(y, m - 1 + delta, 1);
@@ -2164,29 +2171,31 @@ function renderPanel() {
 }
 
 /* ---------------- HOME ---------------- */
+function dueRecurringRowHtml(r, dateForApply) {
+  const acc = getAccount(r.accountId);
+  const mid = r.type === 'transfer'
+    ? `${categoryCellHtml(r.categoryId)} <span style="color:var(--ink-faint)">· ${acc.icon} ${escapeHtml(acc.name)} → ${getAccount(r.toAccountId).icon} ${escapeHtml(getAccount(r.toAccountId).name)}</span>`
+    : `${getCategory(r.categoryId).icon} ${escapeHtml(getCategory(r.categoryId).name)} · ${escapeHtml(acc.name)}`;
+  return `<div class="due-row">
+    <div class="due-main">
+      <div><span class="type-tag ${r.type}">${r.type === 'income' ? '수입' : r.type === 'expense' ? '지출' : '이체'}</span> ${escapeHtml(r.name)}</div>
+      <div class="due-sub">${mid}</div>
+    </div>
+    <div class="due-right">
+      <div class="due-amt">${fmtCurrency(r.amount, acc.currency || 'KRW')}</div>
+      ${r.alreadyApplied ? `<span class="badge-done">등록됨</span>` : `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringQuickApplyModal('${r.id}', '${dateForApply}')">적용</button>`}
+    </div>
+  </div>`;
+}
 function renderHome() {
   const recent = [...DATA.transactions].sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id)).slice(0, 8);
   const dueToday = todaysRecurring();
+  const today = todayStr();
 
   document.getElementById('panel-home').innerHTML = `
     <div class="section-block">
       <div class="section-heading">오늘의 정기거래</div>
-      ${dueToday.length ? dueToday.map(r => {
-        const acc = getAccount(r.accountId);
-        const mid = r.type === 'transfer'
-          ? `${categoryCellHtml(r.categoryId)} <span style="color:var(--ink-faint)">· ${acc.icon} ${escapeHtml(acc.name)} → ${getAccount(r.toAccountId).icon} ${escapeHtml(getAccount(r.toAccountId).name)}</span>`
-          : `${getCategory(r.categoryId).icon} ${escapeHtml(getCategory(r.categoryId).name)} · ${escapeHtml(acc.name)}`;
-        return `<div class="due-row">
-          <div class="due-main">
-            <div><span class="type-tag ${r.type}">${r.type === 'income' ? '수입' : r.type === 'expense' ? '지출' : '이체'}</span> ${escapeHtml(r.name)}</div>
-            <div class="due-sub">${mid}</div>
-          </div>
-          <div class="due-right">
-            <div class="due-amt">${fmtCurrency(r.amount, acc.currency || 'KRW')}</div>
-            ${r.alreadyApplied ? `<span class="badge-done">등록됨</span>` : `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringQuickApplyModal('${r.id}')">적용</button>`}
-          </div>
-        </div>`;
-      }).join('') : `<div class="empty">오늘 예정된 정기거래가 없어요.</div>`}
+      ${dueToday.length ? dueToday.map(r => dueRecurringRowHtml(r, today)).join('') : `<div class="empty">오늘 예정된 정기거래가 없어요.</div>`}
     </div>
 
     <div class="section-block">
@@ -2273,6 +2282,11 @@ function renderCalendar() {
     if (!dayTotals[t.date]) dayTotals[t.date] = { income: 0, expense: 0 };
     dayTotals[t.date][t.type] += txAmountKRW(t);
   });
+  const dayRecurMarkers = {};
+  cells.forEach(cell => {
+    const list = recurringDueList(dateFromYmd(cell.date));
+    dayRecurMarkers[cell.date] = cell.date < today ? list.filter(r => r.alreadyApplied) : list;
+  });
 
   const gridHtml = `<div class="cal-grid">
     ${dows.map(d => `<div class="cal-dow">${d}</div>`).join('')}
@@ -2280,6 +2294,7 @@ function renderCalendar() {
       const { date, inMonth } = cell;
       const d = Number(date.slice(-2));
       const totals = dayTotals[date];
+      const recurMarkers = dayRecurMarkers[date];
       const cls = ['cal-cell'];
       if (!inMonth) cls.push('adjacent');
       if (date === today) cls.push('today');
@@ -2288,12 +2303,17 @@ function renderCalendar() {
         <div class="date-num">${d}</div>
         ${totals && totals.income ? `<div class="cal-amt inc">+${Math.round(totals.income).toLocaleString('ko-KR')}</div>` : ''}
         ${totals && totals.expense ? `<div class="cal-amt exp">-${Math.round(totals.expense).toLocaleString('ko-KR')}</div>` : ''}
+        ${recurMarkers.length ? `<div class="cal-recur">
+          ${recurMarkers.slice(0, 2).map(r => `<div class="cal-recur-item ${r.alreadyApplied ? 'applied' : 'pending'}" title="${escapeHtml(r.name)} · ${r.alreadyApplied ? '적용됨' : '예정'}">${escapeHtml(r.name)}</div>`).join('')}
+          ${recurMarkers.length > 2 ? `<div class="cal-recur-more">+${recurMarkers.length - 2}</div>` : ''}
+        </div>` : ''}
       </div>`;
     }).join('')}
   </div>`;
 
   const dayTx = DATA.transactions.filter(t => t.date === state.calSelected).sort((a, b) => a.id.localeCompare(b.id));
   const dayLabel = state.calSelected.replace(/^\d+-0?/, '').replace('-', '월 ') + '일';
+  const dayRecur = recurringDueList(dateFromYmd(state.calSelected));
 
   document.getElementById('panel-calendar').innerHTML = `
     <div class="tx-split">
@@ -2302,6 +2322,10 @@ function renderCalendar() {
           <div class="cal-main">
             ${monthNavHtml('navMonth(-1)', 'navMonth(1)', mKey)}
             ${gridHtml}
+          </div>
+          <div class="day-list-card">
+            <div class="section-heading" style="border-bottom:none;margin-bottom:8px;padding-bottom:0;">${escapeHtml(dayLabel)} 정기거래</div>
+            ${dayRecur.length ? dayRecur.map(r => dueRecurringRowHtml(r, state.calSelected)).join('') : `<div class="empty">이 날짜에 예정된 정기거래가 없어요.</div>`}
           </div>
           <div class="day-list-card">
             <div class="section-heading" style="border-bottom:none;margin-bottom:8px;padding-bottom:0;">
@@ -2726,10 +2750,10 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     editing ? (editing.vendor || '') : (fromRecurring ? (fromRecurring.vendor || '') : (duplicateFrom ? (duplicateFrom.vendor || '') : ''))
   );
 }
-function openRecurringQuickApplyModal(id) {
+function openRecurringQuickApplyModal(id, date) {
   const r = DATA.recurring.find(x => x.id === id);
   if (!r) return;
-  openTxModal(null, todayStr(), r);
+  openTxModal(null, date || todayStr(), r);
 }
 function setTxType(t) {
   state._txModal.type = t;
@@ -4799,12 +4823,12 @@ function deleteRecurring(id) {
   saveData();
   renderRecurring();
 }
-function todaysRecurring() {
-  const today = new Date();
+function recurringDueList(d) {
   return DATA.recurring
-    .filter(r => isRecurringDueOn(r, today))
-    .map(r => ({ ...r, alreadyApplied: recurringAlreadyAppliedForPeriod(r, today) }));
+    .filter(r => isRecurringDueOn(r, d))
+    .map(r => ({ ...r, alreadyApplied: recurringAlreadyAppliedForPeriod(r, d) }));
 }
+function todaysRecurring() { return recurringDueList(new Date()); }
 function notifyDueRecurringToday() {
   const due = todaysRecurring().filter(r => !r.alreadyApplied);
   if (!due.length) return;
