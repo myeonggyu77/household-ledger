@@ -463,6 +463,7 @@
     <button class="tab" data-tab="transactions"><i>📋</i><span>내역</span></button>
     <button class="tab" data-tab="stats"><i>📊</i><span>통계</span></button>
     <button class="tab" data-tab="report"><i>📑</i><span>보고서</span></button>
+    <button class="tab" data-tab="budget"><i>💰</i><span>예산</span></button>
     <button class="tab" data-tab="accounts"><i>🏦</i><span>자산</span></button>
     <button class="tab" data-tab="recurring"><i>🔁</i><span>정기거래</span></button>
     <button class="tab" data-tab="insurance"><i>🏥</i><span>보험신청</span></button>
@@ -477,6 +478,7 @@
     <div class="panel" id="panel-transactions"></div>
     <div class="panel" id="panel-stats"></div>
     <div class="panel" id="panel-report"></div>
+    <div class="panel" id="panel-budget"></div>
     <div class="panel" id="panel-accounts"></div>
     <div class="panel" id="panel-recurring"></div>
     <div class="panel" id="panel-insurance"></div>
@@ -2173,6 +2175,7 @@ function renderPanel() {
     case 'transactions': renderTransactions(); break;
     case 'stats': renderStats(); break;
     case 'report': renderReport(); break;
+    case 'budget': renderBudget(); break;
     case 'accounts': renderAccounts(); break;
     case 'recurring': renderRecurring(); break;
     case 'insurance': renderInsurance(); break;
@@ -3801,6 +3804,36 @@ function renderReport() {
         <tr class="stmt-sub"><td>부채 합계</td><td class="num">${won(bs.totalLiabilities)}</td></tr>
         <tr class="stmt-total"><td>순자산</td><td class="num ${bs.netWorth >= 0 ? 'positive' : 'negative'}">${bs.netWorth < 0 ? `(${won(Math.abs(bs.netWorth))})` : won(bs.netWorth)}</td></tr>
       </table>
+    </div>
+  `;
+}
+
+/* ---------------- BUDGET ---------------- */
+function renderBudget() {
+  document.getElementById('panel-budget').innerHTML = `
+    <div class="section-block">
+      <div class="section-heading">예산 목록</div>
+      <div class="overflow-x"><table>
+        <colgroup>
+          <col style="min-width:56px"><col style="min-width:72px"><col style="min-width:72px"><col style="min-width:72px">
+          <col style="min-width:72px"><col style="min-width:130px"><col style="min-width:96px"><col style="min-width:96px">
+          <col style="min-width:96px"><col style="min-width:100px"><col style="min-width:100px"><col style="min-width:70px">
+          <col style="min-width:100px"><col style="min-width:100px"><col style="min-width:70px"><col style="min-width:110px">
+          <col style="min-width:110px"><col style="min-width:96px"><col style="min-width:70px"><col style="min-width:70px">
+          <col style="min-width:160px">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>연번</th><th>상태</th><th>형태</th><th>장단기</th><th>주기</th><th>주기내용</th>
+            <th>적용일</th><th>시작일</th><th>종료일</th><th>대카테고리</th><th>소카테고리</th><th>usd/krw</th>
+            <th class="num">총액</th><th class="num">잔액</th><th class="num">집행율</th>
+            <th class="num">이번달예산</th><th class="num">이번달집행금</th><th class="num">이번달집행율</th>
+            <th class="num">총회차</th><th class="num">누적회차</th><th>메모</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table></div>
+      <div class="empty">등록된 예산 항목이 없어요.</div>
     </div>
   `;
 }
