@@ -459,8 +459,7 @@
 </div>
 <div class="app" id="app-root" style="display:none;">
   <nav class="sidebar" id="tabs">
-    <button class="tab" data-tab="home"><i>🏠</i><span>홈</span></button>
-    <button class="tab" data-tab="calendar"><i>📅</i><span>달력</span></button>
+    <button class="tab" data-tab="calendar"><i>🏠</i><span>홈</span></button>
     <button class="tab" data-tab="transactions"><i>📋</i><span>내역</span></button>
     <button class="tab" data-tab="stats"><i>📊</i><span>통계</span></button>
     <button class="tab" data-tab="report"><i>📑</i><span>보고서</span></button>
@@ -474,7 +473,6 @@
 
     <div class="kpi-row" id="kpi-row"></div>
 
-    <div class="panel" id="panel-home"></div>
     <div class="panel" id="panel-calendar"></div>
     <div class="panel" id="panel-transactions"></div>
     <div class="panel" id="panel-stats"></div>
@@ -1070,7 +1068,7 @@ function saveData() {
 let DATA = loadData();
 saveData();
 let state = {
-  tab: 'home',
+  tab: 'calendar',
   month: monthKey(new Date()),
   calSelected: ymd(new Date()),
   txFilter: { type: 'all', categoryId: '', parentCategoryId: '', accountId: '', q: '' },
@@ -1195,7 +1193,7 @@ async function fetchExchangeRate(silent) {
     saveData();
     if (!silent) showToast(`환율을 업데이트했어요 (1 USD = ${won(rate)}).`, 'success');
     if (state.tab === 'accounts') renderAccounts();
-    if (state.tab === 'home') renderHome();
+    if (state.tab === 'calendar') renderCalendar();
   } catch (e) {
     if (!silent) showToast('환율을 가져오지 못했어요. 인터넷 연결을 확인해주세요.', 'error');
   }
@@ -2148,7 +2146,7 @@ function switchTab(tab) {
   state.tab = tab;
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + tab));
-  document.getElementById('kpi-row').style.display = tab === 'home' ? '' : 'none';
+  document.getElementById('kpi-row').style.display = tab === 'calendar' ? '' : 'none';
   renderPanel();
 }
 document.getElementById('tabs').addEventListener('click', (e) => {
@@ -2171,7 +2169,6 @@ function renderKpis() {
 
 function renderPanel() {
   switch (state.tab) {
-    case 'home': renderHome(); break;
     case 'calendar': renderCalendar(); break;
     case 'transactions': renderTransactions(); break;
     case 'stats': renderStats(); break;
@@ -2183,7 +2180,7 @@ function renderPanel() {
   }
 }
 
-/* ---------------- HOME ---------------- */
+/* ---------------- recurring due-row (shared by calendar) ---------------- */
 function dueRecurringRowHtml(r, dateForApply) {
   const acc = getAccount(r.accountId);
   const mid = r.type === 'transfer'
@@ -2208,24 +2205,6 @@ function dueRecurringRowHtml(r, dateForApply) {
     </div>
   </div>`;
 }
-function renderHome() {
-  const recent = [...DATA.transactions].sort((a, b) => (b.date + b.id).localeCompare(a.date + a.id)).slice(0, 8);
-  const dueToday = todaysRecurring();
-  const today = todayStr();
-
-  document.getElementById('panel-home').innerHTML = `
-    <div class="section-block">
-      <div class="section-heading">오늘의 정기거래</div>
-      ${dueToday.length ? dueToday.map(r => dueRecurringRowHtml(r, today)).join('') : `<div class="empty">오늘 예정된 정기거래가 없어요.</div>`}
-    </div>
-
-    <div class="section-block">
-      <div class="section-heading">최근 거래<button class="ghost-btn" onclick="openTxModal()">+ 거래 추가</button></div>
-      ${recent.length ? renderTxTable(recent, false) : `<div class="empty"><div class="big">아직 등록된 거래가 없어요</div>거래 추가 버튼으로 첫 내역을 남겨보세요.</div>`}
-    </div>
-  `;
-}
-
 /* ---------------- month nav (shared) ---------------- */
 function monthNavHtml(onPrev, onNext, mKey, opts) {
   opts = opts || {};
@@ -5786,7 +5765,7 @@ async function startApp(email) {
   document.getElementById('auth-gate').style.display = 'none';
   document.getElementById('app-root').style.display = '';
   try { if (await migrateReceiptsToIndexedDB()) saveData(); } catch (e) { console.error('receipt migration failed', e); }
-  switchTab('home');
+  switchTab('calendar');
   notifyDueRecurringToday();
   renderAll();
   if (!DATA.settings.rateUpdatedAt || Date.now() - new Date(DATA.settings.rateUpdatedAt).getTime() > 6 * 60 * 60 * 1000) {
