@@ -272,6 +272,7 @@
   .cal-recur-item { font-size: 9px; line-height: 1.4; padding: 0 3px; border-radius: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cal-recur-item.applied { background: var(--accent-tint); color: var(--ink-soft); }
   .cal-recur-item.pending { border: 1px dashed var(--line); color: var(--ink-faint); }
+  .cal-recur-item.skipped { background: var(--line-soft); color: var(--ink-faint); text-decoration: line-through; }
   .cal-recur-more { font-size: 9px; color: var(--ink-faint); }
 
   .bar-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; }
@@ -305,6 +306,7 @@
   .due-row .due-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
   .due-row .due-amt { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
   .badge-done { font-size: 11px; color: var(--ink-faint); font-family: var(--mono); }
+  .badge-skipped { font-size: 11px; color: var(--ink-faint); font-family: var(--mono); text-decoration: line-through; }
   .budget-pct-tag { font-family: var(--mono); font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 6px; }
   .budget-pct-tag.ok { color: var(--status-good); background: #eaf7ea; }
   .budget-pct-tag.warn { color: var(--status-warn); background: #fbf0e0; }
@@ -1140,6 +1142,17 @@ function isRecurringDueOn(r, d) {
     if (ymd(eff) === ymd(d)) return true;
   }
   return false;
+}
+function recurringPeriodKey(r, d) {
+  const freq = r.frequency || 'monthly';
+  if (freq === 'once') return 'once';
+  if (freq === 'daily') return ymd(d);
+  if (freq === 'weekly') return ymd(_addDays(d, -d.getDay()));
+  if (freq === 'yearly') return String(d.getFullYear());
+  return monthKey(d);
+}
+function recurringSkippedForPeriod(r, d) {
+  return (r.skippedPeriods || []).includes(recurringPeriodKey(r, d));
 }
 function recurringAlreadyAppliedForPeriod(r, d) {
   const freq = r.frequency || 'monthly';
@@ -2176,6 +2189,14 @@ function dueRecurringRowHtml(r, dateForApply) {
   const mid = r.type === 'transfer'
     ? `${categoryCellHtml(r.categoryId)} <span style="color:var(--ink-faint)">· ${acc.icon} ${escapeHtml(acc.name)} → ${getAccount(r.toAccountId).icon} ${escapeHtml(getAccount(r.toAccountId).name)}</span>`
     : `${getCategory(r.categoryId).icon} ${escapeHtml(getCategory(r.categoryId).name)} · ${escapeHtml(acc.name)}`;
+  let actionHtml;
+  if (r.alreadyApplied) {
+    actionHtml = `<span class="badge-done">등록됨</span>`;
+  } else if (r.skipped) {
+    actionHtml = `<span class="badge-skipped">건너뜀</span><button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="unskipRecurringOccurrence('${r.id}', '${dateForApply}')">되돌리기</button>`;
+  } else {
+    actionHtml = `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringQuickApplyModal('${r.id}', '${dateForApply}')">적용</button><button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="skipRecurringOccurrence('${r.id}', '${dateForApply}')">건너뛰기</button>`;
+  }
   return `<div class="due-row">
     <div class="due-main">
       <div><span class="type-tag ${r.type}">${r.type === 'income' ? '수입' : r.type === 'expense' ? '지출' : '이체'}</span> ${escapeHtml(r.name)}</div>
@@ -2183,7 +2204,7 @@ function dueRecurringRowHtml(r, dateForApply) {
     </div>
     <div class="due-right">
       <div class="due-amt">${fmtCurrency(r.amount, acc.currency || 'KRW')}</div>
-      ${r.alreadyApplied ? `<span class="badge-done">등록됨</span>` : `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringQuickApplyModal('${r.id}', '${dateForApply}')">적용</button>`}
+      ${actionHtml}
     </div>
   </div>`;
 }
@@ -2305,7 +2326,11 @@ function renderCalendar() {
         ${totals && totals.income ? `<div class="cal-amt inc">+${Math.round(totals.income).toLocaleString('ko-KR')}</div>` : ''}
         ${totals && totals.expense ? `<div class="cal-amt exp">-${Math.round(totals.expense).toLocaleString('ko-KR')}</div>` : ''}
         ${recurMarkers.length ? `<div class="cal-recur">
-          ${recurMarkers.slice(0, 2).map(r => `<div class="cal-recur-item ${r.alreadyApplied ? 'applied' : 'pending'}" title="${escapeHtml(r.name)} · ${r.alreadyApplied ? '적용됨' : (isPastCell ? '미등록' : '예정')}">${escapeHtml(r.name)}</div>`).join('')}
+          ${recurMarkers.slice(0, 2).map(r => {
+            const cls = r.alreadyApplied ? 'applied' : r.skipped ? 'skipped' : 'pending';
+            const label = r.alreadyApplied ? '적용됨' : r.skipped ? '건너뜀' : (isPastCell ? '미등록' : '예정');
+            return `<div class="cal-recur-item ${cls}" title="${escapeHtml(r.name)} · ${label}">${escapeHtml(r.name)}</div>`;
+          }).join('')}
           ${recurMarkers.length > 2 ? `<div class="cal-recur-more">+${recurMarkers.length - 2}</div>` : ''}
         </div>` : ''}
       </div>`;
@@ -4827,9 +4852,28 @@ function deleteRecurring(id) {
 function recurringDueList(d) {
   return DATA.recurring
     .filter(r => isRecurringDueOn(r, d))
-    .map(r => ({ ...r, alreadyApplied: recurringAlreadyAppliedForPeriod(r, d) }));
+    .map(r => ({ ...r, alreadyApplied: recurringAlreadyAppliedForPeriod(r, d), skipped: recurringSkippedForPeriod(r, d) }));
 }
 function todaysRecurring() { return recurringDueList(new Date()); }
+function skipRecurringOccurrence(id, dateStr) {
+  const r = DATA.recurring.find(x => x.id === id);
+  if (!r) return;
+  const key = recurringPeriodKey(r, dateFromYmd(dateStr));
+  r.skippedPeriods = r.skippedPeriods || [];
+  if (!r.skippedPeriods.includes(key)) r.skippedPeriods.push(key);
+  saveData();
+  showToast('건너뛰었어요.', 'success');
+  renderPanel();
+}
+function unskipRecurringOccurrence(id, dateStr) {
+  const r = DATA.recurring.find(x => x.id === id);
+  if (!r) return;
+  const key = recurringPeriodKey(r, dateFromYmd(dateStr));
+  r.skippedPeriods = (r.skippedPeriods || []).filter(k => k !== key);
+  saveData();
+  showToast('건너뛰기를 취소했어요.', 'success');
+  renderPanel();
+}
 function notifyDueRecurringToday() {
   const due = todaysRecurring().filter(r => !r.alreadyApplied);
   if (!due.length) return;
