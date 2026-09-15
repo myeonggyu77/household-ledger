@@ -583,6 +583,7 @@ async function onAuthed(userId) {
       cloudData.transactions = cloudData.transactions || [];
       cloudData.budgets = cloudData.budgets || {};
       cloudData.periodBudgets = cloudData.periodBudgets || [];
+      cloudData.budgetItems = Array.isArray(cloudData.budgetItems) ? cloudData.budgetItems : [];
       cloudData.recurring = cloudData.recurring || [];
       cloudData.todoLists = Array.isArray(cloudData.todoLists) && cloudData.todoLists.length ? cloudData.todoLists : [{ id: uid(), name: '할 일', icon: '📋', type: 'simple', hideCompleted: false }];
       cloudData.todos = Array.isArray(cloudData.todos) ? cloudData.todos : [];
@@ -650,6 +651,14 @@ const LIABILITY_TYPES = ['loan', 'installment'];
 const DATE_RANGE_TYPES = ['savings', 'loan', 'installment'];
 const CURRENCIES = ['KRW', 'USD'];
 const CURRENCY_LABEL = { KRW: '원화 (₩)', USD: '달러 ($)' };
+const BUDGET_STATUS = ['active', 'done', 'planned', 'stopped'];
+const BUDGET_STATUS_LABEL = { active: '진행중', done: '완료', planned: '예정', stopped: '중지' };
+const BUDGET_FORM_TYPES = ['expense', 'income', 'installment', 'card', 'subscription'];
+const BUDGET_FORM_TYPE_LABEL = { expense: '지출', income: '수입', installment: '할부', card: '카드', subscription: '구독' };
+const BUDGET_TERMS = ['short', 'long'];
+const BUDGET_TERM_LABEL = { short: '단기', long: '장기' };
+const BUDGET_FREQS = ['monthly', 'weekly', 'yearly', 'daily', 'once'];
+const BUDGET_FREQ_LABEL = { monthly: '매월', weekly: '매주', yearly: '매년', daily: '매일', once: '1회성' };
 const DEFAULT_USD_KRW_RATE = 1350;
 const FX_API_URL = 'https://open.er-api.com/v6/latest/USD';
 
@@ -769,7 +778,7 @@ function defaultData() {
   const insCompanies = ['교보생명', '동부생명', '현대해상', 'DB손해', 'KB손해'].map((name) => ({ id: uid(), name }));
   const insApplyTypes = ['신규', '추가'].map((name) => ({ id: uid(), name }));
   const insProgresses = ['진행중', '보상완료'].map((name) => ({ id: uid(), name }));
-  return { version: 1, categorySchema: 2, categoryTreeVersion: CATEGORY_TREE_VERSION, accounts, categories, transactions: [], budgets: {}, periodBudgets: [], recurring: [], holidays: [], payees: [], vendors: [], insuranceClaims: [], insTargets, insTypes, insCompanies, insApplyTypes, insProgresses, todoLists, todos: [], settings: { usdKrwRate: null, rateUpdatedAt: null } };
+  return { version: 1, categorySchema: 2, categoryTreeVersion: CATEGORY_TREE_VERSION, accounts, categories, transactions: [], budgets: {}, periodBudgets: [], budgetItems: [], recurring: [], holidays: [], payees: [], vendors: [], insuranceClaims: [], insTargets, insTypes, insCompanies, insApplyTypes, insProgresses, todoLists, todos: [], settings: { usdKrwRate: null, rateUpdatedAt: null } };
 }
 
 /* 구버전(대/소분류 구분 없는 평평한 카테고리) 데이터를 대분류 트리 밑으로 옮겨요.
@@ -844,6 +853,11 @@ function migrateToUpdatedCategoryTree(d) {
     if (r.categoryId == null) return;
     const type = oldTypeById[r.categoryId] || r.type;
     if (fallbackLeafId[type]) r.categoryId = fallbackLeafId[type];
+  });
+  (d.budgetItems || []).forEach((b) => {
+    if (b.categoryId == null) return;
+    const type = oldTypeById[b.categoryId] || (b.formType === 'income' ? 'income' : 'expense');
+    if (fallbackLeafId[type]) b.categoryId = fallbackLeafId[type];
   });
   const migratedBudgets = {};
   Object.entries(d.budgets || {}).forEach(([catId, amt]) => {
@@ -1033,6 +1047,7 @@ function loadData() {
     d.transactions = d.transactions || [];
     d.budgets = d.budgets || {};
     d.periodBudgets = d.periodBudgets || [];
+    d.budgetItems = Array.isArray(d.budgetItems) ? d.budgetItems : [];
     d.recurring = d.recurring || [];
     d.holidays = (Array.isArray(d.holidays) ? d.holidays : []).filter(h => !krHolidaySetForYear(Number(h.slice(0, 4))).has(h));
     d.todoLists = Array.isArray(d.todoLists) && d.todoLists.length ? d.todoLists : [{ id: uid(), name: '할 일', icon: '📋', type: 'simple', hideCompleted: false }];
@@ -1477,9 +1492,9 @@ document.addEventListener('click', (e) => {
 
 /* ---------------- searchable category picker ---------------- */
 function categoryPickerConfig(scope) {
-  return scope === 'rec'
-    ? { selId: 'rec-category', displayId: 'rec-category-display', getType: () => state._recModal.type, nextFieldId: 'rec-account' }
-    : { selId: 'tx-category', displayId: 'tx-category-display', getType: () => state._txModal.type, nextFieldId: 'tx-account' };
+  if (scope === 'rec') return { selId: 'rec-category', displayId: 'rec-category-display', getType: () => state._recModal.type, nextFieldId: 'rec-account' };
+  if (scope === 'budget') return { selId: 'budget-category', displayId: 'budget-category-display', getType: () => (state._budgetModal.formType === 'income' ? 'income' : 'expense'), nextFieldId: null };
+  return { selId: 'tx-category', displayId: 'tx-category-display', getType: () => state._txModal.type, nextFieldId: 'tx-account' };
 }
 function syncCategoryDisplay(scope) {
   const cfg = categoryPickerConfig(scope);
@@ -2706,6 +2721,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     <div id="tx-acc-field" class="field"></div>
     <div id="tx-toacc-field" class="field"></div>
     <div class="field" id="tx-loan-field"></div>
+    <div class="field" id="tx-budget-field"></div>
     <div class="field" id="tx-vendor-field"></div>
     <div class="field"><label class="field-lbl">메모</label><textarea id="tx-memo" autocomplete="off" placeholder="메모 (선택)" rows="1" style="min-height:34px;padding:8px 9px;resize:vertical;" onfocus="openMemoSuggest(this)" oninput="onMemoInput(this)" onkeydown="onMemoKeydown(event)" onblur="closeMemoSuggest()">${escapeHtml(editing ? (editing.memo || '') : (fromRecurring ? fromRecurring.name : (duplicateFrom ? (duplicateFrom.memo || '') : '')))}</textarea></div>
     <div class="field" id="tx-receipt-field"></div>
@@ -2757,6 +2773,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     editing ? (editing.linkedLoanAccountId || '') : (duplicateFrom ? (duplicateFrom.linkedLoanAccountId || '') : ''),
     editing ? (editing.vendor || '') : (fromRecurring ? (fromRecurring.vendor || '') : (duplicateFrom ? (duplicateFrom.vendor || '') : ''))
   );
+  renderTxBudgetField(editing ? (editing.budgetId || null) : (duplicateFrom ? (duplicateFrom.budgetId || null) : null));
 }
 function openRecurringQuickApplyModal(id, date) {
   const r = DATA.recurring.find(x => x.id === id);
@@ -2772,6 +2789,20 @@ function setTxType(t) {
     b.classList.toggle('income-active', active && t === 'income');
   });
   renderTxModalFields(null, state._txModal.presetAccountId);
+  renderTxBudgetField(null);
+}
+function renderTxBudgetField(presetBudgetId) {
+  const el = document.getElementById('tx-budget-field');
+  if (!el) return;
+  const type = state._txModal.type;
+  if (type === 'transfer' || !DATA.budgetItems) { el.innerHTML = ''; return; }
+  const matches = DATA.budgetItems.filter(b => (type === 'income') === (b.formType === 'income'));
+  const options = matches.map(b => `<option value="${b.id}" ${presetBudgetId === b.id ? 'selected' : ''}>${escapeHtml(budgetItemLabel(b))}</option>`).join('');
+  el.innerHTML = `<label class="field-lbl">연결할 예산 (선택)</label>
+    <div style="display:flex;gap:6px;">
+      <select id="tx-budget" style="flex:1;min-width:0;"><option value="">연결 안 함</option>${options}</select>
+      <button type="button" class="ghost-btn" style="font-size:12px;padding:5px 10px;flex-shrink:0;" onclick="openBudgetQuickAddPopup('${type}')">+ 새 예산</button>
+    </div>`;
 }
 function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, presetPayee, presetLoanAccountId, presetVendor) {
   const type = state._txModal.type;
@@ -3246,6 +3277,8 @@ async function submitTx(editId) {
       return showToast('대출/할부 계좌와 지출 자산의 통화가 달라 연결할 수 없어요.', 'error');
     }
     payload.linkedLoanAccountId = type === 'expense' ? linkedLoanAccountId : undefined;
+    const budgetEl = document.getElementById('tx-budget');
+    payload.budgetId = budgetEl ? (budgetEl.value || null) : null;
   }
   payload.payee = document.getElementById('tx-payee').value.trim() || null;
   payload.vendor = document.getElementById('tx-vendor').value.trim() || null;
@@ -3809,10 +3842,76 @@ function renderReport() {
 }
 
 /* ---------------- BUDGET ---------------- */
+function convertCurrencyAmount(amount, fromCurrency, toCurrency) {
+  if ((fromCurrency || 'KRW') === (toCurrency || 'KRW')) return amount;
+  const rate = usdToKrwRate();
+  return fromCurrency === 'USD' ? amount * rate : amount / rate;
+}
+function budgetLinkedTx(item) { return DATA.transactions.filter(t => t.budgetId === item.id); }
+function budgetStats(item) {
+  const mKey = monthKey(new Date());
+  const currency = item.currency || 'KRW';
+  const linked = budgetLinkedTx(item);
+  const amountIn = (t) => convertCurrencyAmount(t.amount, getAccount(t.accountId).currency || 'KRW', currency);
+  const executedTotal = linked.reduce((sum, t) => sum + amountIn(t), 0);
+  const executedMonth = linked.filter(t => t.date.slice(0, 7) === mKey).reduce((sum, t) => sum + amountIn(t), 0);
+  const totalAmount = Number(item.totalAmount) || 0;
+  const monthlyBudget = Number(item.monthlyBudget) || 0;
+  return {
+    executedTotal, executedMonth,
+    remaining: totalAmount - executedTotal,
+    execRate: totalAmount > 0 ? executedTotal / totalAmount : null,
+    monthExecRate: monthlyBudget > 0 ? executedMonth / monthlyBudget : null,
+    cumulativeCount: linked.length,
+  };
+}
+function budgetPctTagHtml(rate) {
+  if (rate == null) return '-';
+  const cls = rate > 1 ? 'over' : (rate >= 0.8 ? 'warn' : 'ok');
+  return `<span class="budget-pct-tag ${cls}">${Math.round(rate * 100)}%</span>`;
+}
+function budgetItemLabel(item) {
+  const cat = categoryChildCellText(item.categoryId);
+  const parts = [BUDGET_FORM_TYPE_LABEL[item.formType] || item.formType, cat !== '-' ? cat : null, item.memo || null].filter(Boolean);
+  return parts.join(' · ') || '(이름 없음)';
+}
 function renderBudget() {
+  const items = DATA.budgetItems.slice().sort((a, b) => (a.applyDate || '').localeCompare(b.applyDate || ''));
+  const rowsHtml = items.map((item, idx) => {
+    const stats = budgetStats(item);
+    const currency = item.currency || 'KRW';
+    return `<tr class="tx-row-clickable" data-budgetid="${item.id}" onclick="onBudgetRowClick(event, '${item.id}')">
+      <td>${idx + 1}</td>
+      <td>${BUDGET_STATUS_LABEL[item.status] || '-'}</td>
+      <td>${BUDGET_FORM_TYPE_LABEL[item.formType] || '-'}</td>
+      <td>${BUDGET_TERM_LABEL[item.termType] || '-'}</td>
+      <td>${BUDGET_FREQ_LABEL[item.frequency] || '-'}</td>
+      <td title="${escapeHtml(item.freqDetail || '')}">${escapeHtml(item.freqDetail || '') || '-'}</td>
+      <td>${item.applyDate || '-'}</td>
+      <td>${item.startDate || '-'}</td>
+      <td>${item.endDate || '-'}</td>
+      <td title="${categoryParentCellHtml(item.categoryId).replace(/<[^>]*>/g, '')}">${categoryParentCellHtml(item.categoryId)}</td>
+      <td title="${categoryChildCellHtml(item.categoryId).replace(/<[^>]*>/g, '')}">${categoryChildCellHtml(item.categoryId)}</td>
+      <td>${currency}</td>
+      <td class="num">${fmtCurrency(item.totalAmount || 0, currency)}</td>
+      <td class="num">${fmtCurrencySigned(stats.remaining, currency)}</td>
+      <td class="num">${budgetPctTagHtml(stats.execRate)}</td>
+      <td class="num">${fmtCurrency(item.monthlyBudget || 0, currency)}</td>
+      <td class="num">${fmtCurrency(stats.executedMonth, currency)}</td>
+      <td class="num">${budgetPctTagHtml(stats.monthExecRate)}</td>
+      <td class="num">${item.totalInstallments || '-'}</td>
+      <td class="num">${stats.cumulativeCount}</td>
+      <td title="${escapeHtml(item.memo || '')}">${escapeHtml(item.memo || '') || '-'}</td>
+      <td class="actions-cell"><button class="ghost-btn danger-btn" style="font-size:12px;padding:5px 10px;" onclick="deleteBudgetItem('${item.id}')">삭제</button></td>
+    </tr>`;
+  }).join('');
   document.getElementById('panel-budget').innerHTML = `
     <div class="section-block">
-      <div class="section-heading">예산 목록</div>
+      <div class="toolbar">
+        <div class="section-heading" style="margin:0;">예산 목록</div>
+        <button class="primary-btn" onclick="openBudgetModal()">+ 예산 추가</button>
+      </div>
+      <div class="form-note">거래를 저장할 때 이 목록의 항목을 골라 연결하면 이번달집행금·집행율이 자동으로 계산돼요.</div>
       <div class="overflow-x"><table>
         <colgroup>
           <col style="min-width:56px"><col style="min-width:72px"><col style="min-width:72px"><col style="min-width:72px">
@@ -3820,7 +3919,7 @@ function renderBudget() {
           <col style="min-width:96px"><col style="min-width:100px"><col style="min-width:100px"><col style="min-width:70px">
           <col style="min-width:100px"><col style="min-width:100px"><col style="min-width:70px"><col style="min-width:110px">
           <col style="min-width:110px"><col style="min-width:96px"><col style="min-width:70px"><col style="min-width:70px">
-          <col style="min-width:160px">
+          <col style="min-width:160px"><col style="min-width:70px">
         </colgroup>
         <thead>
           <tr>
@@ -3828,14 +3927,168 @@ function renderBudget() {
             <th>적용일</th><th>시작일</th><th>종료일</th><th>대카테고리</th><th>소카테고리</th><th>usd/krw</th>
             <th class="num">총액</th><th class="num">잔액</th><th class="num">집행율</th>
             <th class="num">이번달예산</th><th class="num">이번달집행금</th><th class="num">이번달집행율</th>
-            <th class="num">총회차</th><th class="num">누적회차</th><th>메모</th>
+            <th class="num">총회차</th><th class="num">누적회차</th><th>메모</th><th>관리</th>
           </tr>
         </thead>
-        <tbody></tbody>
+        <tbody>${rowsHtml}</tbody>
       </table></div>
-      <div class="empty">등록된 예산 항목이 없어요.</div>
+      ${items.length ? '' : '<div class="empty">등록된 예산 항목이 없어요.</div>'}
     </div>
   `;
+}
+function onBudgetRowClick(e, id) {
+  if (e.target.closest('button, a, input, select, textarea')) return;
+  openBudgetModal(id);
+}
+function deleteBudgetItem(id) {
+  const item = DATA.budgetItems.find(b => b.id === id);
+  if (!item) return;
+  if (!confirm('이 예산 항목을 삭제할까요? 연결된 거래는 그대로 남아요.')) return;
+  DATA.budgetItems = DATA.budgetItems.filter(b => b.id !== id);
+  DATA.transactions.forEach(t => { if (t.budgetId === id) t.budgetId = null; });
+  saveData();
+  showToast('예산 항목을 삭제했어요.', 'info');
+  renderBudget();
+}
+function openBudgetModal(id, presetFormType) {
+  const editing = id ? DATA.budgetItems.find(b => b.id === id) : null;
+  const formType = editing ? editing.formType : (presetFormType || 'expense');
+  state._budgetModal = { formType };
+  const amtStr = (n, currency) => n ? (currency === 'USD' ? Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(n).toLocaleString('ko-KR')) : '';
+  const currency = editing ? (editing.currency || 'KRW') : 'KRW';
+  openModal(`
+    <h3>${editing ? '예산 항목 수정' : '예산 항목 추가'}</h3>
+    <div class="form-grid">
+      <div><label class="field-lbl">상태</label><select id="budget-status">${BUDGET_STATUS.map(s => `<option value="${s}" ${editing && editing.status === s ? 'selected' : ''}>${BUDGET_STATUS_LABEL[s]}</option>`).join('')}</select></div>
+      <div><label class="field-lbl">형태</label><select id="budget-formtype" onchange="onBudgetFormTypeChange()">${BUDGET_FORM_TYPES.map(t => `<option value="${t}" ${formType === t ? 'selected' : ''}>${BUDGET_FORM_TYPE_LABEL[t]}</option>`).join('')}</select></div>
+    </div>
+    <div class="form-grid">
+      <div><label class="field-lbl">장단기</label><select id="budget-term">${BUDGET_TERMS.map(t => `<option value="${t}" ${editing && editing.termType === t ? 'selected' : ''}>${BUDGET_TERM_LABEL[t]}</option>`).join('')}</select></div>
+      <div><label class="field-lbl">주기</label><select id="budget-freq">${BUDGET_FREQS.map(f => `<option value="${f}" ${(editing ? editing.frequency : 'monthly') === f ? 'selected' : ''}>${BUDGET_FREQ_LABEL[f]}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><label class="field-lbl">주기내용 (선택)</label><input type="text" id="budget-freqdetail" placeholder="예: 매월 15일, 격월 10일" value="${escapeHtml(editing ? (editing.freqDetail || '') : '')}"></div>
+    <div id="budget-cat-field" class="field"></div>
+    <div class="form-grid">
+      <div><label class="field-lbl">적용일 (선택)</label><input type="text" class="date-field" id="budget-apply-date" value="${editing ? (editing.applyDate || '') : ''}" readonly></div>
+      <div><label class="field-lbl">통화</label><select id="budget-currency" onchange="onBudgetCurrencyChange()">${CURRENCIES.map(c => `<option value="${c}" ${currency === c ? 'selected' : ''}>${CURRENCY_LABEL[c]}</option>`).join('')}</select></div>
+    </div>
+    <div class="form-grid">
+      <div><label class="field-lbl">시작일 (선택)</label><input type="text" class="date-field" id="budget-start-date" value="${editing ? (editing.startDate || '') : ''}" readonly></div>
+      <div><label class="field-lbl">종료일 (선택)</label><input type="text" class="date-field" id="budget-end-date" value="${editing ? (editing.endDate || '') : ''}" readonly></div>
+    </div>
+    <div class="form-grid">
+      <div><label class="field-lbl">총액</label><input type="text" inputmode="decimal" id="budget-total" oninput="formatCurrencyAmountInput(this, document.getElementById('budget-currency').value)" value="${amtStr(editing ? editing.totalAmount : null, currency)}" placeholder="0"></div>
+      <div><label class="field-lbl">이번달예산</label><input type="text" inputmode="decimal" id="budget-monthly" oninput="formatCurrencyAmountInput(this, document.getElementById('budget-currency').value)" value="${amtStr(editing ? editing.monthlyBudget : null, currency)}" placeholder="0"></div>
+    </div>
+    <div class="field"><label class="field-lbl">총회차 (선택)</label><input type="text" inputmode="numeric" id="budget-installments" value="${editing && editing.totalInstallments ? editing.totalInstallments : ''}" placeholder="예: 12"></div>
+    <div class="field"><label class="field-lbl">메모</label><input type="text" id="budget-memo" value="${escapeHtml(editing ? (editing.memo || '') : '')}" placeholder="메모 (선택)"></div>
+    <div class="form-actions">
+      <button class="ghost-btn" onclick="closeModal()">취소</button>
+      <button class="primary-btn" onclick="submitBudget(${editing ? `'${editing.id}'` : 'null'})">${editing ? '저장' : '추가'}</button>
+    </div>
+    ${editing ? `<div class="panel-footer-actions"><button class="ghost-btn danger-btn" onclick="if (confirm('이 예산 항목을 삭제할까요?')) { closeModal(); deleteBudgetItem('${editing.id}'); }">삭제</button></div>` : ''}
+  `);
+  renderBudgetCatField(editing ? editing.categoryId : null);
+}
+function onBudgetFormTypeChange() {
+  state._budgetModal.formType = document.getElementById('budget-formtype').value;
+  renderBudgetCatField(null);
+}
+function onBudgetCurrencyChange() {
+  const currency = document.getElementById('budget-currency').value;
+  ['budget-total', 'budget-monthly'].forEach(id => {
+    const el = document.getElementById(id);
+    const num = Math.abs(parseFloat((el.value || '').replace(/,/g, '')) || 0);
+    el.value = num ? (currency === 'USD' ? num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Math.round(num).toLocaleString('ko-KR')) : '';
+  });
+}
+function renderBudgetCatField(presetCat) {
+  const el = document.getElementById('budget-cat-field');
+  if (!el) return;
+  const type = state._budgetModal.formType === 'income' ? 'income' : 'expense';
+  const groups = topCategories(type).map(p => {
+    const children = childCategories(p.id);
+    if (!children.length) return '';
+    return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}" ${presetCat === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
+  }).join('');
+  el.innerHTML = `<label class="field-lbl">카테고리 (선택)</label>
+    <select id="budget-category" style="display:none;"><option value="" ${presetCat ? '' : 'selected'}>선택 안함</option>${groups}</select>
+    <input type="text" class="cat-field" id="budget-category-display" autocomplete="off" placeholder="카테고리 선택 (선택 안 해도 돼요)" onfocus="this.select(); openCategoryPicker(this, 'budget')" oninput="onCategoryInput(this, 'budget')" onkeydown="onCategoryKeydown(event)" onblur="closeCategoryPicker()">`;
+  syncCategoryDisplay('budget');
+}
+function submitBudget(editId) {
+  const currency = document.getElementById('budget-currency').value;
+  const totalAmount = rawCurrencyAmount(document.getElementById('budget-total'), currency, true) || 0;
+  const monthlyBudget = rawCurrencyAmount(document.getElementById('budget-monthly'), currency, true) || 0;
+  const totalInstallments = Number(document.getElementById('budget-installments').value) || null;
+  const payload = {
+    status: document.getElementById('budget-status').value,
+    formType: document.getElementById('budget-formtype').value,
+    termType: document.getElementById('budget-term').value,
+    frequency: document.getElementById('budget-freq').value,
+    freqDetail: document.getElementById('budget-freqdetail').value.trim() || null,
+    categoryId: document.getElementById('budget-category').value || null,
+    applyDate: document.getElementById('budget-apply-date').value || null,
+    startDate: document.getElementById('budget-start-date').value || null,
+    endDate: document.getElementById('budget-end-date').value || null,
+    currency,
+    totalAmount,
+    monthlyBudget,
+    totalInstallments,
+    memo: document.getElementById('budget-memo').value.trim() || null,
+  };
+  if (editId) {
+    Object.assign(DATA.budgetItems.find(b => b.id === editId), payload);
+  } else {
+    DATA.budgetItems.push({ id: uid(), ...payload });
+  }
+  saveData();
+  closeModal();
+  showToast(editId ? '예산 항목을 저장했어요.' : '예산 항목을 추가했어요.', 'success');
+  renderBudget();
+}
+/* 거래 입력 폼에서 예산 탭을 벗어나지 않고 바로 새 예산 항목을 만들 수 있는 간이 팝업.
+   거래 입력 폼(오버레이 또는 인라인)을 그대로 둔 채 그 위에 별도 오버레이로 띄워요. */
+function openBudgetQuickAddPopup(txType) {
+  closeBudgetQuickAddPopup();
+  const formType = txType === 'income' ? 'income' : 'expense';
+  const el = document.createElement('div');
+  el.id = 'budget-quickadd-overlay';
+  el.className = 'modal-overlay';
+  el.style.zIndex = '8100';
+  el.innerHTML = `<div class="modal-card" style="max-width:380px;">
+    <h3>새 예산 항목 추가</h3>
+    <div class="form-note">간단히 등록하고 바로 이 거래에 연결해요. 나머지 세부 항목(주기·기간 등)은 예산 탭에서 채울 수 있어요.</div>
+    <div class="field"><label class="field-lbl">형태</label><select id="bqa-formtype">${BUDGET_FORM_TYPES.map(t => `<option value="${t}" ${formType === t ? 'selected' : ''}>${BUDGET_FORM_TYPE_LABEL[t]}</option>`).join('')}</select></div>
+    <div class="field"><label class="field-lbl">총액</label><input type="text" inputmode="decimal" id="bqa-total" oninput="formatCurrencyAmountInput(this, 'KRW')" placeholder="0"></div>
+    <div class="field"><label class="field-lbl">메모 (선택)</label><input type="text" id="bqa-memo" placeholder="예: 넷플릭스 구독"></div>
+    <div class="form-actions">
+      <button class="ghost-btn" onclick="closeBudgetQuickAddPopup()">취소</button>
+      <button class="primary-btn" onclick="submitBudgetQuickAdd()">추가하고 연결</button>
+    </div>
+  </div>`;
+  document.body.appendChild(el);
+  el.addEventListener('mousedown', (e) => { if (e.target === el) closeBudgetQuickAddPopup(); });
+}
+function closeBudgetQuickAddPopup() {
+  const el = document.getElementById('budget-quickadd-overlay');
+  if (el) el.remove();
+}
+function submitBudgetQuickAdd() {
+  const formType = document.getElementById('bqa-formtype').value;
+  const totalAmount = rawCurrencyAmount(document.getElementById('bqa-total'), 'KRW') || 0;
+  const memo = document.getElementById('bqa-memo').value.trim() || null;
+  const item = {
+    id: uid(), status: 'active', formType, termType: 'short', frequency: 'monthly', freqDetail: null,
+    categoryId: null, applyDate: todayStr(), startDate: null, endDate: null,
+    currency: 'KRW', totalAmount, monthlyBudget: totalAmount, totalInstallments: null, memo,
+  };
+  DATA.budgetItems.push(item);
+  saveData();
+  closeBudgetQuickAddPopup();
+  showToast('예산 항목을 추가했어요.', 'success');
+  renderTxBudgetField(item.id);
+  if (state.tab === 'budget') renderBudget();
 }
 
 /* ---------------- ACCOUNTS ---------------- */
