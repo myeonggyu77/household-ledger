@@ -256,24 +256,19 @@
   .month-nav .m-label { font-family: var(--mono); font-size: 14px; font-weight: 600; min-width: 96px; text-align: center; position: relative; cursor: pointer; }
   .month-nav .m-label input { position: absolute; inset: 0; opacity: 0; cursor: pointer; border: none; padding: 0; }
 
-  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); margin-bottom: 20px; }
-  .cal-dow { background: var(--paper); text-align: center; font-size: 11px; color: var(--ink-faint); padding: 6px 0; text-transform: uppercase; }
-  .cal-cell { background: var(--paper-raised); min-height: 74px; padding: 6px; cursor: pointer; }
-  .cal-cell.adjacent { background: var(--paper); }
-  .cal-cell.adjacent .date-num { color: var(--ink-faint); }
-  .cal-cell.today { box-shadow: inset 0 0 0 2px var(--accent); }
-  .cal-cell.selected { background: var(--accent-tint); }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin-bottom: 8px; }
+  .cal-dow { text-align: center; font-size: 10px; color: var(--ink-faint); padding: 2px 0 6px; text-transform: uppercase; }
+  .cal-cell { background: var(--paper-raised); border: 1px solid var(--line); border-radius: 8px; height: 44px; box-sizing: border-box; padding: 0; cursor: pointer; min-width: 0; overflow: hidden; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+  .cal-cell.adjacent { opacity: 0.4; }
+  .cal-cell.today { border-color: var(--accent); }
+  .cal-cell.selected { background: var(--accent-tint); border-color: var(--accent-line); }
   .cal-cell:hover { background: var(--line-soft); }
-  .cal-cell .date-num { font-size: 12px; color: var(--ink-soft); font-weight: 600; }
-  .cal-cell .cal-amt { font-family: var(--mono); font-size: 10.5px; line-height: 1.5; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; }
-  .cal-amt.inc { color: var(--accent); }
-  .cal-amt.exp { color: var(--down); }
-  .cal-recur { margin-top: 3px; display: flex; flex-direction: column; gap: 1px; }
-  .cal-recur-item { font-size: 9px; line-height: 1.4; padding: 0 3px; border-radius: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .cal-recur-item.applied { background: var(--accent-tint); color: var(--ink-soft); }
-  .cal-recur-item.pending { border: 1px dashed var(--line); color: var(--ink-faint); }
-  .cal-recur-item.skipped { background: var(--line-soft); color: var(--ink-faint); text-decoration: line-through; }
-  .cal-recur-more { font-size: 9px; color: var(--ink-faint); }
+  .cal-cell.selected:hover { background: var(--accent-tint); }
+  .cal-cell .date-num { font-size: 11px; color: var(--ink-soft); font-weight: 600; }
+  .cal-flow-bar { display: flex; gap: 2px; height: 3px; width: 60%; border-radius: 2px; overflow: hidden; background: var(--line-soft); }
+  .cal-flow-bar .seg.inc { background: var(--accent); }
+  .cal-flow-bar .seg.exp { background: var(--down); }
+  .cal-recur-dot { position: absolute; top: 4px; right: 5px; width: 5px; height: 5px; border-radius: 50%; }
 
   .bar-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; }
   .bar-row .bar-lbl { width: 130px; font-size: 12.5px; flex-shrink: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -369,13 +364,13 @@
     #panel-insurance .ins-list .overflow-x { flex: 1; min-height: 0; max-height: none; overflow-y: auto; height: 100%; }
     .dcol { display: table-cell; }
     table.tx-table-balance .dcol-balance { display: table-cell; }
-    .cal-layout { display: flex; flex-direction: column; gap: 20px; max-width: 70%; margin: 0 auto; }
-    .cal-main { width: 100%; }
-    .cal-main .cal-cell { min-height: 92px; padding: 8px; }
-    .cal-main .cal-cell .date-num { font-size: 13px; }
-    .cal-main .cal-cell .cal-amt { font-size: 12.5px; }
-    .cal-main .cal-cell .cal-recur-item, .cal-main .cal-cell .cal-recur-more { font-size: 10.5px; }
-    .cal-layout .day-list-card { margin-bottom: 0; }
+    .cal-layout { display: flex; gap: 28px; align-items: flex-start; }
+    .cal-main { width: 380px; flex-shrink: 0; }
+    .cal-main .cal-cell { height: 52px; }
+    .cal-main .cal-cell .date-num { font-size: 12px; }
+    .cal-side { flex: 1; min-width: 0; }
+    .cal-side .day-list-card { margin-bottom: 20px; }
+    .cal-side .day-list-card:last-child { margin-bottom: 0; }
     .stats-chart-layout { display: flex; gap: 28px; align-items: flex-start; }
     .stats-chart-col { flex: 0 0 300px; }
     .stats-legend-col { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 16px; align-content: start; }
@@ -2300,36 +2295,34 @@ function renderCalendar() {
     if (!dayTotals[t.date]) dayTotals[t.date] = { income: 0, expense: 0 };
     dayTotals[t.date][t.type] += txAmountKRW(t);
   });
-  const dayRecurMarkers = {};
+  const dayRecurStatus = {};
   cells.forEach(cell => {
     const list = recurringDueList(dateFromYmd(cell.date));
-    dayRecurMarkers[cell.date] = cell.date < today ? list.filter(r => !r.alreadyApplied) : list;
+    if (!list.length) { dayRecurStatus[cell.date] = null; return; }
+    const hasPending = list.some(r => !r.alreadyApplied && !r.skipped);
+    const hasApplied = list.some(r => r.alreadyApplied);
+    dayRecurStatus[cell.date] = hasPending ? 'pending' : (hasApplied ? 'applied' : 'skipped');
   });
+  const RECUR_DOT_COLOR = { pending: 'var(--status-warn)', applied: 'var(--accent)', skipped: 'var(--ink-faint)' };
 
   const gridHtml = `<div class="cal-grid">
     ${dows.map(d => `<div class="cal-dow">${d}</div>`).join('')}
     ${cells.map(cell => {
       const { date, inMonth } = cell;
       const d = Number(date.slice(-2));
-      const totals = dayTotals[date];
-      const recurMarkers = dayRecurMarkers[date];
-      const isPastCell = date < today;
+      const totals = dayTotals[date] || { income: 0, expense: 0 };
+      const total = totals.income + totals.expense;
+      const recurStatus = dayRecurStatus[date];
       const cls = ['cal-cell'];
       if (!inMonth) cls.push('adjacent');
       if (date === today) cls.push('today');
       if (date === state.calSelected) cls.push('selected');
-      return `<div class="${cls.join(' ')}" onclick="selectCalDate('${date}')">
+      const dotColor = recurStatus ? RECUR_DOT_COLOR[recurStatus] : null;
+      const tip = total ? `수입 ${Math.round(totals.income).toLocaleString('ko-KR')}원 · 지출 ${Math.round(totals.expense).toLocaleString('ko-KR')}원` : '';
+      return `<div class="${cls.join(' ')}" onclick="selectCalDate('${date}')" title="${escapeHtml(tip)}">
         <div class="date-num">${d}</div>
-        ${totals && totals.income ? `<div class="cal-amt inc">+${Math.round(totals.income).toLocaleString('ko-KR')}</div>` : ''}
-        ${totals && totals.expense ? `<div class="cal-amt exp">-${Math.round(totals.expense).toLocaleString('ko-KR')}</div>` : ''}
-        ${recurMarkers.length ? `<div class="cal-recur">
-          ${recurMarkers.slice(0, 2).map(r => {
-            const cls = r.alreadyApplied ? 'applied' : r.skipped ? 'skipped' : 'pending';
-            const label = r.alreadyApplied ? '적용됨' : r.skipped ? '건너뜀' : (isPastCell ? '미등록' : '예정');
-            return `<div class="cal-recur-item ${cls}" title="${escapeHtml(r.name)} · ${label}">${escapeHtml(r.name)}</div>`;
-          }).join('')}
-          ${recurMarkers.length > 2 ? `<div class="cal-recur-more">+${recurMarkers.length - 2}</div>` : ''}
-        </div>` : ''}
+        ${total ? `<div class="cal-flow-bar"><div class="seg inc" style="flex:${totals.income}"></div><div class="seg exp" style="flex:${totals.expense}"></div></div>` : ''}
+        ${dotColor ? `<div class="cal-recur-dot" style="background:${dotColor};"></div>` : ''}
       </div>`;
     }).join('')}
   </div>`;
@@ -2346,16 +2339,18 @@ function renderCalendar() {
             ${monthNavHtml('navMonth(-1)', 'navMonth(1)', mKey)}
             ${gridHtml}
           </div>
-          <div class="day-list-card">
-            <div class="section-heading" style="border-bottom:none;margin-bottom:8px;padding-bottom:0;">${escapeHtml(dayLabel)} 정기거래</div>
-            ${dayRecur.length ? dayRecur.map(r => dueRecurringRowHtml(r, state.calSelected)).join('') : `<div class="empty">이 날짜에 예정된 정기거래가 없어요.</div>`}
-          </div>
-          <div class="day-list-card">
-            <div class="section-heading" style="border-bottom:none;margin-bottom:8px;padding-bottom:0;">
-              ${escapeHtml(dayLabel)} 내역
-              <button class="ghost-btn" onclick="openTxModal(null, '${state.calSelected}')">+ 이 날짜에 추가</button>
+          <div class="cal-side">
+            <div class="day-list-card">
+              <div class="section-heading" style="border-bottom:none;margin-bottom:8px;padding-bottom:0;">${escapeHtml(dayLabel)} 정기거래</div>
+              ${dayRecur.length ? dayRecur.map(r => dueRecurringRowHtml(r, state.calSelected)).join('') : `<div class="empty">이 날짜에 예정된 정기거래가 없어요.</div>`}
             </div>
-            ${dayTx.length ? renderTxTable(dayTx, true) : `<div class="empty">이 날짜에 등록된 거래가 없어요.</div>`}
+            <div class="day-list-card">
+              <div class="section-heading" style="border-bottom:none;margin-bottom:8px;padding-bottom:0;">
+                ${escapeHtml(dayLabel)} 내역
+                <button class="ghost-btn" onclick="openTxModal(null, '${state.calSelected}')">+ 이 날짜에 추가</button>
+              </div>
+              ${dayTx.length ? renderTxTable(dayTx, true) : `<div class="empty">이 날짜에 등록된 거래가 없어요.</div>`}
+            </div>
           </div>
         </div>
       </div>
