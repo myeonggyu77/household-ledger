@@ -1281,6 +1281,9 @@ function reorderCategory(id, newIndex) {
 function leafCategories(type) { return DATA.categories.filter(c => c.type === type && c.parentId); }
 
 /* ---------------- derived data ---------------- */
+/* 통화가 다른 자산 간 이체는 보내는 금액(amount)과 받는 금액(toAmount)이 서로 달라요.
+   toAmount가 없으면(구버전 데이터·동일 통화 이체) amount를 그대로 받는 금액으로 취급해요. */
+function transferCreditAmount(t) { return t.toAmount != null ? t.toAmount : t.amount; }
 function accountBalance(acc, beforeDate) {
   let bal = Number(acc.initialBalance) || 0;
   DATA.transactions.forEach(t => {
@@ -1289,7 +1292,7 @@ function accountBalance(acc, beforeDate) {
     else if (t.type === 'expense' && t.accountId === acc.id) bal -= t.amount;
     else if (t.type === 'transfer') {
       if (t.accountId === acc.id) bal -= t.amount;
-      if (t.toAccountId === acc.id) bal += t.amount;
+      if (t.toAccountId === acc.id) bal += transferCreditAmount(t);
     }
     if (t.type === 'expense' && t.linkedLoanAccountId === acc.id) bal += t.amount;
   });
@@ -2213,7 +2216,7 @@ function dueRecurringRowHtml(r, dateForApply) {
       <div class="due-sub">${mid}</div>
     </div>
     <div class="due-right">
-      <div class="due-amt">${fmtCurrency(r.amount, acc.currency || 'KRW')}</div>
+      <div class="due-amt">${(r.type === 'transfer' && r.toAmount != null) ? `${fmtCurrency(r.amount, acc.currency || 'KRW')} → ${fmtCurrency(r.toAmount, getAccount(r.toAccountId).currency || 'KRW')}` : fmtCurrency(r.amount, acc.currency || 'KRW')}</div>
       ${actionHtml}
     </div>
   </div>`;
@@ -2397,8 +2400,9 @@ function renderTxTable(list, hideDate, showCategoryCol) {
         const acc = getAccount(t.accountId);
         const typeLabel = t.type === 'income' ? '수입' : t.type === 'expense' ? '지출' : '이체';
         let mid, acctCell;
+        let toAcc = null;
         if (t.type === 'transfer') {
-          const toAcc = getAccount(t.toAccountId);
+          toAcc = getAccount(t.toAccountId);
           mid = `${acc.icon} ${escapeHtml(acc.name)} → ${toAcc.icon} ${escapeHtml(toAcc.name)}`;
           acctCell = mid;
         } else {
@@ -2409,6 +2413,9 @@ function renderTxTable(list, hideDate, showCategoryCol) {
         const catParentCell = categoryParentCellHtml(t.categoryId);
         const catChildCell = categoryChildCellHtml(t.categoryId);
         const sign = t.type === 'income' ? '+' : t.type === 'expense' ? '-' : '';
+        const amtCell = (t.type === 'transfer' && t.toAmount != null)
+          ? `${fmtCurrency(t.amount, acc.currency || 'KRW')} → ${fmtCurrency(t.toAmount, toAcc.currency || 'KRW')}`
+          : `${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}`;
         const subParts = [];
         if (t.payee) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.payee)}</span>`);
         if (t.vendor) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.vendor)}</span>`);
@@ -2432,7 +2439,7 @@ function renderTxTable(list, hideDate, showCategoryCol) {
           <td class="dcol memo-col" title="${escapeHtml(t.memo || '')}"><div class="memo-inner">${memoCell}</div></td>
           <td class="dcol" title="${escapeHtml(t.payee || '')}">${escapeHtml(t.payee || '')}</td>
           <td class="dcol" title="${escapeHtml(t.vendor || '')}">${escapeHtml(t.vendor || '')}</td>
-          <td class="num amt ${t.type}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</td>
+          <td class="num amt ${t.type}">${amtCell}</td>
           <td class="actions-cell tx-actions-cell">
             ${(t.receiptIds && t.receiptIds.length) ? `<button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openReceiptLightboxForTx('${t.id}')">첨부</button>` : ''}
             <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="duplicateTx('${t.id}')" title="이 거래를 복사해서 새로 등록">복사</button>
@@ -2715,6 +2722,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     <div id="tx-cat-field" class="field"></div>
     <div id="tx-acc-field" class="field"></div>
     <div id="tx-toacc-field" class="field"></div>
+    <div class="field" id="tx-fx-field"></div>
     <div class="field" id="tx-loan-field"></div>
     <div class="field" id="tx-budget-field"></div>
     <div class="field" id="tx-vendor-field"></div>
@@ -2739,10 +2747,10 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     inlineSlot.classList.add('active');
     document.querySelectorAll('tr.row-editing').forEach(tr => tr.classList.remove('row-editing'));
     if (txId) { const tr = document.querySelector(`tr.tx-row-clickable[data-txid="${txId}"]`); if (tr) tr.classList.add('row-editing'); }
-    state._txModal = { txId: txId || null, type, editing, receipts: [], fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, renderMode: 'inline' };
+    state._txModal = { txId: txId || null, type, editing, receipts: [], fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, presetToAmount: editing ? (editing.toAmount || null) : (fromRecurring ? (fromRecurring.toAmount || null) : (duplicateFrom ? (duplicateFrom.toAmount || null) : null)), renderMode: 'inline' };
   } else {
     openModal(formHtml, { sidePanel: true });
-    state._txModal = { txId: txId || null, type, editing, receipts: [], fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, renderMode: 'overlay' };
+    state._txModal = { txId: txId || null, type, editing, receipts: [], fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, presetToAmount: editing ? (editing.toAmount || null) : (fromRecurring ? (fromRecurring.toAmount || null) : (duplicateFrom ? (duplicateFrom.toAmount || null) : null)), renderMode: 'overlay' };
   }
   if (editing && editing.type === 'expense' && editing.receiptIds && editing.receiptIds.length) {
     editing.receiptIds.forEach((receiptId) => {
@@ -2819,8 +2827,8 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
       <select id="tx-category" style="display:none;">${transferGroups}</select>
       <input type="text" class="cat-field" id="tx-category-display" autocomplete="off" placeholder="카테고리 선택" onfocus="this.select(); openCategoryPicker(this)" oninput="onCategoryInput(this)" onkeydown="onCategoryKeydown(event)" onblur="closeCategoryPicker()">`;
     syncCategoryDisplay();
-    accField.innerHTML = `<label class="field-lbl">출금 자산</label><select id="tx-account" onchange="updateTxAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
-    toAccField.innerHTML = `<label class="field-lbl">입금 자산</label><select id="tx-toaccount">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
+    accField.innerHTML = `<label class="field-lbl">출금 자산</label><select id="tx-account" onchange="updateTxAmountCurrencyBadge(); updateTxTransferFxField();">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
+    toAccField.innerHTML = `<label class="field-lbl">입금 자산</label><select id="tx-toaccount" onchange="updateTxTransferFxField();">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
     excludeField.innerHTML = '';
     receiptField.innerHTML = '';
     loanField.innerHTML = '';
@@ -2863,6 +2871,7 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     <label class="field-lbl">거래처</label>
     <input type="text" id="tx-vendor" autocomplete="off" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 미래에셋증권' : '예: 스타벅스 강남점'}" value="${escapeHtml(presetVendor || '')}" onfocus="openVendorSuggest(this, 'vendor', 'tx-memo')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="closeVendorSuggest()">`;
   updateTxAmountCurrencyBadge();
+  updateTxTransferFxField();
 }
 function currentTxCurrency() {
   const accEl = document.getElementById('tx-account');
@@ -2875,6 +2884,39 @@ function updateTxAmountCurrencyBadge() {
 }
 function onAmountInputDynamic(el) {
   formatCurrencyAmountInput(el, currentTxCurrency());
+  updateTxFxRateNote();
+}
+function updateTxTransferFxField() {
+  const el = document.getElementById('tx-fx-field');
+  if (!el) return;
+  if (state._txModal.type !== 'transfer') { el.innerHTML = ''; return; }
+  const accEl = document.getElementById('tx-account');
+  const toAccEl = document.getElementById('tx-toaccount');
+  const fromCcy = accEl && accEl.value ? (getAccount(accEl.value).currency || 'KRW') : 'KRW';
+  const toCcy = toAccEl && toAccEl.value ? (getAccount(toAccEl.value).currency || 'KRW') : 'KRW';
+  if (fromCcy === toCcy) { el.innerHTML = ''; return; }
+  const preset = state._txModal.presetToAmount;
+  state._txModal.presetToAmount = null;
+  const presetStr = preset ? (toCcy === 'USD' ? Number(preset).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(preset).toLocaleString('ko-KR')) : '';
+  el.innerHTML = `<label class="field-lbl">받는 금액 <span style="color:var(--ink-faint);font-weight:400;text-transform:none;">(${toCcy === 'USD' ? 'USD $' : 'KRW ₩'})</span></label>
+    <input type="text" inputmode="decimal" id="tx-toamount" autocomplete="off" placeholder="0" oninput="formatCurrencyAmountInput(this, '${toCcy}'); updateTxFxRateNote();" value="${presetStr}">
+    <div class="form-note" id="tx-fx-rate-note" style="margin-top:6px;margin-bottom:0;"></div>`;
+  updateTxFxRateNote();
+}
+function updateTxFxRateNote() {
+  const note = document.getElementById('tx-fx-rate-note');
+  if (!note) return;
+  const amtEl = document.getElementById('tx-amount');
+  const toEl = document.getElementById('tx-toamount');
+  const accEl = document.getElementById('tx-account');
+  const toAccEl = document.getElementById('tx-toaccount');
+  if (!amtEl || !toEl || !accEl || !toAccEl || !accEl.value || !toAccEl.value) { note.textContent = ''; return; }
+  const fromCcy = getAccount(accEl.value).currency || 'KRW';
+  const toCcy = getAccount(toAccEl.value).currency || 'KRW';
+  const fromAmt = rawCurrencyAmount(amtEl, fromCcy);
+  const toAmt = rawCurrencyAmount(toEl, toCcy);
+  if (!fromAmt || !toAmt) { note.textContent = ''; return; }
+  note.textContent = `환율 약 ${(fromAmt / toAmt).toLocaleString('ko-KR', { maximumFractionDigits: 2 })}원`;
 }
 
 /* ---------------- receipt photo storage (IndexedDB locally, Supabase Storage in the cloud) ----------------
@@ -3257,8 +3299,15 @@ async function submitTx(editId) {
     if (!categoryId) return showToast('카테고리가 없어요. 설정에서 먼저 추가해주세요.', 'error');
     if (!accountId || !toAccountId) return showToast('자산을 선택해주세요.', 'error');
     if (accountId === toAccountId) return showToast('출금 자산과 입금 자산이 같을 수 없어요.', 'error');
-    if ((getAccount(accountId).currency || 'KRW') !== (getAccount(toAccountId).currency || 'KRW')) return showToast('통화가 다른 자산 간 이체는 아직 지원하지 않아요.', 'error');
-    payload.categoryId = categoryId; payload.accountId = accountId; payload.toAccountId = toAccountId;
+    const fromCcy = getAccount(accountId).currency || 'KRW';
+    const toCcy = getAccount(toAccountId).currency || 'KRW';
+    let toAmount = null;
+    if (fromCcy !== toCcy) {
+      const toAmountEl = document.getElementById('tx-toamount');
+      toAmount = toAmountEl ? rawCurrencyAmount(toAmountEl, toCcy) : 0;
+      if (!toAmount || toAmount <= 0) return showToast('받는 금액을 입력해주세요.', 'error');
+    }
+    payload.categoryId = categoryId; payload.accountId = accountId; payload.toAccountId = toAccountId; payload.toAmount = toAmount;
   } else {
     const categoryId = document.getElementById('tx-category').value;
     const accountId = document.getElementById('tx-account').value;
@@ -4093,7 +4142,7 @@ function accountMonthFlow(acc, mKey, period) {
     if (t.type === 'income' && t.accountId === acc.id) inflow += t.amount;
     else if (t.type === 'expense' && t.accountId === acc.id) outflow += t.amount;
     else if (t.type === 'transfer') {
-      if (t.toAccountId === acc.id) inflow += t.amount;
+      if (t.toAccountId === acc.id) inflow += transferCreditAmount(t);
       if (t.accountId === acc.id) outflow += t.amount;
     }
     if (t.type === 'expense' && t.linkedLoanAccountId === acc.id) inflow += t.amount;
@@ -4110,7 +4159,7 @@ function accountRunningBalances(acc) {
     else if (t.type === 'expense' && t.accountId === acc.id) bal -= t.amount;
     else if (t.type === 'transfer') {
       if (t.accountId === acc.id) bal -= t.amount;
-      if (t.toAccountId === acc.id) bal += t.amount;
+      if (t.toAccountId === acc.id) bal += transferCreditAmount(t);
     }
     if (t.type === 'expense' && t.linkedLoanAccountId === acc.id) bal += t.amount;
     map[t.id] = bal;
@@ -4192,6 +4241,7 @@ function renderAccountTxTable(list, acc) {
         const outgoing = !isLoanLink && (t.type === 'expense' || (t.type === 'transfer' && t.accountId === acc.id));
         const sign = isLoanLink ? '+' : (t.type === 'transfer' ? (outgoing ? '-' : '+') : (t.type === 'income' ? '+' : '-'));
         const amtCls = isLoanLink ? 'income' : (t.type === 'transfer' ? (outgoing ? 'expense' : 'income') : t.type);
+        const displayAmt = (t.type === 'transfer' && !outgoing) ? transferCreditAmount(t) : t.amount;
         const bal = runningMap[t.id];
         const balStr = bal != null ? bal.toLocaleString('ko-KR') : '';
         return `<tr class="tx-row-clickable ${dayBoundary ? 'day-boundary' : ''}" onclick="onTxRowClick(event, '${t.id}')">
@@ -4208,7 +4258,7 @@ function renderAccountTxTable(list, acc) {
           <td class="dcol" title="${escapeHtml(t.payee || '')}">${escapeHtml(t.payee || '')}</td>
           <td class="dcol" title="${escapeHtml(t.vendor || '')}">${escapeHtml(t.vendor || '')}</td>
           <td class="num">
-            <div class="amt ${amtCls}">${sign}${fmtCurrency(t.amount, acc.currency || 'KRW')}</div>
+            <div class="amt ${amtCls}">${sign}${fmtCurrency(displayAmt, acc.currency || 'KRW')}</div>
             <div class="form-note mcol" style="margin:2px 0 0;text-align:right;">${balStr}</div>
           </td>
           <td class="num dcol dcol-balance">${balStr}</td>
@@ -4252,8 +4302,9 @@ function exportAccountTxExcel() {
     }
     const outgoing = !isLoanLink && (t.type === 'expense' || (t.type === 'transfer' && t.accountId === acc.id));
     const sign = isLoanLink ? 1 : (t.type === 'transfer' ? (outgoing ? -1 : 1) : (t.type === 'income' ? 1 : -1));
+    const displayAmt = (t.type === 'transfer' && !outgoing) ? transferCreditAmount(t) : t.amount;
     const bal = runningMap[t.id];
-    return [t.date, typeLabel, acctCell, categoryParentCellText(t.categoryId), categoryChildCellText(t.categoryId), t.memo || '', t.payee || '', t.vendor || '', sign * t.amount, bal != null ? bal : ''];
+    return [t.date, typeLabel, acctCell, categoryParentCellText(t.categoryId), categoryChildCellText(t.categoryId), t.memo || '', t.payee || '', t.vendor || '', sign * displayAmt, bal != null ? bal : ''];
   });
   const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
   ws['!cols'] = [{ wch: 12 }, { wch: 8 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 24 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
@@ -4654,6 +4705,9 @@ function renderRecurring() {
           const acctCell = r.type === 'transfer'
             ? `${acc.icon} ${escapeHtml(acc.name)} → ${getAccount(r.toAccountId).icon} ${escapeHtml(getAccount(r.toAccountId).name)}`
             : `${acc.icon} ${escapeHtml(acc.name)}`;
+          const recAmtCell = (r.type === 'transfer' && r.toAmount != null)
+            ? `${fmtCurrency(r.amount, acc.currency || 'KRW')} → ${fmtCurrency(r.toAmount, getAccount(r.toAccountId).currency || 'KRW')}`
+            : fmtCurrency(r.amount, acc.currency || 'KRW');
           const catParentCell = categoryParentCellHtml(r.categoryId);
           const catChildCell = categoryChildCellHtml(r.categoryId);
           const noteParts = [];
@@ -4669,7 +4723,7 @@ function renderRecurring() {
             <td class="name-cell">${escapeHtml(r.name)}${noteParts.length ? `<div style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${noteParts.join(' · ')}</div>` : ''}</td>
             <td title="${escapeHtml(r.payee || '')}">${escapeHtml(r.payee || '')}</td>
             <td title="${escapeHtml(r.vendor || '')}">${escapeHtml(r.vendor || '')}</td>
-            <td class="num">${fmtCurrency(r.amount, acc.currency || 'KRW')}</td>
+            <td class="num">${recAmtCell}</td>
             <td>${recurringScheduleLabel(r)}</td>
             <td class="actions-cell">
               <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="openRecurringApplyModal('${r.id}')">적용</button>
@@ -4823,7 +4877,7 @@ function submitRecurringApply(id) {
   const date = document.getElementById('rec-apply-date').value;
   if (!r || !date) return showToast('날짜를 선택해주세요.', 'error');
   DATA.transactions.push({
-    id: uid(), date, type: r.type, amount: r.amount, memo: r.name, fromRecurringId: r.id,
+    id: uid(), date, type: r.type, amount: r.amount, toAmount: r.toAmount || null, memo: r.name, fromRecurringId: r.id,
     categoryId: r.categoryId, accountId: r.accountId, toAccountId: r.toAccountId, payee: r.payee || null, vendor: r.vendor || null,
   });
   saveData();
@@ -4865,7 +4919,7 @@ function submitRecBulkApply() {
   if (!items.length) return;
   items.forEach(r => {
     DATA.transactions.push({
-      id: uid(), date, type: r.type, amount: r.amount, memo: r.name, fromRecurringId: r.id,
+      id: uid(), date, type: r.type, amount: r.amount, toAmount: r.toAmount || null, memo: r.name, fromRecurringId: r.id,
       categoryId: r.categoryId, accountId: r.accountId, toAccountId: r.toAccountId, payee: r.payee || null, vendor: r.vendor || null,
     });
   });
@@ -4911,6 +4965,7 @@ function openRecurringModal(id, presetTemplate) {
     <div id="rec-cat-field" class="field"></div>
     <div id="rec-acc-field" class="field"></div>
     <div id="rec-toacc-field" class="field"></div>
+    <div class="field" id="rec-fx-field"></div>
     <div id="rec-payee-field" class="field"></div>
     <div class="form-actions">
       <button class="ghost-btn" onclick="closeRecPanel()">취소</button>
@@ -4919,7 +4974,7 @@ function openRecurringModal(id, presetTemplate) {
   `;
   state._recPanelMode = renderRecPanel(formHtml);
   setRecRowEditing(editing ? editing.id : null);
-  state._recModal = { type, freq };
+  state._recModal = { type, freq, presetToAmount: seed ? (seed.toAmount || null) : null };
   renderRecFreqDetail(freq, seed ? seed.day : 1, seed ? seed.weekday : null, seed ? seed.dailyMode : null, seed ? seed.month : null, seed ? seed.date : null);
   renderRecEndField(freq, seed ? seed.startDate : null, seed ? seed.endDate : null);
   renderRecModalFields(seed ? seed.categoryId : null, seed ? seed.accountId : null, seed ? seed.toAccountId : null, seed ? (seed.payee || '') : '', seed ? (seed.vendor || '') : '');
@@ -5009,8 +5064,8 @@ function renderRecModalFields(presetCat, presetAcc, presetToAcc, presetPayee, pr
       <select id="rec-category" style="display:none;">${transferGroups}</select>
       <input type="text" class="cat-field" id="rec-category-display" autocomplete="off" placeholder="카테고리 선택" onfocus="this.select(); openCategoryPicker(this, 'rec')" oninput="onCategoryInput(this, 'rec')" onkeydown="onCategoryKeydown(event)" onblur="closeCategoryPicker()">`;
     syncCategoryDisplay('rec');
-    accField.innerHTML = `<label class="field-lbl">출금자산</label><select id="rec-account" onchange="updateRecAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
-    toAccField.innerHTML = `<label class="field-lbl">이체자산</label><select id="rec-toaccount">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
+    accField.innerHTML = `<label class="field-lbl">출금자산</label><select id="rec-account" onchange="updateRecAmountCurrencyBadge(); updateRecTransferFxField();">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
+    toAccField.innerHTML = `<label class="field-lbl">이체자산</label><select id="rec-toaccount" onchange="updateRecTransferFxField();">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
   } else {
     const groups = topCategories(type).map(p => {
       const children = childCategories(p.id);
@@ -5029,6 +5084,7 @@ function renderRecModalFields(presetCat, presetAcc, presetToAcc, presetPayee, pr
     <label class="field-lbl">거래처</label>
     <input type="text" id="rec-vendor" autocomplete="off" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 미래에셋증권' : '예: 스타벅스, 이마트'}" value="${escapeHtml(presetVendor || '')}" onfocus="openVendorSuggest(this, 'vendor', null)" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="closeVendorSuggest()">`;
   updateRecAmountCurrencyBadge();
+  updateRecTransferFxField();
 }
 function currentRecCurrency() {
   const accEl = document.getElementById('rec-account');
@@ -5041,6 +5097,39 @@ function updateRecAmountCurrencyBadge() {
 }
 function onRecAmountInputDynamic(el) {
   formatCurrencyAmountInput(el, currentRecCurrency());
+  updateRecFxRateNote();
+}
+function updateRecTransferFxField() {
+  const el = document.getElementById('rec-fx-field');
+  if (!el) return;
+  if (state._recModal.type !== 'transfer') { el.innerHTML = ''; return; }
+  const accEl = document.getElementById('rec-account');
+  const toAccEl = document.getElementById('rec-toaccount');
+  const fromCcy = accEl && accEl.value ? (getAccount(accEl.value).currency || 'KRW') : 'KRW';
+  const toCcy = toAccEl && toAccEl.value ? (getAccount(toAccEl.value).currency || 'KRW') : 'KRW';
+  if (fromCcy === toCcy) { el.innerHTML = ''; return; }
+  const preset = state._recModal.presetToAmount;
+  state._recModal.presetToAmount = null;
+  const presetStr = preset ? (toCcy === 'USD' ? Number(preset).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Number(preset).toLocaleString('ko-KR')) : '';
+  el.innerHTML = `<label class="field-lbl">받는 금액 <span style="color:var(--ink-faint);font-weight:400;text-transform:none;">(${toCcy === 'USD' ? 'USD $' : 'KRW ₩'})</span></label>
+    <input type="text" inputmode="decimal" id="rec-toamount" autocomplete="off" placeholder="0" oninput="formatCurrencyAmountInput(this, '${toCcy}'); updateRecFxRateNote();" value="${presetStr}">
+    <div class="form-note" id="rec-fx-rate-note" style="margin-top:6px;margin-bottom:0;"></div>`;
+  updateRecFxRateNote();
+}
+function updateRecFxRateNote() {
+  const note = document.getElementById('rec-fx-rate-note');
+  if (!note) return;
+  const amtEl = document.getElementById('rec-amount');
+  const toEl = document.getElementById('rec-toamount');
+  const accEl = document.getElementById('rec-account');
+  const toAccEl = document.getElementById('rec-toaccount');
+  if (!amtEl || !toEl || !accEl || !toAccEl || !accEl.value || !toAccEl.value) { note.textContent = ''; return; }
+  const fromCcy = getAccount(accEl.value).currency || 'KRW';
+  const toCcy = getAccount(toAccEl.value).currency || 'KRW';
+  const fromAmt = rawCurrencyAmount(amtEl, fromCcy);
+  const toAmt = rawCurrencyAmount(toEl, toCcy);
+  if (!fromAmt || !toAmt) { note.textContent = ''; return; }
+  note.textContent = `환율 약 ${(fromAmt / toAmt).toLocaleString('ko-KR', { maximumFractionDigits: 2 })}원`;
 }
 function submitRecurring(editId) {
   const type = state._recModal.type;
@@ -5082,6 +5171,14 @@ function submitRecurring(editId) {
     payload.toAccountId = document.getElementById('rec-toaccount').value;
     if (!payload.categoryId) return showToast('카테고리가 없어요. 설정에서 먼저 추가해주세요.', 'error');
     if (payload.accountId === payload.toAccountId) return showToast('출금/입금 자산이 같을 수 없어요.', 'error');
+    const fromCcy = getAccount(payload.accountId).currency || 'KRW';
+    const toCcy = getAccount(payload.toAccountId).currency || 'KRW';
+    payload.toAmount = null;
+    if (fromCcy !== toCcy) {
+      const toAmountEl = document.getElementById('rec-toamount');
+      payload.toAmount = toAmountEl ? rawCurrencyAmount(toAmountEl, toCcy) : 0;
+      if (!payload.toAmount || payload.toAmount <= 0) return showToast('받는 금액을 입력해주세요.', 'error');
+    }
   } else {
     payload.categoryId = document.getElementById('rec-category').value;
     payload.accountId = document.getElementById('rec-account').value;
