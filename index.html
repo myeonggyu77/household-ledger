@@ -2420,6 +2420,8 @@ function renderTxTable(list, hideDate, showCategoryCol) {
         if (t.payee) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.payee)}</span>`);
         if (t.vendor) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.vendor)}</span>`);
         if (t.memo) subParts.push(escapeHtml(t.memo));
+        if (t.type === 'transfer') { const feeText = transferFeeSummaryText(t.id); if (feeText) subParts.push(feeText); }
+        if (t.linkedTransferId) subParts.push('🔗 이체 수수료');
         const subLine = subParts.length || (t.receiptIds && t.receiptIds.length) || t.excludeFromStats
           ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}${receiptBadge(t)}${excludeFromStatsBadge(t)}</div>`
           : '';
@@ -2723,6 +2725,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     <div id="tx-acc-field" class="field"></div>
     <div id="tx-toacc-field" class="field"></div>
     <div class="field" id="tx-fx-field"></div>
+    <div class="field" id="tx-fee-field"></div>
     <div class="field" id="tx-loan-field"></div>
     <div class="field" id="tx-budget-field"></div>
     <div class="field" id="tx-vendor-field"></div>
@@ -2872,6 +2875,7 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
     <input type="text" id="tx-vendor" autocomplete="off" placeholder="${type === 'income' ? '예: 회사, 클라이언트명' : type === 'transfer' ? '예: 미래에셋증권' : '예: 스타벅스 강남점'}" value="${escapeHtml(presetVendor || '')}" onfocus="openVendorSuggest(this, 'vendor', 'tx-memo')" oninput="onVendorInput(this)" onkeydown="onVendorKeydown(event)" onblur="closeVendorSuggest()">`;
   updateTxAmountCurrencyBadge();
   updateTxTransferFxField();
+  renderTxFeeField();
 }
 function currentTxCurrency() {
   const accEl = document.getElementById('tx-account');
@@ -2917,6 +2921,117 @@ function updateTxFxRateNote() {
   const toAmt = rawCurrencyAmount(toEl, toCcy);
   if (!fromAmt || !toAmt) { note.textContent = ''; return; }
   note.textContent = `환율 약 ${(fromAmt / toAmt).toLocaleString('ko-KR', { maximumFractionDigits: 2 })}원`;
+}
+
+/* ---------------- 이체 수수료 (별도 지출 거래로 기록, linkedTransferId로 이체와 연결) ----------------
+   수수료는 이체 시점에 모르는 경우가 많아(예: 해외송금 수수료는 며칠 뒤 명세서로 확인) 이체를 저장한 뒤
+   그 거래를 다시 열어서 "수수료 추가"로 언제든 채워넣을 수 있게 만들었어요. 수수료 자체는 평범한 지출
+   거래라서 계좌 잔액 계산(accountBalance 등)에 별도 코드 없이 그대로 반영돼요. */
+function linkedFees(transferId) { return DATA.transactions.filter(t => t.linkedTransferId === transferId); }
+function transferFeeSummaryText(transferId) {
+  const fees = linkedFees(transferId);
+  if (!fees.length) return '';
+  const byCcy = {};
+  fees.forEach(f => { const c = getAccount(f.accountId).currency || 'KRW'; byCcy[c] = (byCcy[c] || 0) + f.amount; });
+  return '수수료 -' + Object.entries(byCcy).map(([c, a]) => fmtCurrency(a, c)).join(', ');
+}
+function renderTxFeeField() {
+  const el = document.getElementById('tx-fee-field');
+  if (!el) return;
+  const editingTx = state._txModal.editing;
+  if (state._txModal.type !== 'transfer' || !editingTx || editingTx.type !== 'transfer') { el.innerHTML = ''; return; }
+  const fees = linkedFees(editingTx.id);
+  const rows = fees.map(f => {
+    const acc = getAccount(f.accountId);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px;">
+      <div>${acc.icon} ${escapeHtml(acc.name)}${f.memo ? ` <span style="color:var(--ink-faint);">· ${escapeHtml(f.memo)}</span>` : ''}</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+        <span style="font-family:var(--mono);">-${fmtCurrency(f.amount, acc.currency || 'KRW')}</span>
+        <button type="button" class="icon-btn" onclick="deleteLinkedFee('${f.id}')" title="삭제" aria-label="삭제">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+  el.innerHTML = `<label class="field-lbl">수수료 (선택)</label>
+    ${rows || `<div class="form-note" style="margin:0 0 8px;">등록된 수수료가 없어요. 나중에 알게 되면 이 거래를 다시 열어 추가할 수 있어요.</div>`}
+    <button type="button" class="ghost-btn" style="font-size:12px;padding:5px 10px;${fees.length ? 'margin-top:8px;' : ''}" onclick="openFeeQuickAddPopup('${editingTx.id}')">+ 수수료 추가</button>`;
+}
+function deleteLinkedFee(feeId) {
+  if (!confirm('이 수수료 기록을 삭제할까요?')) return;
+  DATA.transactions = DATA.transactions.filter(t => t.id !== feeId);
+  saveData();
+  showToast('수수료를 삭제했어요.', 'info');
+  renderTxFeeField();
+  renderKpis();
+}
+function openFeeQuickAddPopup(transferId) {
+  closeFeeQuickAddPopup();
+  const transfer = DATA.transactions.find(t => t.id === transferId);
+  if (!transfer) return;
+  const fromAcc = getAccount(transfer.accountId);
+  const toAcc = getAccount(transfer.toAccountId);
+  const groups = topCategories('expense').map(p => {
+    const children = childCategories(p.id);
+    if (!children.length) return '';
+    return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}">${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
+  }).join('');
+  const el = document.createElement('div');
+  el.id = 'fee-quickadd-overlay';
+  el.className = 'modal-overlay';
+  el.style.zIndex = '8100';
+  el.innerHTML = `<div class="modal-card" style="max-width:380px;">
+    <h3>수수료 추가</h3>
+    <div class="form-note">이 이체에서 나간 수수료를 별도 지출로 기록해요.</div>
+    <div class="field"><label class="field-lbl">날짜</label><input type="text" class="date-field" id="fqa-date" value="${transfer.date}" readonly></div>
+    <div class="field"><label class="field-lbl">수수료를 낸 계좌</label>
+      <select id="fqa-account" onchange="onFeeQuickAddAccountChange()">
+        <option value="${fromAcc.id}">${fromAcc.icon} ${escapeHtml(fromAcc.name)}</option>
+        <option value="${toAcc.id}">${toAcc.icon} ${escapeHtml(toAcc.name)}</option>
+      </select>
+    </div>
+    <div class="field"><label class="field-lbl">금액 <span id="fqa-amount-currency" style="color:var(--ink-faint);font-weight:400;text-transform:none;"></span></label><input type="text" inputmode="decimal" id="fqa-amount" oninput="onFeeQuickAddAccountChange(true)" placeholder="0"></div>
+    <div class="field"><label class="field-lbl">카테고리</label><select id="fqa-category"><option value="">선택 안 함</option>${groups}</select></div>
+    <div class="field"><label class="field-lbl">메모 (선택)</label><input type="text" id="fqa-memo" placeholder="예: 해외송금 수수료"></div>
+    <div class="form-actions">
+      <button class="ghost-btn" onclick="closeFeeQuickAddPopup()">취소</button>
+      <button class="primary-btn" onclick="submitFeeQuickAdd('${transferId}')">추가</button>
+    </div>
+  </div>`;
+  document.body.appendChild(el);
+  el.addEventListener('mousedown', (e) => { if (e.target === el) closeFeeQuickAddPopup(); });
+  onFeeQuickAddAccountChange();
+}
+function onFeeQuickAddAccountChange(inputOnly) {
+  const accEl = document.getElementById('fqa-account');
+  const amtEl = document.getElementById('fqa-amount');
+  if (!accEl || !amtEl) return;
+  const currency = getAccount(accEl.value).currency || 'KRW';
+  formatCurrencyAmountInput(amtEl, currency);
+  if (inputOnly) return;
+  const badge = document.getElementById('fqa-amount-currency');
+  if (badge) badge.textContent = currency === 'USD' ? '(USD $)' : '(KRW ₩)';
+}
+function closeFeeQuickAddPopup() {
+  const el = document.getElementById('fee-quickadd-overlay');
+  if (el) el.remove();
+}
+function submitFeeQuickAdd(transferId) {
+  const transfer = DATA.transactions.find(t => t.id === transferId);
+  if (!transfer) return closeFeeQuickAddPopup();
+  const accountId = document.getElementById('fqa-account').value;
+  const acc = getAccount(accountId);
+  const amount = rawCurrencyAmount(document.getElementById('fqa-amount'), acc.currency || 'KRW');
+  if (!amount || amount <= 0) return showToast('금액을 입력해주세요.', 'error');
+  const categoryId = document.getElementById('fqa-category').value || null;
+  const memo = document.getElementById('fqa-memo').value.trim() || null;
+  DATA.transactions.push({
+    id: uid(), type: 'expense', date: document.getElementById('fqa-date').value || transfer.date,
+    amount, categoryId, accountId, memo, linkedTransferId: transferId,
+  });
+  saveData();
+  closeFeeQuickAddPopup();
+  showToast('수수료를 기록했어요.', 'success');
+  renderTxFeeField();
+  renderKpis();
 }
 
 /* ---------------- receipt photo storage (IndexedDB locally, Supabase Storage in the cloud) ----------------
@@ -3380,6 +3495,7 @@ function deleteTx(id) {
   if (!confirm('이 거래를 삭제할까요?')) return false;
   const removed = DATA.transactions.find(t => t.id === id);
   DATA.transactions = DATA.transactions.filter(t => t.id !== id);
+  DATA.transactions.forEach(t => { if (t.linkedTransferId === id) t.linkedTransferId = null; });
   saveData();
   ((removed && removed.receiptIds) || []).forEach((rid) => {
     const meta = (removed.receiptMeta && removed.receiptMeta[rid]) || { mime: 'image/jpeg' };
@@ -4232,6 +4348,8 @@ function renderAccountTxTable(list, acc) {
         if (t.payee) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.payee)}</span>`);
         if (t.vendor) subParts.push(`<span style="font-weight:600;">${escapeHtml(t.vendor)}</span>`);
         if (t.memo) subParts.push(escapeHtml(t.memo));
+        if (t.type === 'transfer') { const feeText = transferFeeSummaryText(t.id); if (feeText) subParts.push(feeText); }
+        if (t.linkedTransferId) subParts.push('🔗 이체 수수료');
         const subLine = subParts.length || (t.receiptIds && t.receiptIds.length) || t.excludeFromStats
           ? `<div class="name-cell" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${subParts.join(' · ')}${receiptBadge(t)}${excludeFromStatsBadge(t)}</div>`
           : '';
