@@ -1499,7 +1499,7 @@ function closeDatePicker() {
   dpState = null;
 }
 document.addEventListener('click', (e) => {
-  const target = e.target.closest('input.date-field[readonly]');
+  const target = e.target.closest('input.date-field[readonly]:not([data-locked])');
   if (target) openDatePicker(target);
 });
 
@@ -2721,7 +2721,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
   const submitLabel = editing ? '저장' : (fromRecurring ? '적용' : '추가');
   const formHtml = `
     <h3>${modalTitle}</h3>
-    ${fromRecurring ? `<div class="form-note" style="margin-bottom:10px;">등록 전 마지막으로 내용을 확인하고 필요하면 수정하세요.</div>` : ''}
+    ${fromRecurring ? `<div class="form-note" style="margin-bottom:10px;">등록 전 마지막으로 내용을 확인하고 필요하면 수정하세요. (날짜는 ${date} 발생 건으로 고정돼요)</div>` : ''}
     ${duplicateFrom ? `<div class="form-note" style="margin-bottom:10px;">기존 거래 내용을 그대로 불러왔어요. 날짜·금액 등을 확인하고 등록하세요.</div>` : ''}
     <div class="seg" id="tx-type-seg">
       <button type="button" data-v="expense" class="${type === 'expense' ? 'active expense-active' : ''}" onclick="setTxType('expense')">지출</button>
@@ -2730,7 +2730,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     </div>
     <div class="field">
       <label class="field-lbl">날짜</label>
-      <input type="text" class="date-field" id="tx-date" value="${date}" readonly>
+      <input type="text" class="date-field" id="tx-date" value="${date}" readonly ${fromRecurring ? 'data-locked="1"' : ''}>
       ${duplicateFrom ? `<div style="display:flex;gap:6px;margin-top:6px;">
         <button type="button" class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="document.getElementById('tx-date').value='${duplicateFrom.date}'">해당일 (${duplicateFrom.date.slice(5)})</button>
       </div>` : ''}
