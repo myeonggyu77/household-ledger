@@ -1164,24 +1164,30 @@ function recurringPeriodKey(r, d) {
 function recurringSkippedForPeriod(r, d) {
   return (r.skippedPeriods || []).includes(recurringPeriodKey(r, d));
 }
+/* 정기거래를 적용할 때 실제 입금/결제일이 예정일과 다를 수 있어요(예: 추석 연휴 때문에
+   목요일 예정 배당금이 그다음 주 월요일에 실제로 입금된 경우). 그런 경우에도 사용자는
+   날짜칸을 실제 발생일로 고쳐서 등록할 수 있는데, 그러면 거래의 date는 실제 발생일이
+   돼서 원래 예정일(occurrenceDate) 기준으로 "이미 적용했는지"를 판단해야 정확해요.
+   occurrenceDate가 없는 거래(과거 데이터·날짜를 안 바꾼 경우)는 date를 그대로 써요. */
+function recurringOccurrenceDate(t) { return t.occurrenceDate || t.date; }
 function recurringAlreadyAppliedForPeriod(r, d) {
   const freq = r.frequency || 'monthly';
   if (freq === 'once') {
     return DATA.transactions.some(t => t.fromRecurringId === r.id);
   }
   if (freq === 'daily') {
-    return DATA.transactions.some(t => t.fromRecurringId === r.id && t.date === ymd(d));
+    return DATA.transactions.some(t => t.fromRecurringId === r.id && recurringOccurrenceDate(t) === ymd(d));
   }
   if (freq === 'weekly') {
     const sun = ymd(_addDays(d, -d.getDay())), sat = ymd(_addDays(d, 6 - d.getDay()));
-    return DATA.transactions.some(t => t.fromRecurringId === r.id && t.date >= sun && t.date <= sat);
+    return DATA.transactions.some(t => t.fromRecurringId === r.id && recurringOccurrenceDate(t) >= sun && recurringOccurrenceDate(t) <= sat);
   }
   if (freq === 'yearly') {
     const y = String(d.getFullYear());
-    return DATA.transactions.some(t => t.fromRecurringId === r.id && t.date.slice(0, 4) === y);
+    return DATA.transactions.some(t => t.fromRecurringId === r.id && recurringOccurrenceDate(t).slice(0, 4) === y);
   }
   const mKey = monthKey(d);
-  return DATA.transactions.some(t => t.fromRecurringId === r.id && t.date.slice(0, 7) === mKey);
+  return DATA.transactions.some(t => t.fromRecurringId === r.id && recurringOccurrenceDate(t).slice(0, 7) === mKey);
 }
 /* "정기거래" 탭에서 개별/일괄 적용 시 날짜칸이 무조건 오늘로 채워져 있으면,
    며칠 지난 뒤에야 적용하는 경우(예: 9/24 배당금을 9/28에 적용) 날짜를 안 바꾸고
@@ -1499,7 +1505,7 @@ function closeDatePicker() {
   dpState = null;
 }
 document.addEventListener('click', (e) => {
-  const target = e.target.closest('input.date-field[readonly]:not([data-locked])');
+  const target = e.target.closest('input.date-field[readonly]');
   if (target) openDatePicker(target);
 });
 
@@ -2721,7 +2727,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
   const submitLabel = editing ? '저장' : (fromRecurring ? '적용' : '추가');
   const formHtml = `
     <h3>${modalTitle}</h3>
-    ${fromRecurring ? `<div class="form-note" style="margin-bottom:10px;">등록 전 마지막으로 내용을 확인하고 필요하면 수정하세요. (날짜는 ${date} 발생 건으로 고정돼요)</div>` : ''}
+    ${fromRecurring ? `<div class="form-note" style="margin-bottom:10px;">등록 전 마지막으로 내용을 확인하고 필요하면 수정하세요. 연휴 등으로 실제 입금·결제일이 예정일과 다르면 날짜를 클릭해 바꿔도 괜찮아요 — 정기거래 적용 여부는 원래 예정일(${date}) 기준으로 계속 정확히 표시돼요.</div>` : ''}
     ${duplicateFrom ? `<div class="form-note" style="margin-bottom:10px;">기존 거래 내용을 그대로 불러왔어요. 날짜·금액 등을 확인하고 등록하세요.</div>` : ''}
     <div class="seg" id="tx-type-seg">
       <button type="button" data-v="expense" class="${type === 'expense' ? 'active expense-active' : ''}" onclick="setTxType('expense')">지출</button>
@@ -2730,7 +2736,7 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     </div>
     <div class="field">
       <label class="field-lbl">날짜</label>
-      <input type="text" class="date-field" id="tx-date" value="${date}" readonly ${fromRecurring ? 'data-locked="1"' : ''}>
+      <input type="text" class="date-field" id="tx-date" value="${date}" readonly>
       ${duplicateFrom ? `<div style="display:flex;gap:6px;margin-top:6px;">
         <button type="button" class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="document.getElementById('tx-date').value='${duplicateFrom.date}'">해당일 (${duplicateFrom.date.slice(5)})</button>
       </div>` : ''}
@@ -2765,10 +2771,10 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     inlineSlot.classList.add('active');
     document.querySelectorAll('tr.row-editing').forEach(tr => tr.classList.remove('row-editing'));
     if (txId) { const tr = document.querySelector(`tr.tx-row-clickable[data-txid="${txId}"]`); if (tr) tr.classList.add('row-editing'); }
-    state._txModal = { txId: txId || null, type, editing, receipts: [], fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, presetToAmount: editing ? (editing.toAmount || null) : (fromRecurring ? (fromRecurring.toAmount || null) : (duplicateFrom ? (duplicateFrom.toAmount || null) : null)), renderMode: 'inline' };
+    state._txModal = { txId: txId || null, type, editing, receipts: [], fromRecurringId: fromRecurring ? fromRecurring.id : null, occurrenceDate: fromRecurring ? date : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, presetToAmount: editing ? (editing.toAmount || null) : (fromRecurring ? (fromRecurring.toAmount || null) : (duplicateFrom ? (duplicateFrom.toAmount || null) : null)), renderMode: 'inline' };
   } else {
     openModal(formHtml, { sidePanel: true });
-    state._txModal = { txId: txId || null, type, editing, receipts: [], fromRecurringId: fromRecurring ? fromRecurring.id : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, presetToAmount: editing ? (editing.toAmount || null) : (fromRecurring ? (fromRecurring.toAmount || null) : (duplicateFrom ? (duplicateFrom.toAmount || null) : null)), renderMode: 'overlay' };
+    state._txModal = { txId: txId || null, type, editing, receipts: [], fromRecurringId: fromRecurring ? fromRecurring.id : null, occurrenceDate: fromRecurring ? date : null, presetAccountId: (!editing && !duplicateFrom) ? (presetAccountId || null) : null, presetToAmount: editing ? (editing.toAmount || null) : (fromRecurring ? (fromRecurring.toAmount || null) : (duplicateFrom ? (duplicateFrom.toAmount || null) : null)), renderMode: 'overlay' };
   }
   if (editing && editing.type === 'expense' && editing.receiptIds && editing.receiptIds.length) {
     editing.receiptIds.forEach((receiptId) => {
@@ -3467,7 +3473,10 @@ async function submitTx(editId) {
     DATA.transactions[idx] = { ...DATA.transactions[idx], ...payload };
   } else {
     payload.id = txId;
-    if (state._txModal.fromRecurringId) payload.fromRecurringId = state._txModal.fromRecurringId;
+    if (state._txModal.fromRecurringId) {
+      payload.fromRecurringId = state._txModal.fromRecurringId;
+      payload.occurrenceDate = state._txModal.occurrenceDate || payload.date;
+    }
     DATA.transactions.push(payload);
   }
 
@@ -4997,7 +5006,7 @@ function openRecurringApplyModal(id) {
   const formHtml = `
     <h3>${escapeHtml(r.name)} 적용</h3>
     <div class="form-note">아래 날짜로 거래를 등록해요. 날짜를 클릭하면 바꿀 수 있어요.</div>
-    <div class="field"><label class="field-lbl">날짜</label><input type="text" class="date-field" id="rec-apply-date" value="${defaultDate}" readonly></div>
+    <div class="field"><label class="field-lbl">날짜</label><input type="text" class="date-field" id="rec-apply-date" value="${defaultDate}" data-occurrence="${defaultDate}" readonly></div>
     <div class="form-actions">
       <button class="ghost-btn" onclick="closeRecPanel()">취소</button>
       <button class="primary-btn" onclick="submitRecurringApply('${id}')">적용</button>
@@ -5008,10 +5017,11 @@ function openRecurringApplyModal(id) {
 }
 function submitRecurringApply(id) {
   const r = DATA.recurring.find(x => x.id === id);
-  const date = document.getElementById('rec-apply-date').value;
+  const dateEl = document.getElementById('rec-apply-date');
+  const date = dateEl.value;
   if (!r || !date) return showToast('날짜를 선택해주세요.', 'error');
   DATA.transactions.push({
-    id: uid(), date, type: r.type, amount: r.amount, toAmount: r.toAmount || null, memo: r.name, fromRecurringId: r.id,
+    id: uid(), date, type: r.type, amount: r.amount, toAmount: r.toAmount || null, memo: r.name, fromRecurringId: r.id, occurrenceDate: dateEl.dataset.occurrence || date,
     categoryId: r.categoryId, accountId: r.accountId, toAccountId: r.toAccountId, payee: r.payee || null, vendor: r.vendor || null,
   });
   saveData();
@@ -5054,7 +5064,7 @@ function submitRecBulkApply() {
   if (!items.length) return;
   items.forEach(r => {
     DATA.transactions.push({
-      id: uid(), date, type: r.type, amount: r.amount, toAmount: r.toAmount || null, memo: r.name, fromRecurringId: r.id,
+      id: uid(), date, type: r.type, amount: r.amount, toAmount: r.toAmount || null, memo: r.name, fromRecurringId: r.id, occurrenceDate: mostRecentUnappliedDueDate(r),
       categoryId: r.categoryId, accountId: r.accountId, toAccountId: r.toAccountId, payee: r.payee || null, vendor: r.vendor || null,
     });
   });
