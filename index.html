@@ -743,8 +743,16 @@ function krHolidaysForYear(y) {
     subs.push(d);
   };
   singles.forEach(({ date, subEligible }) => { if (subEligible && _isWeekendDate(date)) addSub(date); });
-  if (seollalGroup.length && seollalGroup.some(_isWeekendDate)) addSub(seollalGroup[2]);
-  if (chuseokGroup.length && chuseokGroup.some(_isWeekendDate)) addSub(chuseokGroup[2]);
+  /* 설날·추석 연휴는 "관공서의 공휴일에 관한 규정" 제3조 제1항 제2호에 따라
+     연휴 중 하루가 '일요일'이거나 다른 공휴일과 겹칠 때만 대체공휴일이 생겨요.
+     토요일과 겹치는 것만으로는 대체공휴일이 생기지 않아요(국경일·어린이날·성탄절
+     등은 토요일 겹침도 대체공휴일 대상이라 singles 쪽은 그대로 토/일 둘 다 확인).
+     예: 2026년 추석은 9/24(목)~26(토)로 토요일과만 겹쳐서 9/28(월)은 대체공휴일이
+     아니에요 — 예전엔 토요일 겹침도 대체공휴일로 잘못 계산하던 버그가 있었어요. */
+  const singleHolidaySet = new Set(singles.map(s => ymd(s.date)));
+  const seollalOrChuseokNeedsSub = (group) => group.some(d => d.getDay() === 0 || singleHolidaySet.has(ymd(d)));
+  if (seollalGroup.length && seollalOrChuseokNeedsSub(seollalGroup)) addSub(seollalGroup[2]);
+  if (chuseokGroup.length && seollalOrChuseokNeedsSub(chuseokGroup)) addSub(chuseokGroup[2]);
 
   return allDates.concat(subs);
 }
