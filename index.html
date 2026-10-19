@@ -5077,6 +5077,7 @@ function renderRecurring() {
           <div style="display:flex;gap:8px;">
             ${selectedCount > 0 ? `
               <button class="ghost-btn" onclick="clearRecSelection()">선택 해제</button>
+              <button class="ghost-btn" onclick="openRecBulkEditModal()">✏️ 선택 일괄 수정 (${selectedCount})</button>
               <button class="primary-btn" onclick="openRecBulkApplyModal()">📅 선택 일괄 적용 (${selectedCount})</button>
             ` : ''}
             <button class="primary-btn" onclick="openRecurringModal()">+ 정기거래 추가</button>
@@ -5117,6 +5118,7 @@ function recSelectionPanelHtml() {
     </div>
     <div class="form-actions">
       <button class="ghost-btn" onclick="clearRecSelection()">선택 해제</button>
+      <button class="ghost-btn" onclick="openRecBulkEditModal()">✏️ 일괄 수정</button>
       <button class="primary-btn" onclick="openRecBulkApplyModal()">📅 일괄 적용</button>
     </div>
   `;
@@ -5259,6 +5261,90 @@ function submitRecBulkApply() {
   state._recBulkSelected = new Set();
   closeRecPanel();
   showToast(`${date} 날짜로 ${items.length}건을 일괄 등록했어요.`, 'success');
+  renderAll();
+}
+/* ---------------- 정기거래 일괄 수정 (거래내역 탭과 같은 원칙) ----------------
+   금액·구분(지출/수입/이체)·주기(매일/매주/매월 등 반복 규칙)는 템플릿마다
+   당연히 다르므로 일괄 변경 대상에서 뺐어요. 계좌·카테고리·적용대상·거래처처럼
+   여러 건에 같은 값을 넣는 게 자연스러운 항목만 선택적으로 바꿀 수 있어요. */
+function recBulkEditContext() {
+  const ids = Array.from(state._recBulkSelected || []);
+  const items = ids.map(id => DATA.recurring.find(r => r.id === id)).filter(Boolean);
+  const types = new Set(items.map(r => r.type));
+  const commonType = types.size === 1 ? [...types][0] : null;
+  const anyTransfer = items.some(r => r.type === 'transfer');
+  return { ids, items, commonType, anyTransfer };
+}
+function openRecBulkEditModal() {
+  const { items, commonType, anyTransfer } = recBulkEditContext();
+  if (!items.length) return;
+  const catGroups = commonType ? topCategories(commonType).map(p => {
+    const children = childCategories(p.id);
+    if (!children.length) return '';
+    return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}">${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
+  }).join('') : '';
+  const fieldRow = (key, label, bodyHtml, disabled, disabledNote) => `
+    <div class="field">
+      <label style="display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" id="rbe-on-${key}" ${disabled ? 'disabled' : ''} onchange="onRecBulkFieldToggle('${key}')">
+        <span class="field-lbl" style="margin:0;">${label}</span>
+      </label>
+      ${disabled ? `<div class="form-note" style="margin:4px 0 0;">${disabledNote}</div>` : bodyHtml}
+    </div>`;
+  const formHtml = `
+    <h3>선택한 정기거래 일괄 수정 (${items.length}건)</h3>
+    <div class="form-note">체크한 항목만 선택한 정기거래 전체에 같은 값으로 바뀌어요. 금액·구분(지출/수입/이체)·반복 주기는 템플릿마다 달라서 일괄 수정 대상이 아니에요.</div>
+    ${fieldRow('category', '카테고리',
+      `<select id="rbe-category" disabled><option value="">선택</option>${catGroups}</select>`,
+      !commonType, '지출·수입·이체가 섞여 있어서 카테고리는 일괄 변경할 수 없어요. 같은 구분끼리만 선택하면 가능해요.')}
+    ${fieldRow('account', '계좌',
+      `<select id="rbe-account" disabled>${DATA.accounts.map(a => `<option value="${a.id}">${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`,
+      anyTransfer, '이체 정기거래가 포함돼 있어서 계좌는 일괄 변경할 수 없어요.')}
+    ${fieldRow('payee', '적용대상', `<input type="text" id="rbe-payee" placeholder="예: 아빠, 엄마, 회사" disabled>`)}
+    ${fieldRow('vendor', '거래처', `<input type="text" id="rbe-vendor" placeholder="예: 스타벅스 강남점" disabled>`)}
+    <div class="form-actions">
+      <button class="ghost-btn" onclick="closeRecPanel()">취소</button>
+      <button class="primary-btn" onclick="submitRecBulkEdit()">일괄 수정 (${items.length}건)</button>
+    </div>
+  `;
+  state._recPanelMode = renderRecPanel(formHtml);
+  setRecRowEditing(null);
+}
+function onRecBulkFieldToggle(key) {
+  const checkbox = document.getElementById('rbe-on-' + key);
+  const input = document.getElementById('rbe-' + key);
+  if (!checkbox || !input) return;
+  input.disabled = !checkbox.checked;
+}
+function submitRecBulkEdit() {
+  const { ids, items } = recBulkEditContext();
+  if (!items.length) return closeRecPanel();
+  const changes = {};
+  const catOnEl = document.getElementById('rbe-on-category');
+  if (catOnEl && !catOnEl.disabled && catOnEl.checked) {
+    const v = document.getElementById('rbe-category').value;
+    if (!v) return showToast('카테고리를 선택해주세요.', 'error');
+    changes.categoryId = v;
+  }
+  const accOnEl = document.getElementById('rbe-on-account');
+  if (accOnEl && !accOnEl.disabled && accOnEl.checked) {
+    changes.accountId = document.getElementById('rbe-account').value;
+  }
+  if (document.getElementById('rbe-on-payee').checked) {
+    changes.payee = document.getElementById('rbe-payee').value.trim() || null;
+  }
+  if (document.getElementById('rbe-on-vendor').checked) {
+    changes.vendor = document.getElementById('rbe-vendor').value.trim() || null;
+  }
+  if (!Object.keys(changes).length) return showToast('변경할 항목을 선택해주세요.', 'error');
+  if (changes.payee !== undefined) registerPayeeIfNew(changes.payee);
+  if (changes.vendor !== undefined) registerVendorIfNew(changes.vendor);
+  const idSet = new Set(ids);
+  DATA.recurring.forEach(r => { if (idSet.has(r.id)) Object.assign(r, changes); });
+  saveData();
+  state._recBulkSelected = new Set();
+  closeRecPanel();
+  showToast(`${items.length}건을 일괄 수정했어요.`, 'success');
   renderAll();
 }
 function openRecurringModal(id, presetTemplate) {
