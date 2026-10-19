@@ -4763,8 +4763,13 @@ function acctPeriodSegHtml(period) {
 }
 function renderAccounts() {
   const selected = state.acctSelectedId ? DATA.accounts.find(a => a.id === state.acctSelectedId) : null;
+  state._acctBulkSelected = state._acctBulkSelected || new Set();
+  const bulkSel = state._acctBulkSelected;
   const listRow = (a) => `<div class="acct-list-row ${a.includeInTotal === false ? 'excluded' : ''} ${selected && selected.id === a.id ? 'selected' : ''}" onclick="selectAccountDetail('${a.id}')">
-    <span>${a.icon || ACC_TYPE_ICON[a.type] || '💰'} ${escapeHtml(a.name)}${a.currency === 'USD' ? ' <span class="ccy-badge usd">USD</span>' : ''}</span>
+    <span style="display:flex;align-items:center;gap:8px;min-width:0;">
+      <input type="checkbox" ${bulkSel.has(a.id) ? 'checked' : ''} onclick="event.stopPropagation()" onchange="toggleAcctSelect('${a.id}')">
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${a.icon || ACC_TYPE_ICON[a.type] || '💰'} ${escapeHtml(a.name)}${a.currency === 'USD' ? ' <span class="ccy-badge usd">USD</span>' : ''}</span>
+    </span>
     <span class="acct-list-bal ${accountBalance(a) < 0 ? 'expense' : ''}">${fmtCurrencySigned(accountBalance(a), a.currency || 'KRW')}</span>
   </div>`;
   const groupBlock = (type) => {
@@ -4787,13 +4792,17 @@ function renderAccounts() {
   document.getElementById('panel-accounts').innerHTML = `
     <div class="toolbar">
       <div class="hint" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <span>${DATA.accounts.length}개 자산 · 총 자산 ${won(totalAssets())}</span>
+        <span>${DATA.accounts.length}개 자산 · 총 자산 ${won(totalAssets())}${bulkSel.size > 0 ? ` · ${bulkSel.size}개 선택됨` : ''}</span>
         <span style="display:flex;align-items:center;gap:6px;">
           ${rateLine}
           <button class="ghost-btn" style="font-size:12px;padding:5px 10px;" onclick="fetchExchangeRate(false)">환율 새로고침</button>
         </span>
       </div>
       <div class="btn-group">
+        ${bulkSel.size > 0 ? `
+          <button class="ghost-btn" onclick="clearAcctBulkSelection()">선택 해제</button>
+          <button class="ghost-btn" onclick="openAcctBulkEditModal()">✏️ 선택 일괄 수정 (${bulkSel.size})</button>
+        ` : ''}
         <button class="ghost-btn" onclick="exportBackup()">⬇ 내보내기</button>
         <button class="ghost-btn" onclick="triggerImportFile()">⬆ 가져오기</button>
         ${selected ? `<button class="ghost-btn danger-btn" onclick="deleteAccount('${selected.id}')">이 자산 삭제</button>` : ''}
@@ -4914,6 +4923,79 @@ function deleteAccount(id) {
   if (state.acctSelectedId === id) state.acctSelectedId = null;
   saveData();
   showToast('삭제했어요.', 'info');
+  renderAll();
+}
+function toggleAcctSelect(id) {
+  state._acctBulkSelected = state._acctBulkSelected || new Set();
+  if (state._acctBulkSelected.has(id)) state._acctBulkSelected.delete(id);
+  else state._acctBulkSelected.add(id);
+  renderAccounts();
+}
+function clearAcctBulkSelection() {
+  state._acctBulkSelected = new Set();
+  renderAccounts();
+}
+/* ---------------- 자산 일괄 수정 ----------------
+   이름·초기잔액은 자산마다 당연히 고유한 값이라 일괄 변경 대상이 아니에요.
+   분류(type)는 잔액 부호·아이콘 등 여러 계산에 얽혀있어 바꾸지 않고,
+   "총 자산 합계 포함 여부"(항상 가능)와 "통화"(이미 거래가 있는 자산은
+   단일 수정에서도 못 바꾸게 막혀있어서, 일괄 수정에서도 똑같이 막아요)만
+   선택적으로 바꿀 수 있게 했어요. */
+function acctBulkEditContext() {
+  const ids = Array.from(state._acctBulkSelected || []);
+  const items = ids.map(id => DATA.accounts.find(a => a.id === id)).filter(Boolean);
+  const anyUsed = items.some(a => accountUsageCount(a.id) > 0);
+  return { ids, items, anyUsed };
+}
+function openAcctBulkEditModal() {
+  const { items, anyUsed } = acctBulkEditContext();
+  if (!items.length) return;
+  const fieldRow = (key, label, bodyHtml, disabled, disabledNote) => `
+    <div class="field">
+      <label style="display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" id="abe-on-${key}" ${disabled ? 'disabled' : ''} onchange="onAcctBulkFieldToggle('${key}')">
+        <span class="field-lbl" style="margin:0;">${label}</span>
+      </label>
+      ${disabled ? `<div class="form-note" style="margin:4px 0 0;">${disabledNote}</div>` : bodyHtml}
+    </div>`;
+  const formHtml = `
+    <h3>선택한 자산 일괄 수정 (${items.length}개)</h3>
+    <div class="form-note">체크한 항목만 선택한 자산 전체에 같은 값으로 바뀌어요. 이름·잔액은 자산마다 달라서 일괄 수정 대상이 아니에요.</div>
+    ${fieldRow('include', '총 자산 합계에 포함', `<select id="abe-include" disabled><option value="1">포함함</option><option value="0">제외함</option></select>`)}
+    ${fieldRow('currency', '통화',
+      `<select id="abe-currency" disabled>${CURRENCIES.map(c => `<option value="${c}">${CURRENCY_LABEL[c]}</option>`).join('')}</select>`,
+      anyUsed, '이미 거래가 있는 자산이 포함돼 있어서 통화는 일괄 변경할 수 없어요.')}
+    <div class="form-actions">
+      <button class="ghost-btn" onclick="closeModal()">취소</button>
+      <button class="primary-btn" onclick="submitAcctBulkEdit()">일괄 수정 (${items.length}개)</button>
+    </div>
+  `;
+  openModal(formHtml);
+}
+function onAcctBulkFieldToggle(key) {
+  const checkbox = document.getElementById('abe-on-' + key);
+  const input = document.getElementById('abe-' + key);
+  if (!checkbox || !input) return;
+  input.disabled = !checkbox.checked;
+}
+function submitAcctBulkEdit() {
+  const { ids, items } = acctBulkEditContext();
+  if (!items.length) return closeModal();
+  const changes = {};
+  if (document.getElementById('abe-on-include').checked) {
+    changes.includeInTotal = document.getElementById('abe-include').value === '1';
+  }
+  const curOnEl = document.getElementById('abe-on-currency');
+  if (curOnEl && !curOnEl.disabled && curOnEl.checked) {
+    changes.currency = document.getElementById('abe-currency').value;
+  }
+  if (!Object.keys(changes).length) return showToast('변경할 항목을 선택해주세요.', 'error');
+  const idSet = new Set(ids);
+  DATA.accounts.forEach(a => { if (idSet.has(a.id)) Object.assign(a, changes); });
+  saveData();
+  state._acctBulkSelected = new Set();
+  closeModal();
+  showToast(`${items.length}개를 일괄 수정했어요.`, 'success');
   renderAll();
 }
 
