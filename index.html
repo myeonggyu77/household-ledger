@@ -2670,22 +2670,25 @@ function renderTransactions() {
     </div>
   `;
 }
+/* 거래 선택 체크박스는 "거래내역" 탭 목록과 "자산" 탭의 자산별 내역 목록
+   둘 다에서 써요(같은 state._txBulkSelected를 공유). 그래서 토글 후에는
+   둘 중 지금 열려있는 탭에 맞게 다시 그려주는 renderAll()을 불러요. */
 function toggleTxSelect(id) {
   state._txBulkSelected = state._txBulkSelected || new Set();
   if (state._txBulkSelected.has(id)) state._txBulkSelected.delete(id);
   else state._txBulkSelected.add(id);
-  renderTransactions();
+  renderAll();
 }
 function toggleTxSelectAll(checkboxEl) {
   state._txBulkSelected = state._txBulkSelected || new Set();
   const ids = state._txBulkListIds || [];
   if (checkboxEl.checked) ids.forEach(id => state._txBulkSelected.add(id));
   else ids.forEach(id => state._txBulkSelected.delete(id));
-  renderTransactions();
+  renderAll();
 }
 function clearTxBulkSelection() {
   state._txBulkSelected = new Set();
-  renderTransactions();
+  renderAll();
 }
 /* ---------------- 거래 일괄 수정(선택한 여러 거래를 한 번에 같은 값으로 변경) ----------------
    금액·구분(지출/수입/이체)은 거래마다 당연히 다르므로 일괄 변경 대상에서 아예 뺐어요.
@@ -4513,9 +4516,13 @@ function renderAccountTxTable(list, acc) {
   const runningMap = accountRunningBalances(acc);
   const sortState = state._acctTxSort;
   if (sortState) list = sortAcctTxList(list, sortState, runningMap);
+  const selected = state._txBulkSelected || new Set();
+  state._txBulkListIds = list.map(t => t.id);
+  const allSelected = list.length > 0 && list.every(t => selected.has(t.id));
   const th = (key, label, style) => `<th class="dcol sortable-th" style="${style || ''}" onclick="setAcctTxSort('${key}')" title="클릭하여 정렬">${label}${sortArrowHtml(sortState, key)}</th>`;
   return `<div class="overflow-x"><table class="tx-table-balance">
     <thead><tr>
+      <th style="width:26px;"><input type="checkbox" ${allSelected ? 'checked' : ''} onchange="toggleTxSelectAll(this)" title="전체 선택"></th>
       <th class="sortable-th" style="width:64px;" onclick="setAcctTxSort('date')" title="클릭하여 정렬">날짜${sortArrowHtml(sortState, 'date')}</th>
       <th class="name-cell mcol">내역</th>
       ${th('type', '구분', 'width:64px;')}
@@ -4574,6 +4581,7 @@ function renderAccountTxTable(list, acc) {
         const bal = runningMap[t.id];
         const balStr = bal != null ? bal.toLocaleString('ko-KR') : '';
         return `<tr class="tx-row-clickable ${dayBoundary ? 'day-boundary' : ''}" onclick="onTxRowClick(event, '${t.id}')">
+          <td><input type="checkbox" ${selected.has(t.id) ? 'checked' : ''} onchange="toggleTxSelect('${t.id}')"></td>
           <td>${t.date.slice(5)}</td>
           <td class="mcol">
             <div class="name-cell"><span class="type-tag ${t.type}">${typeLabel}</span> ${mid}</div>
@@ -4732,11 +4740,15 @@ function renderAccountDetail(acc) {
         </div>
         <div class="section-block">
           <div class="section-heading" style="flex-wrap:wrap;gap:8px;">
-            <span>${periodLabel} 내역 (${list.length}건)</span>
+            <span>${periodLabel} 내역 (${list.length}건)${(state._txBulkSelected || new Set()).size > 0 ? ` · ${state._txBulkSelected.size}건 선택됨` : ''}</span>
             <div class="search-wrap" style="display:flex;gap:6px;margin:0 12px;max-width:280px;">
               <input class="search-input" id="acct-tx-f-q" placeholder="이 자산의 거래 검색" value="${escapeHtml(state._acctTxFilter.q)}" onkeydown="onAcctTxSearchKeydown(event)" style="flex:1;min-width:0;">
               <button class="ghost-btn" onclick="runAcctTxSearch()" style="flex-shrink:0;">검색</button>
             </div>
+            ${(state._txBulkSelected || new Set()).size > 0 ? `
+              <button class="ghost-btn" onclick="clearTxBulkSelection()">선택 해제</button>
+              <button class="ghost-btn" onclick="openTxBulkEditModal()">✏️ 선택 일괄 수정 (${state._txBulkSelected.size})</button>
+            ` : ''}
             <button class="ghost-btn" onclick="addTxForAccount('${acc.id}')">+ 내역 추가</button>
           </div>
           ${list.length ? renderAccountTxTable(list, acc) : `<div class="empty">${q ? '검색 결과가 없어요.' : '해당 기간에는 거래가 없어요.'}</div>`}
