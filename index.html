@@ -4525,7 +4525,7 @@ function renderAccountTxTable(list, acc) {
   const th = (key, label, style) => `<th class="dcol sortable-th" style="${style || ''}" onclick="setAcctTxSort('${key}')" title="클릭하여 정렬">${label}${sortArrowHtml(sortState, key)}</th>`;
   return `<div class="overflow-x"><table class="tx-table-balance">
     <thead><tr>
-      <th style="width:26px;"><input type="checkbox" ${allSelected ? 'checked' : ''} onchange="toggleTxSelectAll(this)" title="전체 선택"></th>
+      <th style="width:21px;"><input type="checkbox" ${allSelected ? 'checked' : ''} onchange="toggleTxSelectAll(this)" title="전체 선택" style="transform:scale(0.8);"></th>
       <th class="sortable-th" style="width:64px;" onclick="setAcctTxSort('date')" title="클릭하여 정렬">날짜${sortArrowHtml(sortState, 'date')}</th>
       <th class="name-cell mcol">내역</th>
       ${th('type', '구분', 'width:64px;')}
@@ -4584,7 +4584,7 @@ function renderAccountTxTable(list, acc) {
         const bal = runningMap[t.id];
         const balStr = bal != null ? bal.toLocaleString('ko-KR') : '';
         return `<tr class="tx-row-clickable ${dayBoundary ? 'day-boundary' : ''}" onclick="onTxRowClick(event, '${t.id}')">
-          <td><input type="checkbox" ${selected.has(t.id) ? 'checked' : ''} onchange="toggleTxSelect('${t.id}')"></td>
+          <td><input type="checkbox" ${selected.has(t.id) ? 'checked' : ''} onchange="toggleTxSelect('${t.id}')" style="transform:scale(0.8);"></td>
           <td>${t.date.slice(5)}</td>
           <td class="mcol">
             <div class="name-cell"><span class="type-tag ${t.type}">${typeLabel}</span> ${mid}</div>
