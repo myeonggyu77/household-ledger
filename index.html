@@ -2859,8 +2859,8 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
       <select id="tx-category" style="display:none;">${transferGroups}</select>
       <input type="text" class="cat-field" id="tx-category-display" autocomplete="off" placeholder="카테고리 선택" onfocus="this.select(); openCategoryPicker(this)" oninput="onCategoryInput(this)" onkeydown="onCategoryKeydown(event)" onblur="closeCategoryPicker()">`;
     syncCategoryDisplay();
-    accField.innerHTML = `<label class="field-lbl">출금 자산</label><select id="tx-account" onchange="updateTxAmountCurrencyBadge(); updateTxTransferFxField();">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
-    toAccField.innerHTML = `<label class="field-lbl">입금 자산</label><select id="tx-toaccount" onchange="updateTxTransferFxField();">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
+    accField.innerHTML = `<label class="field-lbl">출금 자산</label><select id="tx-account" onchange="updateTxAmountCurrencyBadge(); updateTxTransferFxField(); renderTxFeeField();">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
+    toAccField.innerHTML = `<label class="field-lbl">입금 자산</label><select id="tx-toaccount" onchange="updateTxTransferFxField(); renderTxFeeField();">${DATA.accounts.map(a => acctOption(a, presetToAcc)).join('')}</select>`;
     excludeField.innerHTML = '';
     receiptField.innerHTML = '';
     loanField.innerHTML = '';
@@ -2967,22 +2967,57 @@ function transferFeeSummaryText(transferId) {
 function renderTxFeeField() {
   const el = document.getElementById('tx-fee-field');
   if (!el) return;
+  if (state._txModal.type !== 'transfer') { el.innerHTML = ''; return; }
   const editingTx = state._txModal.editing;
-  if (state._txModal.type !== 'transfer' || !editingTx || editingTx.type !== 'transfer') { el.innerHTML = ''; return; }
-  const fees = linkedFees(editingTx.id);
-  const rows = fees.map(f => {
-    const acc = getAccount(f.accountId);
-    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px;">
-      <div>${acc.icon} ${escapeHtml(acc.name)}${f.memo ? ` <span style="color:var(--ink-faint);">· ${escapeHtml(f.memo)}</span>` : ''}</div>
-      <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
-        <span style="font-family:var(--mono);">-${fmtCurrency(f.amount, acc.currency || 'KRW')}</span>
-        <button type="button" class="icon-btn" onclick="deleteLinkedFee('${f.id}')" title="삭제" aria-label="삭제">✕</button>
-      </div>
-    </div>`;
+  if (editingTx && editingTx.type === 'transfer') {
+    const fees = linkedFees(editingTx.id);
+    const rows = fees.map(f => {
+      const acc = getAccount(f.accountId);
+      return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line-soft);font-size:12.5px;">
+        <div>${acc.icon} ${escapeHtml(acc.name)}${f.memo ? ` <span style="color:var(--ink-faint);">· ${escapeHtml(f.memo)}</span>` : ''}</div>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+          <span style="font-family:var(--mono);">-${fmtCurrency(f.amount, acc.currency || 'KRW')}</span>
+          <button type="button" class="icon-btn" onclick="deleteLinkedFee('${f.id}')" title="삭제" aria-label="삭제">✕</button>
+        </div>
+      </div>`;
+    }).join('');
+    el.innerHTML = `<label class="field-lbl">수수료 (선택)</label>
+      ${rows || `<div class="form-note" style="margin:0 0 8px;">등록된 수수료가 없어요. 나중에 알게 되면 이 거래를 다시 열어 추가할 수 있어요.</div>`}
+      <button type="button" class="ghost-btn" style="font-size:12px;padding:5px 10px;${fees.length ? 'margin-top:8px;' : ''}" onclick="openFeeQuickAddPopup('${editingTx.id}')">+ 수수료 추가</button>`;
+    return;
+  }
+  if (editingTx) { el.innerHTML = ''; return; }
+  /* 새 이체를 등록하는 중일 때는 아직 거래 id가 없어서(linkedTransferId로 연결 못 함)
+     수수료 금액을 임시로 받아뒀다가, submitTx에서 이체 저장 직후 그 id로 연결된
+     별도 지출 거래를 만들어요. 수수료를 아직 모르면 비워두고 나중에(저장된 거래를
+     다시 열어서) "+ 수수료 추가"로 채워도 돼요. */
+  const accEl = document.getElementById('tx-account');
+  const toAccEl = document.getElementById('tx-toaccount');
+  const fromAcc = accEl && accEl.value ? getAccount(accEl.value) : null;
+  const toAcc = toAccEl && toAccEl.value ? getAccount(toAccEl.value) : null;
+  if (!fromAcc || !toAcc) { el.innerHTML = ''; return; }
+  const groups = topCategories('expense').map(p => {
+    const children = childCategories(p.id);
+    if (!children.length) return '';
+    return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}">${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
   }).join('');
   el.innerHTML = `<label class="field-lbl">수수료 (선택)</label>
-    ${rows || `<div class="form-note" style="margin:0 0 8px;">등록된 수수료가 없어요. 나중에 알게 되면 이 거래를 다시 열어 추가할 수 있어요.</div>`}
-    <button type="button" class="ghost-btn" style="font-size:12px;padding:5px 10px;${fees.length ? 'margin-top:8px;' : ''}" onclick="openFeeQuickAddPopup('${editingTx.id}')">+ 수수료 추가</button>`;
+    <div class="form-note" style="margin:0 0 8px;">이체 수수료를 지금 알고 있으면 같이 등록하고, 모르면 비워두고 나중에 이 거래를 다시 열어 추가해도 돼요.</div>
+    <div style="display:flex;gap:6px;">
+      <select id="tx-fee-account" style="flex:0 0 40%;min-width:0;" onchange="onTxFeeAccountChange()">
+        <option value="${fromAcc.id}">${fromAcc.icon} ${escapeHtml(fromAcc.name)}</option>
+        <option value="${toAcc.id}">${toAcc.icon} ${escapeHtml(toAcc.name)}</option>
+      </select>
+      <input type="text" inputmode="decimal" id="tx-fee-amount" placeholder="수수료 금액" style="flex:1;min-width:0;" oninput="onTxFeeAccountChange(true)">
+    </div>
+    <select id="tx-fee-category" style="margin-top:6px;"><option value="">카테고리 선택 안 함</option>${groups}</select>`;
+  onTxFeeAccountChange();
+}
+function onTxFeeAccountChange(inputOnly) {
+  const accEl = document.getElementById('tx-fee-account');
+  const amtEl = document.getElementById('tx-fee-amount');
+  if (!accEl || !amtEl) return;
+  formatCurrencyAmountInput(amtEl, getAccount(accEl.value).currency || 'KRW');
 }
 function deleteLinkedFee(feeId) {
   if (!confirm('이 수수료 기록을 삭제할까요?')) return;
@@ -3436,6 +3471,7 @@ async function submitTx(editId) {
   if (!amount || amount <= 0) return showToast('금액을 입력해주세요.', 'error');
 
   let payload = { type, date, amount, memo, payee: undefined, vendor: undefined };
+  let pendingFee = null;
   if (type === 'transfer') {
     const categoryId = document.getElementById('tx-category').value;
     const accountId = document.getElementById('tx-account').value;
@@ -3452,6 +3488,16 @@ async function submitTx(editId) {
       if (!toAmount || toAmount <= 0) return showToast('받는 금액을 입력해주세요.', 'error');
     }
     payload.categoryId = categoryId; payload.accountId = accountId; payload.toAccountId = toAccountId; payload.toAmount = toAmount;
+    if (!editId) {
+      const feeAmountEl = document.getElementById('tx-fee-amount');
+      const feeAccountEl = document.getElementById('tx-fee-account');
+      if (feeAmountEl && feeAccountEl) {
+        const feeAmount = rawCurrencyAmount(feeAmountEl, getAccount(feeAccountEl.value).currency || 'KRW');
+        if (feeAmount > 0) {
+          pendingFee = { date, amount: feeAmount, accountId: feeAccountEl.value, categoryId: document.getElementById('tx-fee-category').value || null };
+        }
+      }
+    }
   } else {
     const categoryId = document.getElementById('tx-category').value;
     const accountId = document.getElementById('tx-account').value;
@@ -3486,6 +3532,12 @@ async function submitTx(editId) {
       payload.occurrenceDate = state._txModal.occurrenceDate || payload.date;
     }
     DATA.transactions.push(payload);
+    if (pendingFee) {
+      DATA.transactions.push({
+        id: uid(), type: 'expense', date: pendingFee.date, amount: pendingFee.amount,
+        categoryId: pendingFee.categoryId, accountId: pendingFee.accountId, memo: null, linkedTransferId: txId,
+      });
+    }
   }
 
   const finalReceiptIds = [];
