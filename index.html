@@ -2670,6 +2670,29 @@ function renderTransactions() {
     </div>
   `;
 }
+/* 체크박스로 거래/정기거래를 선택할 때마다 전체 목록이 다시 그려지는데,
+   innerHTML을 통째로 새로 만들다 보니 스크롤 위치가 0으로 리셋돼서 체크할
+   때마다 화면이 위로 튀어버리는 문제가 있었어요. 다시 그리기 전/후로
+   스크롤 위치를 기억했다가 그대로 복원해서 화면이 안 움직이게 해요. */
+const SCROLL_PRESERVE_SELECTORS = ['.panel.active', '.panel.active .tx-split-main', '.panel.active .overflow-x', '.panel.active .acct-list-pane', '.panel.active .rec-list .overflow-x'];
+function captureScrollPositions() {
+  return SCROLL_PRESERVE_SELECTORS.map(sel => {
+    const el = document.querySelector(sel);
+    return el ? el.scrollTop : null;
+  });
+}
+function restoreScrollPositions(snapshot) {
+  SCROLL_PRESERVE_SELECTORS.forEach((sel, i) => {
+    if (snapshot[i] == null) return;
+    const el = document.querySelector(sel);
+    if (el) el.scrollTop = snapshot[i];
+  });
+}
+function renderAllKeepScroll() {
+  const snapshot = captureScrollPositions();
+  renderAll();
+  restoreScrollPositions(snapshot);
+}
 /* 거래 선택 체크박스는 "거래내역" 탭 목록과 "자산" 탭의 자산별 내역 목록
    둘 다에서 써요(같은 state._txBulkSelected를 공유). 그래서 토글 후에는
    둘 중 지금 열려있는 탭에 맞게 다시 그려주는 renderAll()을 불러요. */
@@ -2677,23 +2700,24 @@ function toggleTxSelect(id) {
   state._txBulkSelected = state._txBulkSelected || new Set();
   if (state._txBulkSelected.has(id)) state._txBulkSelected.delete(id);
   else state._txBulkSelected.add(id);
-  renderAll();
+  renderAllKeepScroll();
 }
 function toggleTxSelectAll(checkboxEl) {
   state._txBulkSelected = state._txBulkSelected || new Set();
   const ids = state._txBulkListIds || [];
   if (checkboxEl.checked) ids.forEach(id => state._txBulkSelected.add(id));
   else ids.forEach(id => state._txBulkSelected.delete(id));
-  renderAll();
+  renderAllKeepScroll();
 }
 function clearTxBulkSelection() {
   state._txBulkSelected = new Set();
-  renderAll();
+  renderAllKeepScroll();
 }
 /* ---------------- 거래 일괄 수정(선택한 여러 거래를 한 번에 같은 값으로 변경) ----------------
    금액·구분(지출/수입/이체)은 거래마다 당연히 다르므로 일괄 변경 대상에서 아예 뺐어요.
    날짜·카테고리·계좌·적용대상·거래처·통계제외 여부처럼 "여러 건에 같은 값을 넣는 게
-   자연스러운" 항목만 체크박스로 켜서 선택적으로 바꿀 수 있게 했어요. */
+   자연스러운" 항목만 바꿀 수 있어요. 체크박스 대신 "비워두면(또는 '변경 안 함'으로
+   두면) 그 항목은 그대로 둔다"는 방식으로 더 단순하게 만들었어요. */
 function txBulkEditContext() {
   const ids = Array.from(state._txBulkSelected || []);
   const items = ids.map(id => DATA.transactions.find(t => t.id === id)).filter(Boolean);
@@ -2710,27 +2734,24 @@ function openTxBulkEditModal() {
     if (!children.length) return '';
     return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}">${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
   }).join('') : '';
-  const fieldRow = (key, label, bodyHtml, disabled, disabledNote) => `
+  const fieldRow = (label, bodyHtml, disabledNote) => `
     <div class="field">
-      <label style="display:flex;align-items:center;gap:6px;">
-        <input type="checkbox" id="be-on-${key}" ${disabled ? 'disabled' : ''} onchange="onTxBulkFieldToggle('${key}')">
-        <span class="field-lbl" style="margin:0;">${label}</span>
-      </label>
-      ${disabled ? `<div class="form-note" style="margin:4px 0 0;">${disabledNote}</div>` : bodyHtml}
+      <label class="field-lbl">${label}</label>
+      ${disabledNote ? `<div class="form-note" style="margin:0;">${disabledNote}</div>` : bodyHtml}
     </div>`;
   const formHtml = `
     <h3>선택한 거래 일괄 수정 (${items.length}건)</h3>
-    <div class="form-note">체크한 항목만 선택한 거래 전체에 같은 값으로 바뀌어요. 금액·구분(지출/수입/이체)은 거래마다 달라서 일괄 수정 대상이 아니에요.</div>
-    ${fieldRow('date', '날짜', `<input type="text" class="date-field" id="be-date" value="${todayStr()}" readonly disabled>`)}
-    ${fieldRow('category', '카테고리',
-      `<select id="be-category" disabled><option value="">선택</option>${catGroups}</select>`,
-      !commonType, '지출·수입·이체가 섞여 있어서 카테고리는 일괄 변경할 수 없어요. 같은 구분끼리만 선택하면 가능해요.')}
-    ${fieldRow('account', '계좌',
-      `<select id="be-account" disabled>${DATA.accounts.map(a => `<option value="${a.id}">${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`,
-      anyTransfer, '이체 거래가 포함돼 있어서 계좌는 일괄 변경할 수 없어요.')}
-    ${fieldRow('payee', '적용대상', `<input type="text" id="be-payee" placeholder="예: 아빠, 엄마, 회사" disabled>`)}
-    ${fieldRow('vendor', '거래처', `<input type="text" id="be-vendor" placeholder="예: 스타벅스 강남점" disabled>`)}
-    ${fieldRow('exclude', '통계 계산에서 제외 여부', `<select id="be-exclude" disabled><option value="0">포함함(일반)</option><option value="1">제외함</option></select>`)}
+    <div class="form-note">값을 입력한 항목만 선택한 거래 전체에 같은 값으로 바뀌어요. 비워두거나 "변경 안 함"으로 두면 그대로 유지돼요. 금액·구분(지출/수입/이체)은 거래마다 달라서 일괄 수정 대상이 아니에요.</div>
+    ${fieldRow('날짜', `<input type="text" class="date-field" id="be-date" value="" placeholder="변경 안 함" readonly>`)}
+    ${fieldRow('카테고리',
+      commonType ? `<select id="be-category"><option value="">변경 안 함</option>${catGroups}</select>` : '',
+      commonType ? '' : '지출·수입·이체가 섞여 있어서 카테고리는 일괄 변경할 수 없어요. 같은 구분끼리만 선택하면 가능해요.')}
+    ${fieldRow('계좌',
+      !anyTransfer ? `<select id="be-account"><option value="">변경 안 함</option>${DATA.accounts.map(a => `<option value="${a.id}">${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>` : '',
+      !anyTransfer ? '' : '이체 거래가 포함돼 있어서 계좌는 일괄 변경할 수 없어요.')}
+    ${fieldRow('적용대상', `<input type="text" id="be-payee" placeholder="변경 안 함 (예: 아빠, 엄마, 회사)">`)}
+    ${fieldRow('거래처', `<input type="text" id="be-vendor" placeholder="변경 안 함 (예: 스타벅스 강남점)">`)}
+    ${fieldRow('통계 계산에서 제외 여부', `<select id="be-exclude"><option value="">변경 안 함</option><option value="0">포함함(일반)</option><option value="1">제외함</option></select>`)}
     <div class="form-actions">
       <button class="ghost-btn" onclick="closeModal()">취소</button>
       <button class="primary-btn" onclick="submitTxBulkEdit()">일괄 수정 (${items.length}건)</button>
@@ -2738,41 +2759,23 @@ function openTxBulkEditModal() {
   `;
   openModal(formHtml, { sidePanel: true });
 }
-function onTxBulkFieldToggle(key) {
-  const checkbox = document.getElementById('be-on-' + key);
-  const input = document.getElementById('be-' + key);
-  if (!checkbox || !input) return;
-  input.disabled = !checkbox.checked;
-}
 function submitTxBulkEdit() {
   const { ids, items } = txBulkEditContext();
   if (!items.length) return closeModal();
   const changes = {};
-  if (document.getElementById('be-on-date').checked) {
-    const v = document.getElementById('be-date').value;
-    if (!v) return showToast('날짜를 선택해주세요.', 'error');
-    changes.date = v;
-  }
-  const catOnEl = document.getElementById('be-on-category');
-  if (catOnEl && !catOnEl.disabled && catOnEl.checked) {
-    const v = document.getElementById('be-category').value;
-    if (!v) return showToast('카테고리를 선택해주세요.', 'error');
-    changes.categoryId = v;
-  }
-  const accOnEl = document.getElementById('be-on-account');
-  if (accOnEl && !accOnEl.disabled && accOnEl.checked) {
-    changes.accountId = document.getElementById('be-account').value;
-  }
-  if (document.getElementById('be-on-payee').checked) {
-    changes.payee = document.getElementById('be-payee').value.trim() || null;
-  }
-  if (document.getElementById('be-on-vendor').checked) {
-    changes.vendor = document.getElementById('be-vendor').value.trim() || null;
-  }
-  if (document.getElementById('be-on-exclude').checked) {
-    changes.excludeFromStats = document.getElementById('be-exclude').value === '1';
-  }
-  if (!Object.keys(changes).length) return showToast('변경할 항목을 선택해주세요.', 'error');
+  const dateVal = document.getElementById('be-date').value;
+  if (dateVal) changes.date = dateVal;
+  const catEl = document.getElementById('be-category');
+  if (catEl && catEl.value) changes.categoryId = catEl.value;
+  const accEl = document.getElementById('be-account');
+  if (accEl && accEl.value) changes.accountId = accEl.value;
+  const payeeVal = document.getElementById('be-payee').value.trim();
+  if (payeeVal) changes.payee = payeeVal;
+  const vendorVal = document.getElementById('be-vendor').value.trim();
+  if (vendorVal) changes.vendor = vendorVal;
+  const excludeEl = document.getElementById('be-exclude');
+  if (excludeEl && excludeEl.value) changes.excludeFromStats = excludeEl.value === '1';
+  if (!Object.keys(changes).length) return showToast('변경할 항목을 입력해주세요.', 'error');
   if (changes.payee !== undefined) registerPayeeIfNew(changes.payee);
   if (changes.vendor !== undefined) registerVendorIfNew(changes.vendor);
   const idSet = new Set(ids);
@@ -5139,7 +5142,7 @@ function toggleRecSelect(id) {
   state._recBulkSelected = state._recBulkSelected || new Set();
   if (state._recBulkSelected.has(id)) state._recBulkSelected.delete(id);
   else state._recBulkSelected.add(id);
-  renderRecurring();
+  renderAllKeepScroll();
 }
 function toggleRecSelectAll(checkboxEl) {
   state._recBulkSelected = state._recBulkSelected || new Set();
@@ -5148,11 +5151,11 @@ function toggleRecSelectAll(checkboxEl) {
   const ids = DATA.recurring.filter(r => !q || recSearchText(r).includes(q)).map(r => r.id);
   if (checkboxEl.checked) ids.forEach(id => state._recBulkSelected.add(id));
   else ids.forEach(id => state._recBulkSelected.delete(id));
-  renderRecurring();
+  renderAllKeepScroll();
 }
 function clearRecSelection() {
   state._recBulkSelected = new Set();
-  renderRecurring();
+  renderAllKeepScroll();
 }
 function recInlineSlot() {
   if (!window.matchMedia('(min-width: 860px)').matches) return null;
@@ -5295,25 +5298,22 @@ function openRecBulkEditModal() {
     if (!children.length) return '';
     return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}">${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
   }).join('') : '';
-  const fieldRow = (key, label, bodyHtml, disabled, disabledNote) => `
+  const fieldRow = (label, bodyHtml, disabledNote) => `
     <div class="field">
-      <label style="display:flex;align-items:center;gap:6px;">
-        <input type="checkbox" id="rbe-on-${key}" ${disabled ? 'disabled' : ''} onchange="onRecBulkFieldToggle('${key}')">
-        <span class="field-lbl" style="margin:0;">${label}</span>
-      </label>
-      ${disabled ? `<div class="form-note" style="margin:4px 0 0;">${disabledNote}</div>` : bodyHtml}
+      <label class="field-lbl">${label}</label>
+      ${disabledNote ? `<div class="form-note" style="margin:0;">${disabledNote}</div>` : bodyHtml}
     </div>`;
   const formHtml = `
     <h3>선택한 정기거래 일괄 수정 (${items.length}건)</h3>
-    <div class="form-note">체크한 항목만 선택한 정기거래 전체에 같은 값으로 바뀌어요. 금액·구분(지출/수입/이체)·반복 주기는 템플릿마다 달라서 일괄 수정 대상이 아니에요.</div>
-    ${fieldRow('category', '카테고리',
-      `<select id="rbe-category" disabled><option value="">선택</option>${catGroups}</select>`,
-      !commonType, '지출·수입·이체가 섞여 있어서 카테고리는 일괄 변경할 수 없어요. 같은 구분끼리만 선택하면 가능해요.')}
-    ${fieldRow('account', '계좌',
-      `<select id="rbe-account" disabled>${DATA.accounts.map(a => `<option value="${a.id}">${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>`,
-      anyTransfer, '이체 정기거래가 포함돼 있어서 계좌는 일괄 변경할 수 없어요.')}
-    ${fieldRow('payee', '적용대상', `<input type="text" id="rbe-payee" placeholder="예: 아빠, 엄마, 회사" disabled>`)}
-    ${fieldRow('vendor', '거래처', `<input type="text" id="rbe-vendor" placeholder="예: 스타벅스 강남점" disabled>`)}
+    <div class="form-note">값을 입력한 항목만 선택한 정기거래 전체에 같은 값으로 바뀌어요. 비워두거나 "변경 안 함"으로 두면 그대로 유지돼요. 금액·구분(지출/수입/이체)·반복 주기는 템플릿마다 달라서 일괄 수정 대상이 아니에요.</div>
+    ${fieldRow('카테고리',
+      commonType ? `<select id="rbe-category"><option value="">변경 안 함</option>${catGroups}</select>` : '',
+      commonType ? '' : '지출·수입·이체가 섞여 있어서 카테고리는 일괄 변경할 수 없어요. 같은 구분끼리만 선택하면 가능해요.')}
+    ${fieldRow('계좌',
+      !anyTransfer ? `<select id="rbe-account"><option value="">변경 안 함</option>${DATA.accounts.map(a => `<option value="${a.id}">${a.icon} ${escapeHtml(a.name)}</option>`).join('')}</select>` : '',
+      !anyTransfer ? '' : '이체 정기거래가 포함돼 있어서 계좌는 일괄 변경할 수 없어요.')}
+    ${fieldRow('적용대상', `<input type="text" id="rbe-payee" placeholder="변경 안 함 (예: 아빠, 엄마, 회사)">`)}
+    ${fieldRow('거래처', `<input type="text" id="rbe-vendor" placeholder="변경 안 함 (예: 스타벅스 강남점)">`)}
     <div class="form-actions">
       <button class="ghost-btn" onclick="closeRecPanel()">취소</button>
       <button class="primary-btn" onclick="submitRecBulkEdit()">일괄 수정 (${items.length}건)</button>
@@ -5322,33 +5322,19 @@ function openRecBulkEditModal() {
   state._recPanelMode = renderRecPanel(formHtml);
   setRecRowEditing(null);
 }
-function onRecBulkFieldToggle(key) {
-  const checkbox = document.getElementById('rbe-on-' + key);
-  const input = document.getElementById('rbe-' + key);
-  if (!checkbox || !input) return;
-  input.disabled = !checkbox.checked;
-}
 function submitRecBulkEdit() {
   const { ids, items } = recBulkEditContext();
   if (!items.length) return closeRecPanel();
   const changes = {};
-  const catOnEl = document.getElementById('rbe-on-category');
-  if (catOnEl && !catOnEl.disabled && catOnEl.checked) {
-    const v = document.getElementById('rbe-category').value;
-    if (!v) return showToast('카테고리를 선택해주세요.', 'error');
-    changes.categoryId = v;
-  }
-  const accOnEl = document.getElementById('rbe-on-account');
-  if (accOnEl && !accOnEl.disabled && accOnEl.checked) {
-    changes.accountId = document.getElementById('rbe-account').value;
-  }
-  if (document.getElementById('rbe-on-payee').checked) {
-    changes.payee = document.getElementById('rbe-payee').value.trim() || null;
-  }
-  if (document.getElementById('rbe-on-vendor').checked) {
-    changes.vendor = document.getElementById('rbe-vendor').value.trim() || null;
-  }
-  if (!Object.keys(changes).length) return showToast('변경할 항목을 선택해주세요.', 'error');
+  const catEl = document.getElementById('rbe-category');
+  if (catEl && catEl.value) changes.categoryId = catEl.value;
+  const accEl = document.getElementById('rbe-account');
+  if (accEl && accEl.value) changes.accountId = accEl.value;
+  const payeeVal = document.getElementById('rbe-payee').value.trim();
+  if (payeeVal) changes.payee = payeeVal;
+  const vendorVal = document.getElementById('rbe-vendor').value.trim();
+  if (vendorVal) changes.vendor = vendorVal;
+  if (!Object.keys(changes).length) return showToast('변경할 항목을 입력해주세요.', 'error');
   if (changes.payee !== undefined) registerPayeeIfNew(changes.payee);
   if (changes.vendor !== undefined) registerVendorIfNew(changes.vendor);
   const idSet = new Set(ids);
