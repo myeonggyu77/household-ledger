@@ -114,14 +114,6 @@
   textarea { padding: 9px; min-height: 70px; resize: vertical; line-height: 1.6; }
   input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
   .form-note { font-size: 12px; color: var(--ink-faint); margin-bottom: 8px; }
-  .paycalc { border: 1px solid var(--line, rgba(127,127,127,.25)); border-radius: 10px; padding: 10px; }
-  .paycalc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .paycalc-grid .field-lbl { margin-bottom: 2px; }
-  .paycalc-grid input { width: 100%; box-sizing: border-box; }
-  .paycalc-rows { margin-top: 10px; font-size: 13px; }
-  .paycalc-rows div { display: flex; justify-content: space-between; padding: 3px 0; gap: 8px; }
-  .paycalc-rows .neg { color: var(--ink-soft); }
-  .paycalc-rows .total { border-top: 1px solid var(--line, rgba(127,127,127,.25)); margin-top: 4px; padding-top: 6px; font-weight: 700; font-size: 14px; }
   .usage-link { cursor: pointer; text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
   .usage-link:hover { color: var(--accent); }
   .form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
@@ -2892,7 +2884,6 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
     </div>
     <div class="field"><label class="field-lbl">금액 <span id="tx-amount-currency" style="color:var(--ink-faint);font-weight:400;text-transform:none;"></span></label><input type="text" inputmode="decimal" id="tx-amount" placeholder="0" autocomplete="off" oninput="onAmountInputDynamic(this)" value="${editingAmountStr}"></div>
     <div id="tx-cat-field" class="field"></div>
-    <div id="tx-paycalc-field" class="field"></div>
     <div id="tx-acc-field" class="field"></div>
     <div id="tx-toacc-field" class="field"></div>
     <div class="field" id="tx-fx-field"></div>
@@ -2941,7 +2932,6 @@ function openTxModal(txId, presetDate, fromRecurring, duplicateFrom, presetAccou
       }).catch(() => { entry.loading = false; renderReceiptPreview(); });
     });
   }
-  if (!editing) state._txModal.payCalcSeed = (duplicateFrom && duplicateFrom.payCalc) || (fromRecurring && fromRecurring.payCalc) || null;
   renderTxModalFields(
     editing ? editing.categoryId : (fromRecurring ? fromRecurring.categoryId : (duplicateFrom ? duplicateFrom.categoryId : null)),
     editing ? editing.accountId : (fromRecurring ? fromRecurring.accountId : (duplicateFrom ? duplicateFrom.accountId : (presetAccountId || null))),
@@ -3014,7 +3004,7 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
       return `<optgroup label="${escapeHtml(p.icon + ' ' + p.name)}">${children.map(c => `<option value="${c.id}" ${presetCat === c.id ? 'selected' : ''}>${c.icon} ${escapeHtml(c.name)}</option>`).join('')}</optgroup>`;
     }).join('');
     catField.innerHTML = `<label class="field-lbl">카테고리</label>
-      <select id="tx-category" style="display:none;" onchange="renderTxPayCalc()">${groups}</select>
+      <select id="tx-category" style="display:none;">${groups}</select>
       <input type="text" class="cat-field" id="tx-category-display" autocomplete="off" placeholder="카테고리 선택" onfocus="this.select(); openCategoryPicker(this)" oninput="onCategoryInput(this)" onkeydown="onCategoryKeydown(event)" onblur="closeCategoryPicker()">`;
     syncCategoryDisplay();
     accField.innerHTML = `<label class="field-lbl">${type === 'income' ? '입금 자산' : '지출 자산'}</label><select id="tx-account" onchange="updateTxAmountCurrencyBadge()">${DATA.accounts.map(a => acctOption(a, presetAcc)).join('')}</select>`;
@@ -3048,92 +3038,6 @@ function renderTxModalFields(presetCat, presetAcc, presetToAcc, presetExclude, p
   updateTxAmountCurrencyBadge();
   updateTxTransferFxField();
   renderTxFeeField();
-  renderTxPayCalc();
-}
-/* ---------------- 급여 계산기 ----------------
-   수입 + 이름이 "급여"로 끝나는 카테고리(급여, 미국급여 등)를 고르면 나타나요.
-   정규 급여 = 정규시간 × 시급, 오버타임 수당 = 오버타임시간 × 시급 × 배율(기본 1.5배, 자동 계산),
-   실수령 합계 = 총급여 − 공제금 − 세금 → 금액 칸에 자동으로 채워요.
-   입력값은 거래의 payCalc에 같이 저장되고, 시급·배율은 다음 입력을 위해 DATA.payCalcDefaults에 기억해요. */
-function isPayCalcCategory(catId) {
-  if (!catId || !state._txModal || state._txModal.type !== 'income') return false;
-  const c = getCategory(catId);
-  return !!(c && c.name && /급여$/.test(c.name) && c.name !== '비급여');
-}
-function payCalcNum(id) {
-  const el = document.getElementById(id);
-  if (!el) return 0;
-  const n = parseFloat(String(el.value).replace(/[^0-9.]/g, ''));
-  return isFinite(n) ? n : 0;
-}
-function payCalcSource() {
-  const m = state._txModal || {};
-  if (m.payCalcSeed !== undefined) return m.payCalcSeed;
-  const e = m.editing;
-  return (e && e.payCalc) || null;
-}
-function renderTxPayCalc() {
-  const el = document.getElementById('tx-paycalc-field');
-  if (!el) return;
-  const catEl = document.getElementById('tx-category');
-  if (!isPayCalcCategory(catEl && catEl.value)) { el.innerHTML = ''; return; }
-  if (document.getElementById('pc-rate')) { updateTxPayCalc(); return; }
-  const src = payCalcSource() || {};
-  const def = DATA.payCalcDefaults || {};
-  const v = (k, d) => (src[k] !== undefined && src[k] !== null && src[k] !== 0) ? src[k] : (d !== undefined ? d : '');
-  const inp = (id, label, val, ph) => `<div><label class="field-lbl">${label}</label><input type="text" inputmode="decimal" autocomplete="off" id="${id}" placeholder="${ph || '0'}" value="${val}" oninput="updateTxPayCalc(true)"></div>`;
-  el.innerHTML = `<label class="field-lbl">🧮 급여 계산기</label>
-    <div class="paycalc">
-      <div class="paycalc-grid">
-        ${inp('pc-rate', '시급', v('rate', def.rate || ''))}
-        ${inp('pc-mult', '오버타임 배율', v('otMultiplier', def.otMultiplier || 1.5), '1.5')}
-        ${inp('pc-reg', '정규 시간', v('regularHours'))}
-        ${inp('pc-ot', '오버타임 시간', v('otHours'))}
-        ${inp('pc-deduct', '공제금', v('deductions'))}
-        ${inp('pc-tax', '세금', v('taxes'))}
-      </div>
-      <div class="paycalc-rows" id="pc-rows"></div>
-      <div class="form-note" style="margin:6px 0 0;">합계(실수령액)가 위 금액 칸에 자동으로 들어가요.</div>
-    </div>`;
-  updateTxPayCalc(false);
-}
-function payCalcValues() {
-  const rate = payCalcNum('pc-rate');
-  const mult = payCalcNum('pc-mult') || 1.5;
-  const regularHours = payCalcNum('pc-reg');
-  const otHours = payCalcNum('pc-ot');
-  const deductions = payCalcNum('pc-deduct');
-  const taxes = payCalcNum('pc-tax');
-  const r2 = (n) => Math.round(n * 100) / 100;
-  const regularPay = r2(regularHours * rate);
-  const otPay = r2(otHours * rate * mult);
-  const gross = r2(regularPay + otPay);
-  const net = r2(gross - deductions - taxes);
-  return { rate, otMultiplier: mult, regularHours, otHours, deductions, taxes, regularPay, otPay, gross, net };
-}
-function updateTxPayCalc(fillAmount) {
-  const rows = document.getElementById('pc-rows');
-  if (!rows) return;
-  const v = payCalcValues();
-  const ccy = currentTxCurrency();
-  const f = (n) => ccy === 'USD'
-    ? (n < 0 ? '-' : '') + '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : Math.round(n).toLocaleString('ko-KR') + '원';
-  const h = (n) => n.toLocaleString('en-US', { maximumFractionDigits: 2 });
-  rows.innerHTML = `
-    <div><span>정규 급여 (${h(v.regularHours)}시간 × ${f(v.rate)})</span><span>${f(v.regularPay)}</span></div>
-    <div><span>오버타임 수당 (${h(v.otHours)}시간 × ${f(v.rate)} × ${h(v.otMultiplier)}배)</span><span>${f(v.otPay)}</span></div>
-    <div><span>총급여</span><span>${f(v.gross)}</span></div>
-    <div class="neg"><span>공제금</span><span>−${f(v.deductions)}</span></div>
-    <div class="neg"><span>세금</span><span>−${f(v.taxes)}</span></div>
-    <div class="total"><span>합계 (실수령액)</span><span>${f(v.net)}</span></div>`;
-  if (fillAmount && v.gross > 0) {
-    const amtEl = document.getElementById('tx-amount');
-    if (amtEl) {
-      const n = Math.max(0, v.net);
-      amtEl.value = ccy === 'USD' ? n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Math.round(n).toLocaleString('ko-KR');
-    }
-  }
 }
 function currentTxCurrency() {
   const accEl = document.getElementById('tx-account');
@@ -3143,7 +3047,6 @@ function currentTxCurrency() {
 function updateTxAmountCurrencyBadge() {
   const badge = document.getElementById('tx-amount-currency');
   if (badge) badge.textContent = currentTxCurrency() === 'USD' ? '(USD $)' : '(KRW ₩)';
-  updateTxPayCalc(false);
 }
 function onAmountInputDynamic(el) {
   formatCurrencyAmountInput(el, currentTxCurrency());
@@ -3743,14 +3646,6 @@ async function submitTx(editId) {
     payload.linkedLoanAccountId = type === 'expense' ? linkedLoanAccountId : undefined;
     const budgetEl = document.getElementById('tx-budget');
     payload.budgetId = budgetEl ? (budgetEl.value || null) : null;
-    payload.payCalc = undefined;
-    if (document.getElementById('pc-rate') && isPayCalcCategory(categoryId)) {
-      const pc = payCalcValues();
-      if (pc.gross > 0) {
-        payload.payCalc = { rate: pc.rate, otMultiplier: pc.otMultiplier, regularHours: pc.regularHours, otHours: pc.otHours, deductions: pc.deductions, taxes: pc.taxes };
-        DATA.payCalcDefaults = { rate: pc.rate, otMultiplier: pc.otMultiplier };
-      }
-    }
   }
   payload.payee = document.getElementById('tx-payee').value.trim() || null;
   payload.vendor = document.getElementById('tx-vendor').value.trim() || null;
